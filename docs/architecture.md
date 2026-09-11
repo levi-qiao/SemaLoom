@@ -90,7 +90,7 @@ Studio 以实体关系图为入口，联动属性/规则检查器和来源追踪
 
 ## 拟采用的仓库布局
 
-以下目录随对应任务按需创建，当前尚无工程实现。
+T00 已创建 `pyproject.toml`、`uv.lock`、`.python-version`、`src/semaloom/`（含 `app` 组合根、`core`/`compiler` 包根与 import 方向检查）、`tests/` 与 CI。其余目录随对应任务按需创建，不要按本图批量建空接口。
 
 ```text
 AGENTS.md / CONTEXT.md / README.md

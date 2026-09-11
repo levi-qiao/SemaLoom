@@ -1,0 +1,81 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "semaloom"
+version = "0.1.0"
+description = "Enterprise business semantic layer"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.13"
+authors = [{ name = "SemaLoom contributors" }]
+keywords = ["semantic-layer", "enterprise"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.10",
+    "uvicorn[standard]>=0.32",
+]
+
+[project.scripts]
+semaloom = "semaloom.app.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/levi-qiao/SemaLoom"
+Repository = "https://github.com/levi-qiao/SemaLoom"
+
+[dependency-groups]
+dev = [
+    "hatchling>=1.25",
+    "httpx>=0.28",
+    "mypy>=1.14",
+    "pytest>=8.3",
+    "ruff>=0.11",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/semaloom"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/LICENSE",
+    "/README.md",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+packages = ["semaloom"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-q"]
+pythonpath = ["src"]
+
+[tool.uv]
+default-groups = ["dev"]
