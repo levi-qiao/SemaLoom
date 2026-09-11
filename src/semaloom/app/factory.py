@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from pathlib import Path
 
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+from semaloom.app.http import router
 from semaloom.identity import BuildIdentity, build_identity
 
 
-def create_app(*, profile: str | None = None) -> FastAPI:
-    """Build the single application process without source credentials.
+def create_app(*, profile: str | None = None, load_services: bool = True) -> FastAPI:
+    """Build the single application process.
 
-    Later tasks attach query, action, and recovery routes to this app.
-    T00 only exposes build identity so the entry is observable.
+    Local-dev does not require production credentials. Synthetic PostgreSQL
+    fixtures are used when load_services is true.
     """
 
     identity = build_identity(profile=profile)
@@ -28,4 +32,19 @@ def create_app(*, profile: str | None = None) -> FastAPI:
         current: BuildIdentity = app.state.identity
         return current.to_dict()
 
+    if load_services:
+        from semaloom.app.bootstrap import build_services
+
+        app.state.services = build_services()
+        app.include_router(router)
+        _mount_studio(app)
+
     return app
+
+
+def _mount_studio(app: FastAPI) -> None:
+    packaged = Path(__file__).resolve().parent / "static"
+    dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    root = packaged if (packaged / "index.html").is_file() else dist
+    if root.is_dir():
+        app.mount("/studio", StaticFiles(directory=root, html=True), name="studio")

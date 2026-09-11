@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from semaloom.identity import build_identity
 
@@ -20,6 +21,17 @@ def build_parser() -> argparse.ArgumentParser:
     serve = subparsers.add_parser("serve", help="Start the local-development HTTP entry")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    compile_cmd = subparsers.add_parser(
+        "compile", help="Compile domain packs into an immutable bundle"
+    )
+    compile_cmd.add_argument("paths", nargs="+", type=Path)
+    subparsers.add_parser("load-fixtures", help="Load synthetic PostgreSQL fixtures")
+    query_cmd = subparsers.add_parser("query", help="Run a semantic metric point query")
+    query_cmd.add_argument("--metric", required=True)
+    query_cmd.add_argument("--taxpayer", default="TAXPAYER-A")
+    query_cmd.add_argument("--year", type=int, default=2024)
+    query_cmd.add_argument("--perspective", default="TAX_RETURN")
+    query_cmd.add_argument("--tenant", default="tenant-a")
     return parser
 
 
@@ -42,6 +54,55 @@ def main(argv: Sequence[str] | None = None) -> int:
             port=args.port,
         )
         return 0
+    if command == "compile":
+        from semaloom.compiler import compile_paths
+
+        result = compile_paths(list(args.paths))
+        report: dict[str, object] = {
+            "ok": result.ok,
+            "digest": None if result.bundle is None else result.bundle.digest,
+            "onlineValidation": result.online_validation,
+            "diagnostics": [item.model_dump() for item in result.diagnostics],
+        }
+        json.dump(report, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0 if result.ok else 1
+    if command == "load-fixtures":
+        from semaloom.runtime.fixtures import load_synthetic
+
+        load_synthetic()
+        sys.stdout.write("loaded synthetic fixtures\n")
+        return 0
+    if command == "query":
+        from semaloom.app.bootstrap import build_services
+        from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
+        from semaloom.runtime.auth import RequestActor
+
+        services = build_services(load_data=False)
+        envelope = services.query.execute(
+            QueryRequest(
+                api_version="semaloom/v0.1",
+                select=(
+                    MetricSelect(
+                        metric=args.metric,
+                        bindings={
+                            "taxpayer": args.taxpayer,
+                            "taxYear": args.year,
+                            "perspective": args.perspective,
+                        },
+                    ),
+                ),
+                context=QueryContext(
+                    business_period={"from": f"{args.year}-01-01", "to": f"{args.year + 1}-01-01"}
+                ),
+            ),
+            RequestActor(tenant=args.tenant, subject="cli", roles=("analyst",)),
+        )
+        json.dump(
+            envelope.model_dump(mode="json", by_alias=True), sys.stdout, indent=2, sort_keys=True
+        )
+        sys.stdout.write("\n")
+        return 0 if envelope.status == "SUCCEEDED" else 1
     parser.error(f"unknown command: {command}")
     return 2
 

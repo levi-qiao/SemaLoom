@@ -41,7 +41,7 @@ def test_cli_default_prints_identity(capsys: pytest.CaptureFixture[str]) -> None
 
 def test_identity_http_endpoint_matches_build_identity() -> None:
     expected = build_identity().to_dict()
-    client = TestClient(create_app())
+    client = TestClient(create_app(load_services=False))
 
     response = client.get("/identity")
 
