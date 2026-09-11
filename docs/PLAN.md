@@ -242,6 +242,26 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 
 ## 8. 当前状态与下一步
 
-架构基线已建立；Python 与 Apache-2.0 已确认，T00–T09 均尚未实现；Studio 设计见 [DESIGN](DESIGN.md)。下一执行任务是 **T00**，接着 **T01**。真实政策和 pilot 条件尚未提供；这些不阻塞 Python 工程与合成场景开发。
+**T00 已完成**（A49/A62 的 T00 阶段）。T01–T09 尚未实现。Studio 设计见 [DESIGN](DESIGN.md)。下一执行任务是 **T01**（语义模型与 Compiler）。真实政策和 pilot 条件尚未提供；这些不阻塞合成场景开发。个人 Git 远程仅用于源码管理，不等于 T08A 开源发布。
 
 建议分 gate 估算工期：T00/T01 完成后，根据实际 DSL 和首条数据通路工作量估算 T02/T03；Action 接口能力验证后再估算 T05。工期估计不替代验收承诺。
+
+### T00 交接摘要
+
+- 组合根：`semaloom.app.create_app`；CLI：`uv run semaloom`（默认打印 build identity JSON）。local-dev 不需要业务系统凭证。
+- 已验证工具链：Python 3.13、uv、Ruff、mypy、pytest、hatchling。锁文件：`uv.lock`。
+- Import 方向：`semaloom.checks.check_import_direction`；core/compiler 不得导入 `semaloom.adapters`、`semaloom.domains` 或 `examples`。
+- PostgreSQL fixture 启动方式：`docker compose up -d`（`compose.yaml`）。T00 入口不依赖它。
+- 详细变更文件、命令结果与限制见 `.agents/T00/handoff.md`（gitignored）。
+
+检查命令与本次结果：
+
+| 命令 | 结果 |
+| --- | --- |
+| `uv sync --frozen` | 通过（CPython 3.13.14，项目根 `.venv`） |
+| `uv run ruff format --check .` | 通过 |
+| `uv run ruff check .` | 通过 |
+| `uv run mypy` | 通过（10 source files） |
+| `uv run pytest` | 通过（12 passed） |
+| `uv run semaloom` 连续两次 | 通过；两次输出相同 identity JSON（product=semaloom, version=0.1.0, semantic_contract=v0.1, profile=local-dev） |
+| `uv build` 后检查 LICENSE 并安装 wheel | 通过；sdist 含 `LICENSE`，wheel 含 `semaloom-0.1.0.dist-info/licenses/LICENSE`；新环境 `semaloom` 可运行 |
