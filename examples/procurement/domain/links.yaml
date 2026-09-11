@@ -2,6 +2,7 @@
   kind: Link
   id: procurement.orderSupplier
   version: "1.0.0"
+  label: Supplied by
   source: procurement.Order
   target: procurement.Supplier
   cardinality: ONE
@@ -14,6 +15,7 @@
   kind: Link
   id: procurement.orderOrganization
   version: "1.0.0"
+  label: Owned by
   source: procurement.Order
   target: procurement.Organization
   cardinality: ONE

@@ -2,6 +2,7 @@
   kind: ObjectType
   id: procurement.Organization
   version: "1.0.0"
+  label: Organization
   identityKeys: [organizationId]
   properties:
     - id: organizationId
@@ -14,6 +15,7 @@
   kind: ObjectType
   id: procurement.Supplier
   version: "1.0.0"
+  label: Supplier
   identityKeys: [supplierId]
   properties:
     - id: supplierId
@@ -26,6 +28,7 @@
   kind: ObjectType
   id: procurement.Order
   version: "1.0.0"
+  label: Purchase order
   identityKeys: [orderId]
   properties:
     - id: orderId

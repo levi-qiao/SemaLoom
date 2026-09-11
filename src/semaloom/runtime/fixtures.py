@@ -259,9 +259,11 @@ def _load_meta(engine: Engine) -> None:
             text(
                 """
                 CREATE TABLE studio_draft (
-                    draft_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    draft_id TEXT NOT NULL,
                     revision INTEGER NOT NULL,
-                    payload JSONB NOT NULL
+                    payload JSONB NOT NULL,
+                    PRIMARY KEY (tenant_id, draft_id)
                 )
                 """
             )

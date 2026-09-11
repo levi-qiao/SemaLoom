@@ -58,6 +58,7 @@ include = [
     "/examples",
     "/docs",
     "/semantic-spec",
+    "/AGENTS.md",
     "/CHANGELOG.md",
     "/CODE_OF_CONDUCT.md",
     "/CONTRIBUTING.md",

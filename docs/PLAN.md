@@ -215,7 +215,7 @@ T03 与 T04 可以在 T02 的模型接口稳定后并行开发，T04 的历史�
 
 #### T09A — 实体图谱与检查器
 
-**输入**：T01 类型与合成模型。**产物**：React/TypeScript/Vite 工程、按需基础组件、设计 token、React Flow 实体图、列表、检查器及来源追踪；显式合成数据 profile，生产不自动降级。锁定依赖，验证前端打包后由同一 FastAPI 应用提供静态资源和深链接。**Gate**：A64、A69，以及 A68 的静态发行部分。图谱及列表交互使用合成数据，管理 API 权限和真实发布由 T09B/T09C 验证。
+**输入**：T01 类型与合成模型。**产物**：React/TypeScript/Vite 工程、设计 token、轻量实体图、列表、检查器及来源追踪；复杂图编辑依赖按 [ADR-0009](adr/0009-progressive-studio-dependencies.md) 引入。显式合成数据 profile，生产不自动降级。锁定依赖，验证前端打包后由同一 FastAPI 应用提供静态资源和深链接。**Gate**：A64、A69，以及 A68 的静态发行部分。图谱及列表交互使用合成数据，管理 API 权限和真实发布由 T09B/T09C 验证。
 
 #### T09B — 持久化建模与来源映射
 
@@ -258,7 +258,8 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 | T07 | 合成切片 | 采购金路径 + core/compiler 无行业分支检查 |
 | T08A | 进行中 | [quickstart](quickstart.md)、[capabilities](capabilities.md)、CI 与社区文件 |
 | T08B | 未关闭 | [pilot-plan](pilot-plan.md)；A47–A48 未通过 |
-| T09A | 原型 | Studio 图谱、检查器、Mapping 列表与内置静态页 |
-| T09B–C | 未关闭 | 结构化编辑、来源管理、验证/发布、可信会话和浏览器验收未完成 |
+| T09A | 合成切片 | 实体图/目录、检查器、Mapping/来源目录、来源追踪、深链接、键盘和响应式浏览器验收 |
+| T09B | 原型 | PostgreSQL 工作区 revision、冲突恢复和租户隔离；结构化模型/Mapping 编辑、导入导出仍未完成 |
+| T09C | 未关闭 | 来源管理、真实 API 读取、可信会话、验证/发布和自动浏览器回归未完成 |
 
 检查命令见仓库根 README；每次交付的实测结果记录在对应 `.agents/*/handoff.md`。

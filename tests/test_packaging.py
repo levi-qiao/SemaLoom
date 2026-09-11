@@ -44,6 +44,16 @@ def test_sdist_contains_license(built_artifacts: tuple[Path, Path]) -> None:
     assert any(name.endswith("LICENSE") for name in names), names
 
 
+def test_sdist_contains_linked_contributor_instructions(
+    built_artifacts: tuple[Path, Path],
+) -> None:
+    sdist, _wheel = built_artifacts
+    with tarfile.open(sdist, "r:gz") as archive:
+        names = archive.getnames()
+    assert any(name.endswith("AGENTS.md") for name in names), names
+    assert any(name.endswith("docs/DESIGN.md") for name in names), names
+
+
 def test_wheel_contains_license(built_artifacts: tuple[Path, Path]) -> None:
     _sdist, wheel = built_artifacts
     with zipfile.ZipFile(wheel) as archive:

@@ -137,9 +137,13 @@ def test_studio_graph_and_inspector_and_draft() -> None:
     assert "tax.Taxpayer" in ids
     assert "procurement.Order" in ids
     assert any(edge["source"] == "procurement.Order" for edge in graph["edges"])
+    assert graph["meta"]["counts"]["sources"] == 5
+    order = next(node for node in graph["nodes"] if node["id"] == "procurement.Order")
+    assert order["sourceCount"] == 1
     inspector = studio_inspector(bundle, "procurement.Order")
     assert inspector is not None
-    assert "procurement.orderAmount" in inspector["metrics"]
+    assert any(item["id"] == "procurement.orderAmount" for item in inspector["metrics"])
+    assert any(item["target"] == "procurement.Supplier" for item in inspector["relations"])
     client = TestClient(create_app(load_services=True))
     headers = {"Authorization": "Bearer tenant-a-modeler"}
     denied = client.get(
@@ -149,16 +153,48 @@ def test_studio_graph_and_inspector_and_draft() -> None:
     assert denied.status_code == 403
     graph_resp = client.get("/v0.1/studio/graph", headers=headers)
     assert graph_resp.status_code == 200
+    mapping_resp = client.get("/v0.1/studio/mappings", headers=headers)
+    assert mapping_resp.status_code == 200
+    assert any(item["resource"] == "proc_order" for item in mapping_resp.json()["mappings"])
+    source_resp = client.get("/v0.1/studio/sources", headers=headers)
+    assert source_resp.status_code == 200
+    assert {item["provider"] for item in source_resp.json()["sources"]} == {
+        "openapi",
+        "postgres",
+    }
+    empty = client.get("/v0.1/studio/drafts/default", headers=headers)
+    assert empty.status_code == 200
+    assert empty.json() == {
+        "draftId": "default",
+        "revision": 0,
+        "payload": {},
+        "exists": False,
+    }
     created = client.put(
         "/v0.1/studio/drafts/default",
         headers=headers,
         json={"expectedRevision": 0, "payload": {"note": "first"}},
     )
     assert created.status_code == 200
+    loaded = client.get("/v0.1/studio/drafts/default", headers=headers)
+    assert loaded.json()["revision"] == 1
+    assert loaded.json()["payload"] == {"note": "first"}
+    updated = client.put(
+        "/v0.1/studio/drafts/default",
+        headers=headers,
+        json={"expectedRevision": 1, "payload": {"note": "second"}},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["revision"] == 2
+    other_tenant = client.get(
+        "/v0.1/studio/drafts/default",
+        headers={"Authorization": "Bearer tenant-b-modeler"},
+    )
+    assert other_tenant.json()["revision"] == 0
     conflict = client.put(
         "/v0.1/studio/drafts/default",
         headers=headers,
-        json={"expectedRevision": 0, "payload": {"note": "stale"}},
+        json={"expectedRevision": 1, "payload": {"note": "stale"}},
     )
     assert conflict.status_code == 409
 

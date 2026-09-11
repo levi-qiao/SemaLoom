@@ -23,7 +23,7 @@ to test reuse; neither domain is built into the core.
 - In-process links across databases using declared business identities.
 - Exact-decimal rules with distinct TRUE, FALSE, UNKNOWN, and operational failure outcomes.
 - Immutable release activation and a controlled plan/approve/execute action lifecycle prototype.
-- FastAPI endpoints and an embedded Studio prototype for graph, inspector, mapping, and draft views.
+- FastAPI endpoints and an embedded Studio for entity graph/directory, inspector, mapping/source catalogs, physical source trace, and tenant-scoped workspace revisions.
 
 Production identity, arbitrary OpenAPI sources, complete Studio publishing, and real enterprise pilots
 remain open work. See [capabilities and limits](docs/capabilities.md) for the exact boundary.

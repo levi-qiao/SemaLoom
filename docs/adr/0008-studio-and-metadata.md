@@ -6,7 +6,7 @@
 
 Studio 以实体类型关系图为主，检查器展示属性、规则及来源；按需展开 Mapping 到数据库表列或 API operation/响应字段的追踪。一个实体可以由多个来源提供不同属性，同一目标多个候选遵循公共 Mapping 选择规则。图形展示不引入新的推理或业务身份语义。
 
-前端采用 React、TypeScript、Vite，图谱采用 React Flow；样式、组件和交互以 [DESIGN](../DESIGN.md) 为准。构建出的静态文件与 Python 发行物一起交付，由同一 FastAPI 应用提供；Node 只参与开发和构建，不增加生产服务。
+前端采用 React、TypeScript、Vite；图谱与其他前端依赖的分阶段引入已由 [ADR-0009](0009-progressive-studio-dependencies.md) 细化。样式、组件和交互以 [DESIGN](../DESIGN.md) 为准。构建出的静态文件与 Python 发行物一起交付，由同一 FastAPI 应用提供；Node 只参与开发和构建，不增加生产服务。
 
 项目自身持久化直接使用 PostgreSQL。领域草稿、来源注册、版本、审核、执行状态和证据仍使用明确事务；图谱只是语义模型及引用索引的投影。业务数据源保留独立连接和只读 API adapter，不以图谱为理由引入另一套数据存储。
 

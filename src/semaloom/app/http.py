@@ -10,7 +10,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
 from semaloom.runtime.auth import RequestActor, authorize_query
 from semaloom.runtime.eval import EvaluationError, evaluate_named_claim
-from semaloom.runtime.studio import save_draft, studio_graph, studio_inspector
+from semaloom.runtime.studio import (
+    load_draft,
+    save_draft,
+    studio_graph,
+    studio_inspector,
+    studio_mappings,
+    studio_sources,
+)
 
 router = APIRouter(prefix="/v0.1")
 
@@ -21,6 +28,7 @@ TOKENS: dict[str, RequestActor] = {
     ),
     "tenant-b-analyst": RequestActor(tenant="tenant-b", subject="carol", roles=("analyst",)),
     "tenant-a-modeler": RequestActor(tenant="tenant-a", subject="dana", roles=("modeler",)),
+    "tenant-b-modeler": RequestActor(tenant="tenant-b", subject="erin", roles=("modeler",)),
 }
 
 FORBIDDEN_KEYS = frozenset({"sql", "url", "permissions", "table", "column", "join"})
@@ -239,18 +247,28 @@ def studio_mappings_endpoint(
 ) -> dict[str, Any]:
     actor = actor_from_header(authorization)
     require_role(actor, "modeler", "model-viewer", "source-admin")
-    bundle = request.app.state.services.bundle
-    return {
-        "mappings": [
-            {
-                "id": item.id,
-                "target": item.target,
-                "sourceId": item.source_id,
-                "provider": item.provider,
-            }
-            for item in bundle.mappings
-        ]
-    }
+    return studio_mappings(request.app.state.services.bundle)
+
+
+@router.get("/studio/sources")
+def studio_sources_endpoint(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    actor = actor_from_header(authorization)
+    require_role(actor, "modeler", "model-viewer", "source-admin")
+    return studio_sources(request.app.state.services.bundle)
+
+
+@router.get("/studio/drafts/{draft_id}")
+def studio_load_draft(
+    draft_id: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    actor = actor_from_header(authorization)
+    require_role(actor, "modeler")
+    return load_draft(request.app.state.services.registry.engine, actor.tenant, draft_id)
 
 
 @router.put("/studio/drafts/{draft_id}")
@@ -265,6 +283,7 @@ def studio_save_draft(
     try:
         revision = save_draft(
             request.app.state.services.registry.engine,
+            actor.tenant,
             draft_id,
             body.payload,
             body.expected_revision,

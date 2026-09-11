@@ -12,7 +12,7 @@ from designed interfaces so downstream users do not depend on unimplemented guar
 | Releases | PostgreSQL publish and compare-and-swap environment activation | Synthetic publisher identity; migration and durable audit policy remain open |
 | Actions | Synthetic plan, approval binding, idempotent execution record, and status read | The example executor writes an in-memory draft store, not a real enterprise system |
 | HTTP | FastAPI query, claim, action, and Studio prototype endpoints | Demo bearer identities only; MCP endpoint describes tools but is not an MCP transport |
-| Studio | Embedded graph, inspector, mapping list, and optimistic draft save prototype | Structured model editing, API mapping, source administration, secure session, validation, and publishing are not complete |
+| Studio | Embedded entity graph/directory, inspector, mapping/source catalogs, physical source trace, deep links, and tenant-scoped optimistic workspace save | The source catalog is read-only; structured model editing, API read mapping, source administration, secure session, validation, and publishing are not complete |
 
 SemaLoom never accepts SQL, destination URLs, join expressions, or caller-asserted permissions as
 agent query inputs. Real enterprise data, production identity, operational recovery, capacity claims,

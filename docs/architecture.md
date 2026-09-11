@@ -10,7 +10,7 @@ SemaLoom 是通用企业业务语义层，采用 Python 与 Apache-2.0。通过�
 
 采用一个 Python distribution、一个应用进程部署。Compiler、Runtime、接入 adapter 和后台恢复任务在进程内装配；模块独立不要求分开部署。核心拥有语义类型、编译、规划及执行；来源数据通过 adapter 读取，业务定义由领域包提供，物理绑定由独立接入声明提供。请求固定不可变发布版本；授权与证据覆盖完整执行链路。
 
-关键理由见 [ADR-0001](adr/0001-runtime-and-domain-packs.md)、[ADR-0002](adr/0002-observation-truth-and-errors.md)、[ADR-0003](adr/0003-immutable-release-and-evidence.md)、[ADR-0004](adr/0004-action-delivery-and-approval.md)、[ADR-0005](adr/0005-python-and-dependency-ownership.md)、[ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)。
+关键理由见 [ADR-0001](adr/0001-runtime-and-domain-packs.md)、[ADR-0002](adr/0002-observation-truth-and-errors.md)、[ADR-0003](adr/0003-immutable-release-and-evidence.md)、[ADR-0004](adr/0004-action-delivery-and-approval.md)、[ADR-0005](adr/0005-python-and-dependency-ownership.md)、[ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)、[ADR-0009](adr/0009-progressive-studio-dependencies.md)。
 
 ## 内化什么，复用什么
 
@@ -28,7 +28,7 @@ SemaLoom 是通用企业业务语义层，采用 Python 与 Apache-2.0。通过�
 | 关系查询 | SQLAlchemy Core + psycopg | 受限关系计划通过单一 SQL 生成链执行 |
 | 连接与持久化 | PostgreSQL、SQLAlchemy、Alembic | 来源只读与 metadata/action 写入分角色；ORM 仅在持久化实现需要时使用 |
 | API | httpx（引入时） | 只读 API Provider 与 ActionExecutor 分离；当前 API Provider 尚未实现 |
-| 工作台 | React、TypeScript、Vite、React Flow | 构建静态资源由同一应用提供；交互与样式见 [DESIGN](DESIGN.md) |
+| 工作台 | React、TypeScript、Vite、原生 SVG | 当前只读图保持轻量；复杂图编辑达到明确门槛再引入专用库，见 [ADR-0009](adr/0009-progressive-studio-dependencies.md) |
 | 依赖 DAG | 标准库 graphlib + 有界邻接表搜索 | 用于拓扑排序、环检测与有限路径规划 |
 | 规则 | 小型类型化表达式树、Decimal | 仅字面量、输入引用和允许列表运算；无 Python 代码、任意函数或循环 |
 | 权限 | 自有小型 AccessDecision/Scope 契约和固定策略 profile | 首版仅默认拒绝、角色能力和租户/对象范围；不自研通用 ABAC 语言 |
