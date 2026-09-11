@@ -36,7 +36,7 @@ jobs:
       SEMALOOM_SUPPLIERS_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_suppliers
       SEMALOOM_META_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_meta
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       - run: uv python install
       - run: uv sync --frozen --all-groups
@@ -59,7 +59,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: frontend/.node-version
