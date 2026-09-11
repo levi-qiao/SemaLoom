@@ -708,6 +708,8 @@ def _check_mappings(
         groups[(mapping.target, mapping.perspective)].append(mapping)
     for (target, perspective), group in groups.items():
         if len(group) > 1:
+            if target in object_ids and _object_mapping_properties_are_disjoint(group):
+                continue
             diagnostics.append(
                 Diagnostic(
                     code="AMBIGUOUS_MAPPING",
@@ -715,6 +717,20 @@ def _check_mappings(
                     message=f"multiple mappings for {target} perspective={perspective}",
                 )
             )
+
+
+def _object_mapping_properties_are_disjoint(mappings: Sequence[MappingDef]) -> bool:
+    seen: set[str] = set()
+    for mapping in mappings:
+        current: set[str] = set()
+        for field in ("propertyColumns", "propertyPointers"):
+            value = mapping.physical.get(field)
+            if isinstance(value, dict):
+                current.update(str(key) for key in value)
+        if not current or seen & current:
+            return False
+        seen.update(current)
+    return True
 
 
 def _check_integration_bindings(

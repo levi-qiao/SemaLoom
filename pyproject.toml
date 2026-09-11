@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.115",
+    "httpx>=0.28",
     "psycopg[binary]>=3.2",
     "pydantic>=2.10",
     "pyyaml>=6.0",

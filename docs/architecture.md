@@ -27,8 +27,8 @@ SemaLoom 是通用企业业务语义层，采用 Python 与 Apache-2.0。通过�
 | HTTP / 输入模型 | FastAPI、Pydantic | Pydantic 模型导出 JSON Schema，并加标准校验；领域语义检查由 Compiler 负责 |
 | 关系查询 | SQLAlchemy Core + psycopg | 受限关系计划通过单一 SQL 生成链执行 |
 | 连接与持久化 | PostgreSQL、SQLAlchemy、Alembic | 来源只读与 metadata/action 写入分角色；ORM 仅在持久化实现需要时使用 |
-| API | httpx（引入时） | 只读 API Provider 与 ActionExecutor 分离；当前 API Provider 尚未实现 |
-| 工作台 | React、TypeScript、Vite、原生 SVG | 当前只读图保持轻量；复杂图编辑达到明确门槛再引入专用库，见 [ADR-0009](adr/0009-progressive-studio-dependencies.md) |
+| API | httpx | 只读 OpenAPI Provider 与 ActionExecutor 分离；当前支持经审核的固定 GET profile，不接受调用方 URL |
+| 工作台 | React、TypeScript、Vite、原生 SVG | 当前实体图保持轻量并限定 60 节点；复杂连线编辑或大图达到明确门槛再引入专用库，见 [ADR-0009](adr/0009-progressive-studio-dependencies.md) |
 | 依赖 DAG | 标准库 graphlib + 有界邻接表搜索 | 用于拓扑排序、环检测与有限路径规划 |
 | 规则 | 小型类型化表达式树、Decimal | 仅字面量、输入引用和允许列表运算；无 Python 代码、任意函数或循环 |
 | 权限 | 自有小型 AccessDecision/Scope 契约和固定策略 profile | 首版仅默认拒绝、角色能力和租户/对象范围；不自研通用 ABAC 语言 |
@@ -165,7 +165,7 @@ tests/                      # 契约、行为、集成及 import 依赖检查
 
 ## 能力范围与扩展
 
-当前 pre-alpha 提供 PostgreSQL 精确粒度查询、进程内跨来源组合、有限声明式 Link、受限规则与政策选择、合成授权 profile、发布注册表及草稿原型。REST API 与内置实体工作台可运行；MCP transport、API ReadProvider 和生产身份仍是后续 gate。
+当前 pre-alpha 提供 PostgreSQL 精确粒度查询、进程内跨来源组合、有限声明式 Link、受限规则与政策选择、合成授权 profile、发布注册表、规范草稿和受限只读 OpenAPI Provider。REST API 与内置实体工作台可运行；MCP transport、生产身份及更完整的 OpenAPI profile 仍是后续 gate。
 
 第二领域最小案例从 T01–T03 开始：不同业务身份与适用范围必须使用相同编译器、查询和规则接口。领域包以本地声明及精确依赖组合，不承担动态代码执行；冲突拒绝，不按文件加载顺序覆盖。包组合与兼容要求见 [契约第 1 节](spec/semantic-contract-v0.1.md#1-标识类型与发布)。
 

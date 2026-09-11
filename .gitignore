@@ -20,3 +20,4 @@ dist/
 *.log
 node_modules/
 frontend/dist/
+frontend/test-results/

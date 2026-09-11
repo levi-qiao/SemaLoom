@@ -19,6 +19,8 @@
   sourceId: proc_draft_api
   actionBindings:
     - procurement.CreatePurchaseDraft.openapi
+  mappings:
+    - procurement.Order.riskApi
 
 - apiVersion: semaloom/v0.1
   kind: IntegrationBinding
@@ -28,6 +30,27 @@
   sourceId: suppliers_pg
   mappings:
     - procurement.Supplier.suppliers
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: procurement.Order.riskApi
+  version: "1.0.0"
+  target: procurement.Order
+  sourceId: proc_draft_api
+  provider: openapi
+  objectType: procurement.Order
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    operationId: getOrderRisk
+    method: GET
+    path: /order-risk
+    identityParameter: orderId
+    identityPointer: /orderId
+    grainPointers:
+      orderId: /orderId
+    propertyPointers:
+      deliveryRisk: /deliveryRisk
 
 - apiVersion: semaloom/v0.1
   kind: Mapping

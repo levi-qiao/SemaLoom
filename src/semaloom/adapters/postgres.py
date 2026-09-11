@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -27,8 +27,14 @@ def require_ident(value: object, *, field: str) -> str:
 
 
 class PostgresReadProvider:
-    def __init__(self, engines: dict[str, Engine]) -> None:
+    def __init__(
+        self,
+        engines: dict[str, Engine],
+        url_resolver: Callable[[str, str], str | None] | None = None,
+    ) -> None:
         self._engines = engines
+        self._url_resolver = url_resolver
+        self._dynamic_engines: dict[tuple[str, str, str], Engine] = {}
 
     def fetch_metric(
         self,
@@ -41,7 +47,7 @@ class PostgresReadProvider:
         physical = mapping.physical
         observed = datetime.now(UTC).isoformat()
         try:
-            engine = self._engine(mapping.source_id)
+            engine = self._engine(mapping.source_id, tenant)
             table = require_ident(physical.get("table"), field="table")
             identity_col = require_ident(physical.get("identityColumn"), field="identityColumn")
             value_col = require_ident(physical.get("valueColumn"), field="valueColumn")
@@ -131,7 +137,7 @@ class PostgresReadProvider:
     ) -> ObjectRead:
         observed = datetime.now(UTC).isoformat()
         try:
-            engine = self._engine(mapping.source_id)
+            engine = self._engine(mapping.source_id, tenant)
             table = require_ident(mapping.physical.get("table"), field="table")
             identity_col = require_ident(
                 mapping.physical.get("identityColumn"), field="identityColumn"
@@ -187,11 +193,31 @@ class PostgresReadProvider:
             observed_at=observed,
         )
 
-    def _engine(self, source_id: str) -> Engine:
+    def _engine(self, source_id: str, tenant: str) -> Engine:
+        if self._url_resolver is not None:
+            url = self._url_resolver(tenant, source_id)
+            if url is not None:
+                key = (tenant, source_id, url)
+                engine = self._dynamic_engines.get(key)
+                if engine is None:
+                    for stale in [
+                        item
+                        for item in self._dynamic_engines
+                        if item[:2] == (tenant, source_id) and item != key
+                    ]:
+                        self._dynamic_engines.pop(stale).dispose()
+                    engine = engine_from_url(url)
+                    self._dynamic_engines[key] = engine
+                return engine
         try:
             return self._engines[source_id]
         except KeyError as exc:
             raise KeyError(f"unknown source {source_id}") from exc
+
+    def close(self) -> None:
+        for engine in {*self._engines.values(), *self._dynamic_engines.values()}:
+            engine.dispose()
+        self._dynamic_engines.clear()
 
 
 def engine_from_url(url: str) -> Engine:

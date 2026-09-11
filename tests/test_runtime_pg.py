@@ -321,7 +321,7 @@ def test_expired_or_retargeted_execute_does_not_write() -> None:
 
 
 def test_rest_rejects_invalid_token_and_sql() -> None:
-    client = TestClient(create_app(load_services=True))
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
     denied = client.post(
         "/v0.1/query",
         json={

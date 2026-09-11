@@ -139,13 +139,18 @@ def test_studio_graph_and_inspector_and_draft() -> None:
     assert any(edge["source"] == "procurement.Order" for edge in graph["edges"])
     assert graph["meta"]["counts"]["sources"] == 5
     order = next(node for node in graph["nodes"] if node["id"] == "procurement.Order")
-    assert order["sourceCount"] == 1
+    assert order["sourceCount"] == 2
     inspector = studio_inspector(bundle, "procurement.Order")
     assert inspector is not None
     assert any(item["id"] == "procurement.orderAmount" for item in inspector["metrics"])
     assert any(item["target"] == "procurement.Supplier" for item in inspector["relations"])
-    client = TestClient(create_app(load_services=True))
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
     headers = {"Authorization": "Bearer tenant-a-modeler"}
+    client.post("/v0.1/studio/session/demo", json={"persona": "modeler"})
+    trusted = {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": client.cookies["semaloom_csrf"],
+    }
     denied = client.get(
         "/v0.1/studio/graph",
         headers={"Authorization": "Bearer tenant-a-analyst"},
@@ -164,43 +169,72 @@ def test_studio_graph_and_inspector_and_draft() -> None:
     }
     empty = client.get("/v0.1/studio/drafts/default", headers=headers)
     assert empty.status_code == 200
-    assert empty.json() == {
-        "draftId": "default",
-        "revision": 0,
-        "payload": {},
-        "exists": False,
-    }
+    initial = empty.json()
+    assert initial["draftId"] == "default"
+    assert initial["revision"] == 0
+    assert initial["exists"] is False
+    assert initial["baseDigest"] == bundle.digest
+    assert initial["candidateDigest"] == bundle.digest
+    assert any(item["id"] == "procurement.Order" for item in initial["documents"])
     created = client.put(
         "/v0.1/studio/drafts/default",
-        headers=headers,
-        json={"expectedRevision": 0, "payload": {"note": "first"}},
+        headers=trusted,
+        json={"expectedRevision": 0, "documents": initial["documents"]},
     )
     assert created.status_code == 200
     loaded = client.get("/v0.1/studio/drafts/default", headers=headers)
     assert loaded.json()["revision"] == 1
-    assert loaded.json()["payload"] == {"note": "first"}
+    documents = loaded.json()["documents"]
+    order = next(item for item in documents if item["id"] == "procurement.Order")
+    order["label"] = "Order"
     updated = client.put(
         "/v0.1/studio/drafts/default",
-        headers=headers,
-        json={"expectedRevision": 1, "payload": {"note": "second"}},
+        headers=trusted,
+        json={"expectedRevision": 1, "documents": documents},
     )
     assert updated.status_code == 200
     assert updated.json()["revision"] == 2
+    assert (
+        next(item for item in updated.json()["documents"] if item["id"] == "procurement.Order")[
+            "label"
+        ]
+        == "Order"
+    )
+    impacts = client.get(
+        "/v0.1/studio/drafts/default/impacts/procurement.Supplier",
+        headers=trusted,
+    )
+    assert impacts.status_code == 200
+    assert {item["id"] for item in impacts.json()["impacts"]} >= {
+        "procurement.orderSupplier",
+        "procurement.Supplier.suppliers",
+    }
+    invalid_documents = [
+        item for item in updated.json()["documents"] if item["id"] != "procurement.Supplier"
+    ]
+    invalid = client.put(
+        "/v0.1/studio/drafts/default",
+        headers=trusted,
+        json={"expectedRevision": 2, "documents": invalid_documents},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == "INVALID_DRAFT"
     other_tenant = client.get(
         "/v0.1/studio/drafts/default",
         headers={"Authorization": "Bearer tenant-b-modeler"},
     )
     assert other_tenant.json()["revision"] == 0
+    assert other_tenant.json()["exists"] is False
     conflict = client.put(
         "/v0.1/studio/drafts/default",
-        headers=headers,
-        json={"expectedRevision": 1, "payload": {"note": "stale"}},
+        headers=trusted,
+        json={"expectedRevision": 1, "documents": updated.json()["documents"]},
     )
     assert conflict.status_code == 409
 
 
 def test_studio_static_is_html_and_api_404_is_not() -> None:
-    client = TestClient(create_app(load_services=True))
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
     page = client.get("/studio/")
     assert page.status_code == 200
     assert "text/html" in page.headers.get("content-type", "")

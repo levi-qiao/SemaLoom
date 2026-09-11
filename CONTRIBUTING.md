@@ -18,7 +18,7 @@
 
 T09 按 [DESIGN](docs/DESIGN.md) 创建 `frontend/`，采用 React/TypeScript/Vite 与 pnpm；固定经过验证的 Node/包管理器版本和 lockfile。基础组件按需引入，记录来源许可，视觉 token 集中维护。生成契约类型，界面不复制 Python 规则执行语义。
 
-前端构建产物打包进 Python wheel，由同一 FastAPI 应用提供；已构建发行物安装和运行无需 Node。验证 SPA 深链接与 API 路由、键盘/对比度、草稿并发、权限及发布流程。生产身份和真实 API 未接通时明确标注未完成，不以合成界面代替验收。
+前端构建产物打包进 Python wheel，由同一 FastAPI 应用提供；已构建发行物安装和运行无需 Node。验证 SPA 深链接与 API 路由、键盘/对比度、草稿并发、权限及发布流程。本地可信会话和合成 OpenAPI 只证明控制面与适配器闭环；生产身份、真实企业 API 和容量仍单独标注，不以合成界面代替验收。
 
 ## Review and completion
 

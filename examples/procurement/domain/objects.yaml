@@ -42,3 +42,5 @@
       required: true
     - id: status
       valueType: STRING
+    - id: deliveryRisk
+      valueType: STRING

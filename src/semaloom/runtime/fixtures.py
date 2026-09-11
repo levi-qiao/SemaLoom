@@ -39,6 +39,106 @@ def load_synthetic(urls: dict[str, str] | None = None) -> None:
     _load_orders(pool["orders_pg"])
     _load_suppliers(pool["suppliers_pg"])
     _load_meta(pool["meta"])
+    ensure_control_schema(pool["meta"])
+
+
+def ensure_control_schema(engine: Engine) -> None:
+    """Apply the idempotent control-plane schema without deleting persisted state."""
+
+    statements = (
+        """
+        CREATE TABLE IF NOT EXISTS semantic_release (
+          digest TEXT PRIMARY KEY, payload JSONB NOT NULL, publisher TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS environment_pointer (
+          environment TEXT PRIMARY KEY, digest TEXT NOT NULL, revision INTEGER NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS action_plan (
+          plan_id TEXT PRIMARY KEY, digest TEXT NOT NULL, payload JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS action_approval (
+          plan_id TEXT PRIMARY KEY, approver TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+          digest TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS action_execution (
+          execution_id TEXT PRIMARY KEY, plan_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL,
+          payload_digest TEXT NOT NULL, external_ref TEXT
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS studio_draft (
+          tenant_id TEXT NOT NULL, draft_id TEXT NOT NULL, revision INTEGER NOT NULL,
+          base_digest TEXT NOT NULL, candidate_digest TEXT NOT NULL, documents JSONB NOT NULL,
+          updated_by TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (tenant_id, draft_id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS studio_draft_revision (
+          tenant_id TEXT NOT NULL, draft_id TEXT NOT NULL, revision INTEGER NOT NULL,
+          base_digest TEXT NOT NULL, candidate_digest TEXT NOT NULL, documents JSONB NOT NULL,
+          author TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (tenant_id, draft_id, revision)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS studio_source_profile (
+          tenant_id TEXT NOT NULL, source_id TEXT NOT NULL, revision INTEGER NOT NULL,
+          label TEXT NOT NULL, provider TEXT NOT NULL, binding_ref TEXT NOT NULL,
+          secret_ref TEXT, settings JSONB NOT NULL, validation_status TEXT NOT NULL,
+          updated_by TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (tenant_id, source_id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS studio_validation (
+          validation_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, draft_id TEXT NOT NULL,
+          draft_revision INTEGER NOT NULL, candidate_digest TEXT NOT NULL,
+          environment TEXT NOT NULL, status TEXT NOT NULL, details JSONB NOT NULL,
+          validator TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS studio_release_approval (
+          approval_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, draft_id TEXT NOT NULL,
+          draft_revision INTEGER NOT NULL, candidate_digest TEXT NOT NULL,
+          environment TEXT NOT NULL, validation_id TEXT NOT NULL, approver TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        ALTER TABLE studio_release_approval
+        ADD COLUMN IF NOT EXISTS validation_id TEXT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS studio_publication (
+          publication_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, draft_id TEXT NOT NULL,
+          draft_revision INTEGER NOT NULL, digest TEXT NOT NULL, environment TEXT NOT NULL,
+          environment_revision INTEGER NOT NULL, publisher TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS studio_session (
+          session_hash TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, subject TEXT NOT NULL,
+          roles JSONB NOT NULL, csrf_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+          revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+    )
+    with engine.begin() as conn:
+        for statement in statements:
+            conn.execute(text(statement))
 
 
 def _load_tax(engine: Engine) -> None:
@@ -189,6 +289,13 @@ def _load_suppliers(engine: Engine) -> None:
 
 def _load_meta(engine: Engine) -> None:
     with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS studio_session"))
+        conn.execute(text("DROP TABLE IF EXISTS studio_publication"))
+        conn.execute(text("DROP TABLE IF EXISTS studio_release_approval"))
+        conn.execute(text("DROP TABLE IF EXISTS studio_validation"))
+        conn.execute(text("DROP TABLE IF EXISTS studio_source_profile"))
+        conn.execute(text("DROP TABLE IF EXISTS studio_draft_revision"))
+        conn.execute(text("DROP TABLE IF EXISTS studio_draft_legacy"))
         conn.execute(text("DROP TABLE IF EXISTS action_execution"))
         conn.execute(text("DROP TABLE IF EXISTS action_approval"))
         conn.execute(text("DROP TABLE IF EXISTS action_plan"))
@@ -262,7 +369,11 @@ def _load_meta(engine: Engine) -> None:
                     tenant_id TEXT NOT NULL,
                     draft_id TEXT NOT NULL,
                     revision INTEGER NOT NULL,
-                    payload JSONB NOT NULL,
+                    base_digest TEXT NOT NULL,
+                    candidate_digest TEXT NOT NULL,
+                    documents JSONB NOT NULL,
+                    updated_by TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     PRIMARY KEY (tenant_id, draft_id)
                 )
                 """

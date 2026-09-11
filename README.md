@@ -22,11 +22,12 @@ to test reuse; neither domain is built into the core.
 - PostgreSQL metric and object reads with tenant filters and typed evidence.
 - In-process links across databases using declared business identities.
 - Exact-decimal rules with distinct TRUE, FALSE, UNKNOWN, and operational failure outcomes.
-- Immutable release activation and a controlled plan/approve/execute action lifecycle prototype.
-- FastAPI endpoints and an embedded Studio for entity graph/directory, inspector, mapping/source catalogs, physical source trace, and tenant-scoped workspace revisions.
+- Immutable semantic candidate validation, independent approval and release activation, plus a controlled plan/approve/execute business action prototype.
+- Read-only OpenAPI mappings and disjoint PostgreSQL/API properties for the same entity, composed inside the Python process.
+- FastAPI endpoints and an embedded Studio for graph/inspection, structured versioned drafts, mapping/source administration, physical source trace, and review/publish history.
 
-Production identity, arbitrary OpenAPI sources, complete Studio publishing, and real enterprise pilots
-remain open work. See [capabilities and limits](docs/capabilities.md) for the exact boundary.
+Production identity, arbitrary OpenAPI discovery, operational recovery, large-graph capacity, and real
+enterprise pilots remain open work. See [capabilities and limits](docs/capabilities.md) for the exact boundary.
 
 ## Quickstart
 

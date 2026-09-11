@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
-
-from sqlalchemy import text
-from sqlalchemy.engine import Engine
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.model import MappingDef
@@ -38,11 +34,38 @@ def _field_count(mapping: MappingDef) -> int:
         value = physical.get(key)
         if isinstance(value, str):
             fields.add(value)
-    for key in ("grainColumns", "propertyColumns"):
+    for key in ("grainColumns", "propertyColumns", "grainPointers", "propertyPointers"):
         value = physical.get(key)
         if isinstance(value, dict):
             fields.update(str(item) for item in value.values())
     return len(fields)
+
+
+def _field_bindings(mapping: MappingDef) -> list[dict[str, str]]:
+    fields: list[dict[str, str]] = []
+    pairs = (
+        ("grainColumns", "identity"),
+        ("propertyColumns", "property"),
+        ("grainPointers", "identity"),
+        ("propertyPointers", "property"),
+    )
+    for key, role in pairs:
+        value = mapping.physical.get(key)
+        if isinstance(value, dict):
+            fields.extend(
+                {
+                    "semanticField": str(semantic),
+                    "physicalField": str(physical),
+                    "role": role,
+                }
+                for semantic, physical in value.items()
+            )
+    value_field = mapping.physical.get("valueColumn") or mapping.physical.get("valuePointer")
+    if isinstance(value_field, str):
+        fields.append(
+            {"semanticField": mapping.target, "physicalField": value_field, "role": "value"}
+        )
+    return sorted(fields, key=lambda item: (item["role"], item["semanticField"]))
 
 
 def mapping_summary(mapping: MappingDef) -> dict[str, Any]:
@@ -55,6 +78,7 @@ def mapping_summary(mapping: MappingDef) -> dict[str, Any]:
         "provider": mapping.provider,
         "resource": _resource(mapping),
         "fieldCount": _field_count(mapping),
+        "fields": _field_bindings(mapping),
         "completeness": mapping.completeness,
         "expectedCardinality": mapping.expected_cardinality,
         "perspective": mapping.perspective,
@@ -112,7 +136,7 @@ def studio_graph(bundle: CompiledBundle) -> dict[str, Any]:
                 "objects": len(bundle.object_types),
                 "links": len(bundle.links),
                 "mappings": len(bundle.mappings),
-                "sources": len(bundle.integration_bindings),
+                "sources": len({item.source_id for item in bundle.integration_bindings}),
                 "rules": len(bundle.rules),
             },
         },
@@ -216,79 +240,7 @@ def studio_sources(bundle: CompiledBundle) -> dict[str, Any]:
                 "actionCount": len(action_bindings),
                 "targets": sorted(targets),
                 "namespaces": sorted({_namespace(item) for item in targets}),
-                "status": bundle.online_validation,
+                "status": "DECLARED",
             }
         )
     return {"sources": sources}
-
-
-def load_draft(engine: Engine, tenant: str, draft_id: str) -> dict[str, Any]:
-    with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT revision, payload
-                FROM studio_draft
-                WHERE tenant_id = :tenant_id AND draft_id = :draft_id
-                """
-            ),
-            {"tenant_id": tenant, "draft_id": draft_id},
-        ).first()
-    if row is None:
-        return {"draftId": draft_id, "revision": 0, "payload": {}, "exists": False}
-    payload = row.payload if isinstance(row.payload, dict) else json.loads(row.payload)
-    return {
-        "draftId": draft_id,
-        "revision": int(row.revision),
-        "payload": payload,
-        "exists": True,
-    }
-
-
-def save_draft(
-    engine: Engine,
-    tenant: str,
-    draft_id: str,
-    payload: dict[str, Any],
-    expected_revision: int,
-) -> int:
-    with engine.begin() as conn:
-        row = conn.execute(
-            text(
-                """
-                WITH updated AS (
-                    UPDATE studio_draft
-                    SET revision = revision + 1,
-                        payload = CAST(:payload AS jsonb)
-                    WHERE tenant_id = :tenant_id
-                      AND draft_id = :draft_id
-                      AND revision = :expected_revision
-                    RETURNING revision
-                ),
-                inserted AS (
-                    INSERT INTO studio_draft(tenant_id, draft_id, revision, payload)
-                    SELECT :tenant_id, :draft_id, 1, CAST(:payload AS jsonb)
-                    WHERE :expected_revision = 0
-                      AND NOT EXISTS (
-                          SELECT 1
-                          FROM studio_draft
-                          WHERE tenant_id = :tenant_id AND draft_id = :draft_id
-                      )
-                    ON CONFLICT (tenant_id, draft_id) DO NOTHING
-                    RETURNING revision
-                )
-                SELECT revision FROM updated
-                UNION ALL
-                SELECT revision FROM inserted
-                """
-            ),
-            {
-                "tenant_id": tenant,
-                "draft_id": draft_id,
-                "payload": json.dumps(payload),
-                "expected_revision": expected_revision,
-            },
-        ).first()
-        if row is None:
-            raise ValueError("REVISION_CONFLICT")
-        return int(row.revision)

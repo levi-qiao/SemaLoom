@@ -258,8 +258,8 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 | T07 | 合成切片 | 采购金路径 + core/compiler 无行业分支检查 |
 | T08A | 进行中 | [quickstart](quickstart.md)、[capabilities](capabilities.md)、CI 与社区文件 |
 | T08B | 未关闭 | [pilot-plan](pilot-plan.md)；A47–A48 未通过 |
-| T09A | 合成切片 | 实体图/目录、检查器、Mapping/来源目录、来源追踪、深链接、键盘和响应式浏览器验收 |
-| T09B | 原型 | PostgreSQL 工作区 revision、冲突恢复和租户隔离；结构化模型/Mapping 编辑、导入导出仍未完成 |
-| T09C | 未关闭 | 来源管理、真实 API 读取、可信会话、验证/发布和自动浏览器回归未完成 |
+| T09A | 完成（合成） | 实体图/目录、检查器、Mapping/来源目录、字段级来源追踪、深链接、键盘和响应式浏览器验收 |
+| T09B | 完成（合成） | PostgreSQL 规范草稿与不可变 revision、结构化模型/Mapping 编辑、导入导出、影响检查、来源注册和租户隔离 |
+| T09C | 完成（合成） | PostgreSQL/OpenAPI 混合读取、可信本地会话与细分能力、来源验证、候选校验/独立批准/发布、自动浏览器回归和单 wheel 交付；生产身份与真实企业 pilot 仍属于 T06/T08B |
 
 检查命令见仓库根 README；每次交付的实测结果记录在对应 `.agents/*/handoff.md`。

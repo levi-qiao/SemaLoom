@@ -61,6 +61,19 @@ def test_wheel_contains_license(built_artifacts: tuple[Path, Path]) -> None:
     assert any(name.endswith("LICENSE") for name in names), names
 
 
+def test_wheel_contains_built_studio_assets(built_artifacts: tuple[Path, Path]) -> None:
+    _sdist, wheel = built_artifacts
+    with zipfile.ZipFile(wheel) as archive:
+        names = archive.namelist()
+    assert "semaloom/app/static/index.html" in names
+    assert any(
+        name.startswith("semaloom/app/static/assets/") and name.endswith(".js") for name in names
+    )
+    assert any(
+        name.startswith("semaloom/app/static/assets/") and name.endswith(".css") for name in names
+    )
+
+
 def test_wheel_installs_and_prints_identity(
     built_artifacts: tuple[Path, Path],
     tmp_path: Path,

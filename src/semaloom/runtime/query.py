@@ -49,13 +49,17 @@ class QueryService:
         for item in request.select:
             if isinstance(item, MetricSelect):
                 obs, activity, error = self._metric(item, actor.tenant, decision.decision_id)
+                if activity is not None:
+                    activities.append(activity)
+                if error is not None:
+                    diagnostics.append(error)
             else:
-                obs, activity, error = self._object(item, actor.tenant, decision.decision_id)
+                obs, object_activities, object_diagnostics = self._object(
+                    item, actor.tenant, decision.decision_id
+                )
+                activities.extend(object_activities)
+                diagnostics.extend(object_diagnostics)
             observations.append(obs)
-            if activity is not None:
-                activities.append(activity)
-            if error is not None:
-                diagnostics.append(error)
         status = (
             "FAILED" if any(item.kind == "UNAVAILABLE" for item in observations) else "SUCCEEDED"
         )
@@ -103,8 +107,12 @@ class QueryService:
                 diagnostics=(Diagnostic(code="NO_PATH", path=link_id, message="unknown link"),),
                 status="FAILED",
             )
-        source_mapping, source_error = self._mapping_for_target(link.source, None)
-        target_mapping, target_error = self._mapping_for_target(link.target, None)
+        source_mapping, source_error = self._object_mapping_for_property(
+            link.source, link.identity.source
+        )
+        target_mapping, target_error = self._object_mapping_for_property(
+            link.target, link.identity.target
+        )
         if source_mapping is None or target_mapping is None:
             error = source_error or target_error or "NO_MAPPING"
             return EvidenceEnvelope(
@@ -267,87 +275,137 @@ class QueryService:
 
     def _object(
         self, item: ObjectSelect, tenant: str, authorization_ref: str
-    ) -> tuple[Observation, SourceActivity | None, Diagnostic | None]:
-        mapping, mapping_error = self._mapping_for_target(item.object_type, None)
-        if mapping is None:
-            reason = mapping_error or "NO_MAPPING"
-            return (
-                Observation(kind="UNAVAILABLE", target=item.object_type, reason=reason),
-                None,
-                Diagnostic(code=reason, path=item.object_type, message="mapping is not resolvable"),
-            )
+    ) -> tuple[Observation, tuple[SourceActivity, ...], tuple[Diagnostic, ...]]:
         object_type = next(
             (entry for entry in self.bundle.object_types if entry.id == item.object_type), None
         )
         if object_type is None or set(item.identity) != set(object_type.identity_keys):
             return (
                 Observation(kind="UNAVAILABLE", target=item.object_type, reason="INVALID_BINDINGS"),
-                None,
-                Diagnostic(
-                    code="INVALID_BINDINGS",
-                    path=item.object_type,
-                    message="object identity does not match the semantic definition",
+                (),
+                (
+                    Diagnostic(
+                        code="INVALID_BINDINGS",
+                        path=item.object_type,
+                        message="object identity does not match the semantic definition",
+                    ),
                 ),
             )
         allowed_properties = {entry.id for entry in object_type.properties}
         if set(item.properties) - allowed_properties:
             return (
                 Observation(kind="UNAVAILABLE", target=item.object_type, reason="INVALID_BINDINGS"),
-                None,
-                Diagnostic(
-                    code="INVALID_BINDINGS",
-                    path=item.object_type,
-                    message="unknown object property",
+                (),
+                (
+                    Diagnostic(
+                        code="INVALID_BINDINGS",
+                        path=item.object_type,
+                        message="unknown object property",
+                    ),
                 ),
             )
-        identity_value = item.identity[object_type.identity_keys[0]]
-        result = self.provider.fetch_object(mapping, tenant=tenant, identity_value=identity_value)
-        if result.kind != "PRESENT":
-            obs = Observation(
-                kind=result.kind,
-                target=item.object_type,
-                reason=result.reason,
-                mapping_id=mapping.id,
-                source_id=mapping.source_id,
-                observed_at=result.observed_at,
+        requested = (set(item.properties) or allowed_properties) - set(object_type.identity_keys)
+        assignments: dict[str, set[str]] = {}
+        mappings: dict[str, MappingDef] = {}
+        for property_id in requested:
+            mapping, mapping_error = self._object_mapping_for_property(
+                item.object_type, property_id
             )
-        else:
-            obs = Observation(
+            if mapping is None:
+                reason = mapping_error or "NO_MAPPING"
+                return (
+                    Observation(kind="UNAVAILABLE", target=item.object_type, reason=reason),
+                    (),
+                    (
+                        Diagnostic(
+                            code=reason,
+                            path=f"{item.object_type}.{property_id}",
+                            message="property mapping is not resolvable",
+                        ),
+                    ),
+                )
+            mappings[mapping.id] = mapping
+            assignments.setdefault(mapping.id, set()).add(property_id)
+        identity_value = item.identity[object_type.identity_keys[0]]
+        values: dict[str, Any] = dict(item.identity)
+        activities: list[SourceActivity] = []
+        diagnostics: list[Diagnostic] = []
+        failed = None
+        for mapping_id, properties in assignments.items():
+            mapping = mappings[mapping_id]
+            result = self.provider.fetch_object(
+                mapping, tenant=tenant, identity_value=identity_value
+            )
+            activities.append(
+                SourceActivity(
+                    activity_id=uuid.uuid4().hex,
+                    mapping_id=mapping.id,
+                    source_id=mapping.source_id,
+                    query_digest=_digest(
+                        {
+                            "object": item.object_type,
+                            "identity": item.identity,
+                            "properties": sorted(properties),
+                            "tenant": tenant,
+                        }
+                    ),
+                    observed_at=result.observed_at,
+                    authorization_ref=authorization_ref,
+                )
+            )
+            if result.kind != "PRESENT":
+                failed = result
+                if result.kind == "UNAVAILABLE":
+                    diagnostics.append(
+                        Diagnostic(
+                            code=result.reason or "PROVIDER_ERROR",
+                            path=mapping.id,
+                            message="object property read failed",
+                        )
+                    )
+                break
+            for key in properties:
+                values[key] = result.values.get(key)
+        if failed is not None:
+            return (
+                Observation(
+                    kind=failed.kind,
+                    target=item.object_type,
+                    reason=failed.reason,
+                    mapping_id=failed.mapping_id,
+                    source_id=failed.source_id,
+                    observed_at=failed.observed_at,
+                ),
+                tuple(activities),
+                tuple(diagnostics),
+            )
+        visible = set(item.properties) if item.properties else allowed_properties
+        return (
+            Observation(
                 kind="PRESENT",
                 target=item.object_type,
                 value=json.dumps(
-                    {
-                        key: (
-                            None if result.values.get(key) is None else str(result.values.get(key))
-                        )
-                        for key in result.values
-                        if key in item.properties or not item.properties
-                    },
+                    {key: None if values.get(key) is None else str(values[key]) for key in visible},
                     sort_keys=True,
                 ),
-                mapping_id=mapping.id,
-                source_id=mapping.source_id,
-                observed_at=result.observed_at,
-            )
-        activity = SourceActivity(
-            activity_id=uuid.uuid4().hex,
-            mapping_id=mapping.id,
-            source_id=mapping.source_id,
-            query_digest=_digest(
-                {"object": item.object_type, "identity": item.identity, "tenant": tenant}
             ),
-            authorization_ref=authorization_ref,
+            tuple(activities),
+            (),
         )
-        diagnostic = (
-            Diagnostic(
-                code=result.reason or "PROVIDER_ERROR",
-                path=item.object_type,
-                message="object read failed",
-            )
-            if result.kind == "UNAVAILABLE"
-            else None
-        )
-        return obs, activity, diagnostic
+
+    def _object_mapping_for_property(
+        self, object_type: str, property_id: str
+    ) -> tuple[MappingDef | None, str | None]:
+        candidates = [
+            mapping
+            for mapping in self.bundle.mappings
+            if mapping.target == object_type and property_id in _mapped_object_fields(mapping)
+        ]
+        if len(candidates) == 1:
+            return candidates[0], None
+        if len(candidates) > 1:
+            return None, "AMBIGUOUS_MAPPING"
+        return None, "NO_MAPPING"
 
     def _mapping_for_target(
         self, target: str, perspective: str | None
@@ -373,6 +431,15 @@ def _grain_columns(mapping: MappingDef) -> dict[str, str]:
     if not isinstance(raw, dict):
         return {}
     return {str(key): str(value) for key, value in raw.items()}
+
+
+def _mapped_object_fields(mapping: MappingDef) -> set[str]:
+    fields: set[str] = set()
+    for key in ("grainColumns", "propertyColumns", "grainPointers", "propertyPointers"):
+        raw = mapping.physical.get(key)
+        if isinstance(raw, dict):
+            fields.update(str(item) for item in raw)
+    return fields
 
 
 def _identity_binding(bindings: dict[str, str | int], mapping: MappingDef) -> str:

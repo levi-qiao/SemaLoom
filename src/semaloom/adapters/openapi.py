@@ -1,0 +1,240 @@
+"""Bounded read-only HTTP adapter for approved OpenAPI operations."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any
+
+import httpx
+
+from semaloom.core.model import MappingDef
+from semaloom.core.provider import ObjectRead
+from semaloom.core.results import Observation
+
+
+class OpenApiReadProvider:
+    """Execute only GET mappings; URLs and response pointers come from releases."""
+
+    def __init__(
+        self,
+        clients: dict[str, httpx.Client],
+        base_url_resolver: Callable[[str, str], str | None] | None = None,
+    ) -> None:
+        self._clients = clients
+        self._base_url_resolver = base_url_resolver
+        self._dynamic_clients: dict[tuple[str, str, str], httpx.Client] = {}
+
+    def fetch_object(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        identity_value: str,
+    ) -> ObjectRead:
+        observed = _now()
+        outcome = self._get(mapping, tenant=tenant, identity_value=identity_value)
+        if isinstance(outcome, str):
+            return ObjectRead(
+                kind="MISSING" if outcome == "NO_ROW" else "UNAVAILABLE",
+                reason=outcome,
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
+        record, error = _single_record(outcome, mapping.physical)
+        if error is not None:
+            return ObjectRead(
+                kind="MISSING" if error == "NO_ROW" else "UNAVAILABLE",
+                reason=error,
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
+        assert record is not None
+        identity_pointer = str(mapping.physical.get("identityPointer", "/id"))
+        if str(_pointer(record, identity_pointer)) != identity_value:
+            return ObjectRead(
+                kind="UNAVAILABLE",
+                reason="IDENTITY_MISMATCH",
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
+        pointers = mapping.physical.get("propertyPointers", {})
+        if not isinstance(pointers, dict):
+            pointers = {}
+        values = {str(key): _pointer(record, str(pointer)) for key, pointer in pointers.items()}
+        grain = mapping.physical.get("grainPointers", {})
+        if isinstance(grain, dict):
+            values.update(
+                {str(key): _pointer(record, str(pointer)) for key, pointer in grain.items()}
+            )
+        return ObjectRead(
+            kind="PRESENT",
+            values=values,
+            mapping_id=mapping.id,
+            source_id=mapping.source_id,
+            observed_at=observed,
+        )
+
+    def fetch_metric(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        identity_value: str,
+        extra_filters: dict[str, str] | None = None,
+    ) -> Observation:
+        observed = _now()
+        outcome = self._get(
+            mapping,
+            tenant=tenant,
+            identity_value=identity_value,
+            extra_filters=extra_filters,
+        )
+        if isinstance(outcome, str):
+            return _metric_outcome(mapping, observed, outcome)
+        record, error = _single_record(outcome, mapping.physical)
+        if error is not None:
+            return _metric_outcome(mapping, observed, error)
+        assert record is not None
+        identity = _pointer(record, str(mapping.physical.get("identityPointer", "/id")))
+        if str(identity) != identity_value:
+            return _metric_outcome(mapping, observed, "IDENTITY_MISMATCH")
+        raw = _pointer(record, str(mapping.physical.get("valuePointer", "/value")))
+        if raw is None:
+            return Observation(
+                kind="NULL",
+                target=mapping.target,
+                reason="NULL_INPUT",
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
+        if isinstance(raw, float):
+            return _metric_outcome(mapping, observed, "INEXACT_NUMBER")
+        try:
+            decimal_value = Decimal(str(raw))
+        except (InvalidOperation, ValueError):
+            return _metric_outcome(mapping, observed, "TYPE_MISMATCH")
+        if not decimal_value.is_finite():
+            return _metric_outcome(mapping, observed, "NON_FINITE_NUMBER")
+        value = format(decimal_value, "f")
+        return Observation(
+            kind="PRESENT",
+            target=mapping.target,
+            value=value,
+            value_type="DECIMAL",
+            mapping_id=mapping.id,
+            source_id=mapping.source_id,
+            observed_at=observed,
+        )
+
+    def _get(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        identity_value: str,
+        extra_filters: dict[str, str] | None = None,
+    ) -> Any | str:
+        if str(mapping.physical.get("method", "GET")).upper() != "GET":
+            return "READ_METHOD_REQUIRED"
+        client = self._client(tenant, mapping.source_id)
+        path = mapping.physical.get("path")
+        if (
+            client is None
+            or not isinstance(path, str)
+            or not path.startswith("/")
+            or path.startswith("//")
+        ):
+            return "PROVIDER_NOT_CONFIGURED"
+        identity_parameter = str(mapping.physical.get("identityParameter", "id"))
+        if identity_parameter == "tenant":
+            return "INVALID_MAPPING"
+        params = {**(extra_filters or {}), identity_parameter: identity_value, "tenant": tenant}
+        try:
+            response = client.get(path, params=params)
+        except httpx.TimeoutException:
+            return "SOURCE_TIMEOUT"
+        except httpx.HTTPError:
+            return "PROVIDER_ERROR"
+        if response.status_code == 404:
+            return "NO_ROW"
+        if response.status_code < 200 or response.status_code >= 300:
+            return "PROVIDER_ERROR"
+        try:
+            return response.json()
+        except ValueError:
+            return "INVALID_RESPONSE"
+
+    def close(self) -> None:
+        for client in {*self._clients.values(), *self._dynamic_clients.values()}:
+            client.close()
+        self._dynamic_clients.clear()
+
+    def _client(self, tenant: str, source_id: str) -> httpx.Client | None:
+        if self._base_url_resolver is not None:
+            base_url = self._base_url_resolver(tenant, source_id)
+            if base_url is not None:
+                key = (tenant, source_id, base_url)
+                client = self._dynamic_clients.get(key)
+                if client is None:
+                    for stale in [
+                        item
+                        for item in self._dynamic_clients
+                        if item[:2] == (tenant, source_id) and item != key
+                    ]:
+                        self._dynamic_clients.pop(stale).close()
+                    client = httpx.Client(base_url=base_url, timeout=5.0)
+                    self._dynamic_clients[key] = client
+                return client
+        return self._clients.get(source_id)
+
+
+def _single_record(
+    payload: Any, physical: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str | None]:
+    next_pointer = physical.get("nextPointer")
+    if isinstance(next_pointer, str) and _pointer(payload, next_pointer) not in (None, "", False):
+        return None, "INCOMPLETE_PAGE"
+    records_pointer = physical.get("recordsPointer")
+    value = _pointer(payload, str(records_pointer)) if isinstance(records_pointer, str) else payload
+    records = value if isinstance(value, list) else [value]
+    if not records or records == [None]:
+        return None, "NO_ROW"
+    if len(records) != 1:
+        return None, "CARDINALITY_VIOLATION"
+    if not isinstance(records[0], dict):
+        return None, "INVALID_RESPONSE"
+    return records[0], None
+
+
+def _pointer(value: Any, pointer: str) -> Any:
+    if pointer in ("", "/"):
+        return value
+    current = value
+    for token in pointer.removeprefix("/").split("/"):
+        token = token.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, dict) and token in current:
+            current = current[token]
+        else:
+            return None
+    return current
+
+
+def _metric_outcome(mapping: MappingDef, observed: str, reason: str) -> Observation:
+    return Observation(
+        kind="MISSING" if reason == "NO_ROW" else "UNAVAILABLE",
+        target=mapping.target,
+        reason=reason,
+        mapping_id=mapping.id,
+        source_id=mapping.source_id,
+        observed_at=observed,
+    )
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
