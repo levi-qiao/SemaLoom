@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
   pull_request:
 
@@ -63,8 +64,6 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: frontend/.node-version
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
       - run: corepack enable
       - run: corepack install
       - run: pnpm install --frozen-lockfile
