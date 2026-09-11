@@ -253,6 +253,7 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 - Import 方向：`semaloom.checks.check_import_direction`；core/compiler 不得导入 `semaloom.adapters`、`semaloom.domains` 或 `examples`。
 - PostgreSQL fixture 启动方式：`docker compose up -d`（`compose.yaml`）。T00 入口不依赖它。
 - 详细变更文件、命令结果与限制见 `.agents/T00/handoff.md`（gitignored）。
+- 个人源码远程（非 T08A 发布）：https://github.com/levi-qiao/SemaLoom （private，owner `levi-qiao`）。
 
 检查命令与本次结果：
 
