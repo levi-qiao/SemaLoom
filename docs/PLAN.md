@@ -4,7 +4,7 @@
 
 SemaLoom 是 **Python 编写、采用 Apache-2.0、领域与协议中立的通用企业业务语义层**。企业以领域包维护业务定义，以独立接入绑定与 adapter 对接系统，Agent 通过语义标识使用它们，事实以业务系统为准。首版通过 PostgreSQL 和受控 OpenAPI 完成查询、判断及草稿操作闭环。
 
-当前只有文档基线；Runtime、Python 工程、完整 DSL Schema 和可运行示例均待实现。各任务的完成条件以 [验收矩阵](acceptance.md) 为准，局部 Schema 校验不代表运行保证已实现。
+合成 PoC 已实现 T00–T07 与 T09；T08A 为准备、T08B 未关闭。各任务的完成条件以 [验收矩阵](acceptance.md) 为准。
 
 ## 2. 交付原则
 
@@ -242,9 +242,25 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 
 ## 8. 当前状态与下一步
 
-**T00 已完成**（A49/A62 的 T00 阶段）。T01–T09 尚未实现。Studio 设计见 [DESIGN](DESIGN.md)。下一执行任务是 **T01**（语义模型与 Compiler）。真实政策和 pilot 条件尚未提供；这些不阻塞合成场景开发。个人 Git 远程仅用于源码管理，不等于 T08A 开源发布。
+**T00–T07、T09 已完成（合成 PostgreSQL PoC）。T08A 为准备完成（未发布）。T08B 未关闭：A47–A48 不以模拟数据通过。** 下一剩余项是授权真实 pilot（见 [pilot-plan](pilot-plan.md)）。个人 Git 远程仍只用于源码管理。
 
-建议分 gate 估算工期：T00/T01 完成后，根据实际 DSL 和首条数据通路工作量估算 T02/T03；Action 接口能力验证后再估算 T05。工期估计不替代验收承诺。
+### 任务状态
+
+| 任务 | 状态 | 说明 |
+| --- | --- | --- |
+| T00 | 完成 | 工程基座、identity、import 方向 |
+| T01 | 完成 | `semaloom.compiler.compile_paths`，tax+procurement 包 |
+| T02 | 完成 | PostgreSQL 点查、拒绝路径、双库 Link |
+| T03 | 完成 | Decimal Claim，TRUE/FALSE/UNKNOWN |
+| T04 | 完成 | `semaloom_meta` 不可变 release 指针 |
+| T05 | 完成 | plan/approve/execute，无批准不写 |
+| T06 | 完成 | REST `/v0.1/*`，无效 token 401，无模型 key |
+| T07 | 完成 | 采购金路径 + core/compiler 无行业分支检查 |
+| T08A | 准备完成 | [quickstart](quickstart.md)、[capabilities](capabilities.md)；未公开仓库、未上传 PyPI |
+| T08B | 未关闭 | [pilot-plan](pilot-plan.md)；A47–A48 未通过 |
+| T09A–C | 合成完成 | Studio API + `/studio/` 静态页；管理权限为 demo bearer |
+
+检查命令见仓库根 README 与 `.agents/*/handoff.md`。
 
 ### T00 交接摘要
 
