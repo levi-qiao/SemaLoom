@@ -11,6 +11,7 @@ from semaloom.core.model import (
     ActionDef,
     AuthorizationProfileDef,
     DomainPackDef,
+    IntegrationBindingDef,
     LinkDef,
     MappingDef,
     MetricDef,
@@ -46,6 +47,7 @@ class CompiledBundle(BaseModel):
     authorization_profiles: tuple[AuthorizationProfileDef, ...] = Field(
         alias="authorizationProfiles"
     )
+    integration_bindings: tuple[IntegrationBindingDef, ...] = Field(alias="integrationBindings")
     mappings: tuple[MappingDef, ...]
     action_bindings: tuple[ActionBindingDef, ...] = Field(alias="actionBindings")
     physical_digests: dict[str, str] = Field(alias="physicalDigests")

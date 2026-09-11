@@ -1,6 +1,6 @@
 # Contributing
 
-从 [PLAN](docs/PLAN.md) 领取一个依赖已满足的任务，阅读 [AGENTS.md](AGENTS.md) 指向的规范。T00 已建立 Python 工程与检查命令；业务 Runtime 仍按后续任务实现，不要把未实现 gate 报告为已通过。
+从 issue 或 [PLAN](docs/PLAN.md) 选择一个依赖已满足的任务，阅读 [AGENTS.md](AGENTS.md) 指向的规范。当前仓库是 pre-alpha；提交应区分已验证行为、设计目标和未知项，不把合成原型报告为生产 gate 已通过。
 
 ## Implementation conventions
 
@@ -26,8 +26,6 @@ T09 按 [DESIGN](docs/DESIGN.md) 创建 `frontend/`，采用 React/TypeScript/Vi
 
 发布物由经审查的源码构建，生成内容摘要和可追踪依赖。V0.x 允许经过记录的破坏性变更，仍须显式升级 apiVersion/迁移策略，不静默重解释历史 release。
 
-项目采用 [Apache-2.0](LICENSE)。T00 在包元数据中声明 `Apache-2.0` 并将 LICENSE 包含在发行物中。T08A 独立于真实 pilot 验收干净环境安装、合成 quickstart、维护者职责及支持政策。正式发布前确定实际版权署名、项目发布 namespace、私密安全报告渠道和版本支持政策，提供依赖许可清单/SBOM、完整构建及集成测试结果。第三方代码保留其原始许可及必要声明；不自行虚构作者身份或 CLA/DCO 要求。
+项目采用 [Apache-2.0](LICENSE)。包元数据和发行物必须包含 LICENSE；第三方代码保留原始许可及必要声明。项目目前不要求 CLA 或 DCO。
 
-本地开发入口：`uv run semaloom`（打印 build identity JSON）；HTTP 组合根为 `semaloom.app.create_app`，`uv run semaloom serve`。无真实系统凭证的 local-dev profile 即可启动。后续任务的 PostgreSQL fixture：`docker compose up -d`（见 `compose.yaml`）。
-
-Git 初始化、提交、远程仓库和公开发布状态应在交接中说明；未明确请求时无需替用户创建远程仓库或推送。
+本地入口和 PostgreSQL fixture 见 [quickstart](docs/quickstart.md)。安全问题使用 [私密报告流程](SECURITY.md)，普通支持范围见 [SUPPORT.md](SUPPORT.md)。

@@ -40,4 +40,7 @@ Studio 同源会话使用安全 cookie 与 CSRF/Origin 检查，退出和撤销�
 
 ## Reporting
 
-正式发布前由维护者配置私密漏洞报告渠道或仓库的私密安全报告功能，并更新本节；当前没有可用的指定安全邮箱。请勿在公开 issue 中上传秘密或真实业务数据。
+请使用 GitHub Security Advisories 的
+[私密漏洞报告](https://github.com/levi-qiao/SemaLoom/security/advisories/new)。不要在公开 issue
+中上传秘密、真实业务数据或私有 schema。当前 pre-alpha 版本没有安全修复 SLA；维护者会在确认
+影响后通过受支持分支发布修复说明。

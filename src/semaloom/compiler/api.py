@@ -166,6 +166,7 @@ def compile_documents(
     policies = [item for item in parsed if isinstance(item, PolicyDef)]
     actions = [item for item in parsed if isinstance(item, ActionDef)]
     profiles = [item for item in parsed if isinstance(item, AuthorizationProfileDef)]
+    integrations = [item for item in parsed if isinstance(item, IntegrationBindingDef)]
     mappings = [item for item in parsed if isinstance(item, MappingDef)]
     bindings = [item for item in parsed if isinstance(item, ActionBindingDef)]
 
@@ -178,6 +179,7 @@ def compile_documents(
     _check_actions(objects, rules, actions, diagnostics)
     _check_action_bindings(actions, bindings, diagnostics)
     _check_mappings(metrics, objects, mappings, diagnostics)
+    _check_integration_bindings(integrations, mappings, bindings, diagnostics)
 
     errors = tuple(item for item in diagnostics if item.severity == "error")
     if errors:
@@ -204,12 +206,16 @@ def compile_documents(
         "policies": [_dump(item) for item in _sorted(policies)],
         "actions": [_dump(item) for item in _sorted(actions)],
         "authorizationProfiles": [_dump(item) for item in _sorted(profiles)],
+        "integrationBindings": [_dump(item) for item in _sorted(integrations)],
         "mappings": [_dump(item) for item in _sorted(mappings)],
         "actionBindings": [_dump(item) for item in _sorted(bindings)],
         "physicalDigests": dict(sorted(physical.items())),
     }
-    digest = sha256_digest(payload)
-    bundle = CompiledBundle.model_validate({**payload, "digest": digest})
+    provisional = CompiledBundle.model_validate({**payload, "digest": ""})
+    normalized_payload = provisional.model_dump(mode="json", by_alias=True, exclude_none=True)
+    normalized_payload.pop("digest", None)
+    digest = sha256_digest(normalized_payload)
+    bundle = provisional.model_copy(update={"digest": digest})
     return CompileResult(
         ok=True, bundle=bundle, diagnostics=tuple(diagnostics), online_validation=online
     )
@@ -709,3 +715,53 @@ def _check_mappings(
                     message=f"multiple mappings for {target} perspective={perspective}",
                 )
             )
+
+
+def _check_integration_bindings(
+    integrations: Sequence[IntegrationBindingDef],
+    mappings: Sequence[MappingDef],
+    action_bindings: Sequence[ActionBindingDef],
+    diagnostics: list[Diagnostic],
+) -> None:
+    available: dict[str, MappingDef | ActionBindingDef] = {item.id: item for item in mappings}
+    available.update({item.id: item for item in action_bindings})
+    owners: dict[str, str] = {}
+    for integration in integrations:
+        references = (*integration.mappings, *integration.action_bindings)
+        for reference in references:
+            item = available.get(reference)
+            if item is None:
+                diagnostics.append(
+                    Diagnostic(
+                        code="DANGLING_REF",
+                        path=f"{integration.id}.bindings",
+                        message=reference,
+                    )
+                )
+                continue
+            if item.provider != integration.provider or item.source_id != integration.source_id:
+                diagnostics.append(
+                    Diagnostic(
+                        code="INVALID_DEFINITION",
+                        path=f"{integration.id}.bindings",
+                        message=f"{reference} does not match provider/source",
+                    )
+                )
+            previous = owners.get(reference)
+            if previous is not None:
+                diagnostics.append(
+                    Diagnostic(
+                        code="INVALID_DEFINITION",
+                        path=f"{integration.id}.bindings",
+                        message=f"{reference} is already owned by {previous}",
+                    )
+                )
+            owners[reference] = integration.id
+    for reference in available.keys() - owners.keys():
+        diagnostics.append(
+            Diagnostic(
+                code="INVALID_DEFINITION",
+                path=reference,
+                message="binding is not owned by an IntegrationBinding",
+            )
+        )

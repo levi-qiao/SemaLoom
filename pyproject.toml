@@ -11,7 +11,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.13"
 authors = [{ name = "SemaLoom contributors" }]
-keywords = ["semantic-layer", "enterprise"]
+keywords = ["semantic-layer", "enterprise", "knowledge-graph", "ai-agents"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "License :: OSI Approved :: Apache Software License",
@@ -33,6 +33,9 @@ semaloom = "semaloom.app.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/levi-qiao/SemaLoom"
+Changelog = "https://github.com/levi-qiao/SemaLoom/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/levi-qiao/SemaLoom/tree/main/docs"
+Issues = "https://github.com/levi-qiao/SemaLoom/issues"
 Repository = "https://github.com/levi-qiao/SemaLoom"
 
 [dependency-groups]
@@ -53,8 +56,17 @@ include = [
     "/src",
     "/tests",
     "/examples",
+    "/docs",
+    "/semantic-spec",
+    "/CHANGELOG.md",
+    "/CODE_OF_CONDUCT.md",
+    "/CONTRIBUTING.md",
     "/LICENSE",
     "/README.md",
+    "/SECURITY.md",
+    "/SUPPORT.md",
+    "/compose.yaml",
+    "/ops",
     "/pyproject.toml",
 ]
 

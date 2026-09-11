@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import text
@@ -78,6 +79,7 @@ class ActionService:
         action = next((item for item in self.bundle.actions if item.id == action_id), None)
         if action is None:
             raise KeyError(action_id)
+        _validate_action_input(self.bundle, action_id, target, parameters)
         plan_id = uuid.uuid4().hex
         expires = (datetime.now(UTC) + timedelta(seconds=expires_in_seconds)).isoformat()
         digest = _digest(
@@ -124,6 +126,8 @@ class ActionService:
         if "approver" not in actor.roles:
             raise PermissionError("FORBIDDEN")
         plan = self._load_plan(plan_id)
+        if plan.tenant != actor.tenant:
+            raise PermissionError("FORBIDDEN")
         if plan.digest != _digest(_plan_body(plan)):
             raise ValueError("STALE_PLAN")
         with self.engine.begin() as conn:
@@ -151,6 +155,8 @@ class ActionService:
         if not decision.allowed:
             raise PermissionError("FORBIDDEN")
         plan = self._load_plan(plan_id)
+        if plan.tenant != actor.tenant:
+            raise PermissionError("FORBIDDEN")
         if parameters is not None and parameters != plan.parameters:
             raise ValueError("STALE_PLAN")
         if datetime.now(UTC) > datetime.fromisoformat(plan.expires_at):
@@ -163,13 +169,6 @@ class ActionService:
                 ),
                 {"plan_id": plan_id},
             ).first()
-            existing = conn.execute(
-                text(
-                    "SELECT execution_id, status, payload_digest, external_ref "
-                    "FROM action_execution WHERE plan_id = :plan_id"
-                ),
-                {"plan_id": plan_id},
-            ).first()
         if approval is None:
             raise PermissionError("UNAPPROVED")
         if approval.digest != plan.digest:
@@ -179,35 +178,64 @@ class ActionService:
             expires_at = expires_at.replace(tzinfo=UTC)
         if datetime.now(UTC) > expires_at:
             raise ValueError("EXPIRED")
-        if existing is not None:
-            return ActionExecution(
-                execution_id=str(existing.execution_id),
-                plan_id=plan_id,
-                status=str(existing.status),
-                payload_digest=str(existing.payload_digest),
-                external_ref=None if existing.external_ref is None else str(existing.external_ref),
-            )
         execution_id = uuid.uuid4().hex
-        ref = self.drafts.create(
-            idempotency_key=f"{plan.tenant}:{plan.plan_id}",
-            payload={"target": next(iter(plan.target.values())), "parameters": plan.parameters},
-        )
         with self.engine.begin() as conn:
-            conn.execute(
+            claimed = conn.execute(
                 text(
                     """
                     INSERT INTO action_execution(
                         execution_id, plan_id, status, payload_digest, external_ref
                     )
-                    VALUES (:execution_id, :plan_id, 'VERIFIED', :digest, :ref)
+                    VALUES (:execution_id, :plan_id, 'EXECUTING', :digest, NULL)
+                    ON CONFLICT (plan_id) DO NOTHING
+                    RETURNING execution_id
                     """
                 ),
                 {
                     "execution_id": execution_id,
                     "plan_id": plan_id,
                     "digest": plan.digest,
-                    "ref": ref,
                 },
+            ).first()
+            if claimed is None:
+                existing = conn.execute(
+                    text(
+                        "SELECT execution_id, status, payload_digest, external_ref "
+                        "FROM action_execution WHERE plan_id = :plan_id"
+                    ),
+                    {"plan_id": plan_id},
+                ).one()
+                return ActionExecution(
+                    execution_id=str(existing.execution_id),
+                    plan_id=plan_id,
+                    status=str(existing.status),
+                    payload_digest=str(existing.payload_digest),
+                    external_ref=(
+                        None if existing.external_ref is None else str(existing.external_ref)
+                    ),
+                )
+        try:
+            ref = self.drafts.create(
+                idempotency_key=f"{plan.tenant}:{plan.plan_id}",
+                payload={"target": next(iter(plan.target.values())), "parameters": plan.parameters},
+            )
+        except ValueError:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "UPDATE action_execution SET status = 'FAILED' "
+                        "WHERE plan_id = :plan_id AND status = 'EXECUTING'"
+                    ),
+                    {"plan_id": plan_id},
+                )
+            raise
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE action_execution SET status = 'VERIFIED', external_ref = :ref "
+                    "WHERE plan_id = :plan_id AND execution_id = :execution_id"
+                ),
+                {"plan_id": plan_id, "execution_id": execution_id, "ref": ref},
             )
         return ActionExecution(
             execution_id=execution_id,
@@ -217,7 +245,10 @@ class ActionService:
             external_ref=ref,
         )
 
-    def status(self, plan_id: str) -> ActionExecution | None:
+    def status(self, actor: RequestActor, plan_id: str) -> ActionExecution | None:
+        plan = self._load_plan(plan_id)
+        if plan.tenant != actor.tenant:
+            raise PermissionError("FORBIDDEN")
         with self.engine.connect() as conn:
             row = conn.execute(
                 text(
@@ -264,3 +295,37 @@ def _digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
     ).hexdigest()
+
+
+def _validate_action_input(
+    bundle: CompiledBundle,
+    action_id: str,
+    target: dict[str, str],
+    parameters: dict[str, str],
+) -> None:
+    action = next(item for item in bundle.actions if item.id == action_id)
+    object_type = next(item for item in bundle.object_types if item.id == action.target_object)
+    if set(target) != set(object_type.identity_keys) or any(not value for value in target.values()):
+        raise ValueError("INVALID_TARGET")
+    declared = {item.name: item for item in action.parameters}
+    if set(parameters) - set(declared):
+        raise ValueError("INVALID_PARAMETERS")
+    if any(item.required and not parameters.get(item.name) for item in action.parameters):
+        raise ValueError("INVALID_PARAMETERS")
+    for key, raw in parameters.items():
+        value_type = declared[key].value_type
+        try:
+            if value_type == "INTEGER":
+                int(raw)
+            elif value_type == "DECIMAL":
+                value = Decimal(raw)
+                if not value.is_finite():
+                    raise ValueError
+            elif value_type == "BOOLEAN" and raw.lower() not in {"true", "false"}:
+                raise ValueError
+            elif value_type == "DATE":
+                date.fromisoformat(raw)
+            elif value_type == "DATETIME":
+                datetime.fromisoformat(raw)
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError("INVALID_PARAMETERS") from exc

@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a general semantic capability or a bounded adapter extension.
+title: "[Proposal]: "
+labels: ["proposal", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Business problem
+      description: Describe the business behavior that cannot be expressed today.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Minimal example
+      description: Show the smallest domain-neutral or synthetic example and expected outcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: ownership
+    attributes:
+      label: Expected ownership boundary
+      options:
+        - Domain pack
+        - Integration binding or adapter
+        - Shared semantic contract and core
+        - Studio
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

@@ -1,6 +1,6 @@
 # SemaLoom Studio — 产品与前端设计
 
-状态：设计基线，尚未实现页面。Studio 是同一 Python 应用内的建模管理界面，面向业务建模者、数据接入者和发布审核者。业务示例用于验证通用模型，不决定导航、组件或 core 的行业类型。
+状态：设计基线；当前已实现只读图谱、检查器、Mapping 列表和草稿 revision 原型，第 10 节列出的结构化编辑、来源管理、可信会话和发布流程仍待实现。Studio 与后端部署在同一 Python 应用内，面向业务建模者、数据接入者和发布审核者。业务示例用于验证通用模型，不决定导航、组件或 core 的行业类型。
 
 ## 1. 产品方向
 
@@ -231,7 +231,7 @@ Studio 通过同源服务端会话认证，安全 cookie 配合 CSRF/Origin 检�
 
 图谱的定义节点与边从领域声明及引用索引投影生成，不另外维护一份可编辑的“图数据库真相”。浏览器坐标只是展示状态。业务实例默认仍在来源系统；样本与必要证据按授权及保留策略处理。
 
-Trino 是通过 connector 访问来源的分布式查询引擎，需要独立运行；它不承担本项目元数据库的角色。此项目选择 PostgreSQL 直接持久化，跨库由 Python 进程组合，符合单应用约束。外部业务数据库/API 与项目元数据库分开配置，即使都使用 PostgreSQL 也保持不同角色和访问范围。
+项目元数据由 PostgreSQL 直接持久化，跨库读取由同一 Python 进程按业务 Link 组合。外部业务数据库/API 与项目元数据库分开配置，即使都使用 PostgreSQL 也保持不同角色和访问范围。
 
 同一实体多来源必须同时进入契约与执行验收：SQL 属性与 API 属性绑定到同一业务身份；API 返回错键、重复记录、非有限金额、超时或未完成分页时明确处理。SQL Mapping 的参数化不能替代 API profile 对认证、响应抽取、分页和完整性的声明。
 
@@ -260,4 +260,3 @@ Trino 是通过 connector 访问来源的分布式查询引擎，需要独立运
 - [Vite 静态构建](https://vite.dev/guide/static-deploy)：构建产物与生产部署；preview 不作为生产服务器。
 - [FastAPI 静态文件](https://fastapi.tiangolo.com/tutorial/static-files/)：同进程托管前端资源。
 - [PostgreSQL 事务](https://www.postgresql.org/docs/current/tutorial-transactions.html)：元数据及状态更新的事务基础。
-- [Trino 架构](https://trino.io/docs/current/overview/concepts.html)：引擎、来源和 connector 的职责。

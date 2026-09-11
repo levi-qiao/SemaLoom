@@ -27,7 +27,7 @@ SemaLoom 是通用企业业务语义层，采用 Python 与 Apache-2.0。通过�
 | HTTP / 输入模型 | FastAPI、Pydantic | Pydantic 模型导出 JSON Schema，并加标准校验；领域语义检查由 Compiler 负责 |
 | 关系查询 | SQLAlchemy Core + psycopg | 受限关系计划通过单一 SQL 生成链执行 |
 | 连接与持久化 | PostgreSQL、SQLAlchemy、Alembic | 来源只读与 metadata/action 写入分角色；ORM 仅在持久化实现需要时使用 |
-| API | httpx | 只读 API Provider 与 ActionExecutor 分离；注册服务和受控 OpenAPI profile |
+| API | httpx（引入时） | 只读 API Provider 与 ActionExecutor 分离；当前 API Provider 尚未实现 |
 | 工作台 | React、TypeScript、Vite、React Flow | 构建静态资源由同一应用提供；交互与样式见 [DESIGN](DESIGN.md) |
 | 依赖 DAG | 标准库 graphlib + 有界邻接表搜索 | 用于拓扑排序、环检测与有限路径规划 |
 | 规则 | 小型类型化表达式树、Decimal | 仅字面量、输入引用和允许列表运算；无 Python 代码、任意函数或循环 |
@@ -66,7 +66,7 @@ flowchart TD
 | Compiler | `compile(domainPacks, integrationBindings, catalogSnapshot) → bundle/diagnostics` | 声明解析、公共语义检查、调用接入校验接口、序列化 |
 | Runtime | `query`、`evaluateClaim`、`planAction`、`executeAction` | 依赖展开、路径选择、限额、缓存、规则执行、状态机 |
 | Registry | `load(digest)`、`activate(environment, digest, expectedRevision)` | 持久化、发布审批证据、环境指针并发控制 |
-| ReadProvider | `capabilities`、`planFetch`、`fetch` | 方言、认证、分页、物理过滤、来源引用 |
+| ReadProvider | 当前 `fetch_metric`、`fetch_object` 返回规范化结果；批量规划后续扩展 | 方言、认证、分页、物理过滤、来源引用 |
 | ActionExecutor | `execute`、`reconcile` | 写入协议、幂等传递、read-after-write 核对 |
 | Authorization | `authorize(subject, operation, resources, context) → decision + scope` | 策略计算；决策不等于仅一个布尔值 |
 | Evidence | `record`、`explain` | 受控存储、脱敏、保留策略、来源关系 |
@@ -165,7 +165,7 @@ tests/                      # 契约、行为、集成及 import 依赖检查
 
 ## 能力范围与扩展
 
-V0.1 提供 PostgreSQL 精确粒度查询、进程内跨来源组合、有限声明式 Link、受限规则与政策选择、固定授权 profile、不可变发布及受控 API 读取/草稿操作。T06 提供 REST/MCP，T07 验证两个领域复用同一运行时；T09 提供内置实体工作台。
+当前 pre-alpha 提供 PostgreSQL 精确粒度查询、进程内跨来源组合、有限声明式 Link、受限规则与政策选择、合成授权 profile、发布注册表及草稿原型。REST API 与内置实体工作台可运行；MCP transport、API ReadProvider 和生产身份仍是后续 gate。
 
 第二领域最小案例从 T01–T03 开始：不同业务身份与适用范围必须使用相同编译器、查询和规则接口。领域包以本地声明及精确依赖组合，不承担动态代码执行；冲突拒绝，不按文件加载顺序覆盖。包组合与兼容要求见 [契约第 1 节](spec/semantic-contract-v0.1.md#1-标识类型与发布)。
 

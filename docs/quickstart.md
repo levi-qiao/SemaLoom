@@ -1,25 +1,54 @@
 # Synthetic quickstart
 
-Requires Python 3.13, uv, and local PostgreSQL on `127.0.0.1:5432` (peer/trust as the OS user is enough). No paid APIs or model keys.
+The quickstart uses synthetic data only. It needs Python 3.13, uv, Docker, Node 22, and Corepack;
+no model key or paid service is required.
+
+## Run the backend and Studio
 
 ```bash
 uv sync --frozen
-psql -h 127.0.0.1 -d postgres -c "CREATE DATABASE semaloom_tax;"
-psql -h 127.0.0.1 -d postgres -c "CREATE DATABASE semaloom_orders;"
-psql -h 127.0.0.1 -d postgres -c "CREATE DATABASE semaloom_suppliers;"
-psql -h 127.0.0.1 -d postgres -c "CREATE DATABASE semaloom_meta;"
+docker compose up -d --wait
 uv run semaloom load-fixtures
 uv run semaloom compile examples/tax examples/procurement
-uv run semaloom query --metric tax.reportedIncome --taxpayer TAXPAYER-A --year 2024 --perspective TAX_RETURN
-uv run pytest
+uv run semaloom query \
+  --metric tax.reportedIncome \
+  --binding taxpayer=TAXPAYER-A \
+  --binding taxYear=2024 \
+  --binding perspective=TAX_RETURN \
+  --period-from 2024-01-01 \
+  --period-to 2025-01-01
+uv run semaloom serve
 ```
 
-Local HTTP (demo tokens only, not production auth):
+The API is at `http://127.0.0.1:8000`; Studio is at `/studio/`. The demo bearer
+`tenant-a-analyst` is accepted only by the local-development application. The current Studio bundle
+uses it for its synthetic read-only views.
+
+Each logical source has its own environment binding. Override any source independently with
+`SEMALOOM_TAX_DATABASE_URL`, `SEMALOOM_ORDERS_DATABASE_URL`,
+`SEMALOOM_SUPPLIERS_DATABASE_URL`, or `SEMALOOM_META_DATABASE_URL`.
+
+## Rebuild Studio assets
 
 ```bash
-uv run semaloom serve
-# Authorization: Bearer tenant-a-analyst
-# POST /v0.1/query
+cd frontend
+corepack enable
+corepack install
+pnpm install --frozen-lockfile
+pnpm check
+pnpm build
 ```
 
-Studio static UI is served at `/studio/` after `frontend` is built (`pnpm install && pnpm build` in `frontend/`).
+The Vite build writes versioned assets into `src/semaloom/app/static/`, so the Python wheel serves
+Studio without a second deployment.
+
+## Verify and clean up
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy
+uv run pytest
+uv build
+docker compose down
+```

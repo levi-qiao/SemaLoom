@@ -4,7 +4,7 @@
 
 SemaLoom 是 **Python 编写、采用 Apache-2.0、领域与协议中立的通用企业业务语义层**。企业以领域包维护业务定义，以独立接入绑定与 adapter 对接系统，Agent 通过语义标识使用它们，事实以业务系统为准。首版通过 PostgreSQL 和受控 OpenAPI 完成查询、判断及草稿操作闭环。
 
-合成 PoC 已实现 T00–T07 与 T09；T08A 为准备、T08B 未关闭。各任务的完成条件以 [验收矩阵](acceptance.md) 为准。
+当前实现覆盖编译、PostgreSQL 点查、有限跨库 Link、规则、发布注册表、Action 与 Studio 的合成纵向切片。完整状态见第 8 节；未通过后续 gate 的原型不标记为完成。各任务的完成条件以 [验收矩阵](acceptance.md) 为准。
 
 ## 2. 交付原则
 
@@ -211,7 +211,7 @@ T03 与 T04 可以在 T02 的模型接口稳定后并行开发，T04 的历史�
 
 ### T09 — 实体建模工作台
 
-**设计基线**：[DESIGN](DESIGN.md) 与 [ADR-0008](adr/0008-studio-and-metadata.md)。本次仅完成设计；以下三个实现 gate 分别记录，不以合成界面替代后端能力验收。
+**设计基线**：[DESIGN](DESIGN.md) 与 [ADR-0008](adr/0008-studio-and-metadata.md)。三个实现 gate 分别记录，不以合成界面替代管理、权限和发布能力验收。
 
 #### T09A — 实体图谱与检查器
 
@@ -242,43 +242,23 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 
 ## 8. 当前状态与下一步
 
-**T00–T07、T09 已完成（合成 PostgreSQL PoC）。T08A 为准备完成（未发布）。T08B 未关闭：A47–A48 不以模拟数据通过。** 下一剩余项是授权真实 pilot（见 [pilot-plan](pilot-plan.md)）。个人 Git 远程仍只用于源码管理。
+当前仓库是可运行的合成 pre-alpha。编译和领域中立基座已闭合；查询、规则与注册表有 PostgreSQL 纵向验证；Action、传输和 Studio 仍有明确的生产 gate。T08A 正在补齐可复现构建、开源治理和诚实能力声明；T08B 真实 pilot 未开始。
 
 ### 任务状态
 
 | 任务 | 状态 | 说明 |
 | --- | --- | --- |
-| T00 | 完成 | 工程基座、identity、import 方向 |
-| T01 | 完成 | `semaloom.compiler.compile_paths`，tax+procurement 包 |
-| T02 | 完成 | PostgreSQL 点查、拒绝路径、双库 Link |
-| T03 | 完成 | Decimal Claim，TRUE/FALSE/UNKNOWN |
-| T04 | 完成 | `semaloom_meta` 不可变 release 指针 |
-| T05 | 完成 | plan/approve/execute，无批准不写 |
-| T06 | 完成 | REST `/v0.1/*`，无效 token 401，无模型 key |
-| T07 | 完成 | 采购金路径 + core/compiler 无行业分支检查 |
-| T08A | 准备完成 | [quickstart](quickstart.md)、[capabilities](capabilities.md)；未公开仓库、未上传 PyPI |
+| T00 | 完成 | Python 工程基座、identity、import 方向、发行物检查 |
+| T01 | 完成 | `semaloom.compiler.compile_paths`，tax+procurement 合成包 |
+| T02 | 合成切片 | PostgreSQL 点查与双库 Link；预算、快照、只读角色仍待验收 |
+| T03 | 合成切片 | Decimal Claim 与 TRUE/FALSE/UNKNOWN；容量和组合规则仍待验收 |
+| T04 | 合成切片 | `semaloom_meta` release 指针与摘要校验；发布身份和迁移仍待验收 |
+| T05 | 原型 | plan/approve/execute 基本绑定；真实 executor、恢复、原子前提未完成 |
+| T06 | 原型 | REST `/v0.1/*`；可信生产身份与真实 MCP transport 未完成 |
+| T07 | 合成切片 | 采购金路径 + core/compiler 无行业分支检查 |
+| T08A | 进行中 | [quickstart](quickstart.md)、[capabilities](capabilities.md)、CI 与社区文件 |
 | T08B | 未关闭 | [pilot-plan](pilot-plan.md)；A47–A48 未通过 |
-| T09A–C | 合成完成 | Studio API + `/studio/` 静态页；管理权限为 demo bearer |
+| T09A | 原型 | Studio 图谱、检查器、Mapping 列表与内置静态页 |
+| T09B–C | 未关闭 | 结构化编辑、来源管理、验证/发布、可信会话和浏览器验收未完成 |
 
-检查命令见仓库根 README 与 `.agents/*/handoff.md`。
-
-### T00 交接摘要
-
-- 组合根：`semaloom.app.create_app`；CLI：`uv run semaloom`（默认打印 build identity JSON）。local-dev 不需要业务系统凭证。
-- 已验证工具链：Python 3.13、uv、Ruff、mypy、pytest、hatchling。锁文件：`uv.lock`。
-- Import 方向：`semaloom.checks.check_import_direction`；core/compiler 不得导入 `semaloom.adapters`、`semaloom.domains` 或 `examples`。
-- PostgreSQL fixture 启动方式：`docker compose up -d`（`compose.yaml`）。T00 入口不依赖它。
-- 详细变更文件、命令结果与限制见 `.agents/T00/handoff.md`（gitignored）。
-- 个人源码远程（非 T08A 发布）：https://github.com/levi-qiao/SemaLoom （private，owner `levi-qiao`）。
-
-检查命令与本次结果：
-
-| 命令 | 结果 |
-| --- | --- |
-| `uv sync --frozen` | 通过（CPython 3.13.14，项目根 `.venv`） |
-| `uv run ruff format --check .` | 通过 |
-| `uv run ruff check .` | 通过 |
-| `uv run mypy` | 通过（10 source files） |
-| `uv run pytest` | 通过（12 passed） |
-| `uv run semaloom` 连续两次 | 通过；两次输出相同 identity JSON（product=semaloom, version=0.1.0, semantic_contract=v0.1, profile=local-dev） |
-| `uv build` 后检查 LICENSE 并安装 wheel | 通过；sdist 含 `LICENSE`，wheel 含 `semaloom-0.1.0.dist-info/licenses/LICENSE`；新环境 `semaloom` 可运行 |
+检查命令见仓库根 README；每次交付的实测结果记录在对应 `.agents/*/handoff.md`。

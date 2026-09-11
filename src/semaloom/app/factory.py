@@ -19,6 +19,11 @@ def create_app(*, profile: str | None = None, load_services: bool = True) -> Fas
     """
 
     identity = build_identity(profile=profile)
+    if load_services and identity.profile != "local-dev":
+        raise RuntimeError(
+            "only the local-dev profile is implemented; configure trusted identity and adapters "
+            "before enabling another profile"
+        )
     app = FastAPI(
         title="SemaLoom",
         version=identity.version,

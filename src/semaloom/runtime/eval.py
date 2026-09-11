@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from decimal import Decimal, DivisionByZero, InvalidOperation, Overflow, localcontext
 from typing import Literal
@@ -153,17 +154,33 @@ def evaluate_named_claim(
     policy = select_policy(
         bundle, rule.id, period_from=period_from, period_to=period_to, dimensions=dimensions
     )
-    from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
+    from semaloom.core.results import MetricSelect, ObjectSelect, QueryContext, QueryRequest
 
-    selects = []
+    selects: list[MetricSelect | ObjectSelect] = []
     for spec in rule.inputs:
-        if spec.metric is None:
+        if spec.metric is not None:
+            metric = next(item for item in bundle.metrics if item.id == spec.metric)
+            metric_bindings = dict(bindings)
+            if metric.perspective:
+                metric_bindings.setdefault("perspective", metric.perspective)
+            selects.append(MetricSelect(metric=spec.metric, bindings=metric_bindings))
             continue
-        metric = next(item for item in bundle.metrics if item.id == spec.metric)
-        metric_bindings = dict(bindings)
-        if metric.perspective:
-            metric_bindings.setdefault("perspective", metric.perspective)
-        selects.append(MetricSelect(metric=spec.metric, bindings=metric_bindings))
+        if spec.property is None or spec.object_type is None:
+            raise EvaluationError("INVALID_DEFINITION", f"input {spec.name} has no source")
+        object_type = next(item for item in bundle.object_types if item.id == spec.object_type)
+        try:
+            identity = {key: str(bindings[key]) for key in object_type.identity_keys}
+        except KeyError as exc:
+            raise EvaluationError(
+                "INVALID_BINDINGS", f"missing identity binding {exc.args[0]}"
+            ) from exc
+        selects.append(
+            ObjectSelect(
+                object_type=spec.object_type,
+                identity=identity,
+                properties=(spec.property,),
+            )
+        )
     envelope = query.execute(
         QueryRequest(
             api_version="semaloom/v0.1",
@@ -172,18 +189,23 @@ def evaluate_named_claim(
         ),
         actor,
     )
-    observations = {
-        spec.name: envelope.observations[index]
-        for index, spec in enumerate(rule.inputs)
-        if spec.metric
-    }
+    normalized = tuple(
+        _property_value(spec.property, observation) if spec.property else observation
+        for spec, observation in zip(rule.inputs, envelope.observations, strict=True)
+    )
+    observations = {spec.name: normalized[index] for index, spec in enumerate(rule.inputs)}
     claim, extra = evaluate_rule(rule, observations)
     claim = claim.model_copy(
         update={
-            "context": {"policyId": policy.id, "businessFrom": period_from, "businessTo": period_to}
+            "context": {
+                "policyId": policy.id,
+                "businessFrom": period_from,
+                "businessTo": period_to,
+            },
+            "evidence_refs": tuple(item.activity_id for item in envelope.source_activities),
         }
     )
-    return claim, envelope.observations, envelope.diagnostics + extra, envelope.release_digest
+    return claim, normalized, envelope.diagnostics + extra, envelope.release_digest
 
 
 def _decimal(value: str) -> Decimal:
@@ -203,7 +225,10 @@ def _eval(expr: Expr, values: dict[str, Decimal]) -> Decimal | bool:
     if op == "bool":
         return bool(expr["value"])
     if op == "ref":
-        return values[str(expr["name"])]
+        try:
+            return values[str(expr["name"])]
+        except KeyError as exc:
+            raise EvaluationError("RULE_EVALUATION_ERROR", "unknown input reference") from exc
     if op == "not":
         value = _eval(expr["arg"], values)
         if not isinstance(value, bool):
@@ -220,7 +245,10 @@ def _eval(expr: Expr, values: dict[str, Decimal]) -> Decimal | bool:
             ctx.traps[DivisionByZero] = True
             ctx.traps[Overflow] = True
             quant = Decimal("1").scaleb(-int(expr["places"]))
-            return value.quantize(quant)
+            try:
+                return value.quantize(quant)
+            except InvalidOperation as exc:
+                raise EvaluationError("RULE_EVALUATION_ERROR", "rounding overflow") from exc
     args = [_eval(item, values) for item in expr["args"]]
     if op in {"add", "sub", "mul", "div"}:
         numbers = []
@@ -257,9 +285,15 @@ def _eval(expr: Expr, values: dict[str, Decimal]) -> Decimal | bool:
         else:
             raise EvaluationError("RULE_EVALUATION_ERROR", "unsupported operand")
     if op in {"and", "or"}:
+        if len(bools) != len(args):
+            raise EvaluationError("RULE_EVALUATION_ERROR", "boolean operation requires booleans")
         if op == "and":
             return all(bools)
         return any(bools)
+    if op in {"eq", "ne"} and len(bools) == 2 and len(args) == 2:
+        return bools[0] == bools[1] if op == "eq" else bools[0] != bools[1]
+    if len(decimals) != 2 or len(args) != 2:
+        raise EvaluationError("RULE_EVALUATION_ERROR", "comparison requires matching operands")
     left, right = decimals[0], decimals[1]
     if op == "eq":
         return left == right
@@ -274,3 +308,22 @@ def _eval(expr: Expr, values: dict[str, Decimal]) -> Decimal | bool:
     if op == "ge":
         return left >= right
     raise EvaluationError("RULE_EVALUATION_ERROR", f"unknown op {op}")
+
+
+def _property_value(property_id: str, observation: Observation) -> Observation:
+    if observation.kind != "PRESENT" or observation.value is None:
+        return observation
+    try:
+        values = json.loads(observation.value)
+    except json.JSONDecodeError as exc:
+        raise EvaluationError("PROVIDER_ERROR", "object provider returned invalid JSON") from exc
+    if not isinstance(values, dict) or property_id not in values:
+        return observation.model_copy(
+            update={"kind": "MISSING", "value": None, "reason": "NO_FIELD"}
+        )
+    value = values[property_id]
+    if value is None:
+        return observation.model_copy(
+            update={"kind": "NULL", "value": None, "reason": "NULL_INPUT"}
+        )
+    return observation.model_copy(update={"value": str(value)})

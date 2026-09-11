@@ -141,7 +141,12 @@ def test_studio_graph_and_inspector_and_draft() -> None:
     assert inspector is not None
     assert "procurement.orderAmount" in inspector["metrics"]
     client = TestClient(create_app(load_services=True))
-    headers = {"Authorization": "Bearer tenant-a-analyst"}
+    headers = {"Authorization": "Bearer tenant-a-modeler"}
+    denied = client.get(
+        "/v0.1/studio/graph",
+        headers={"Authorization": "Bearer tenant-a-analyst"},
+    )
+    assert denied.status_code == 403
     graph_resp = client.get("/v0.1/studio/graph", headers=headers)
     assert graph_resp.status_code == 200
     created = client.put(

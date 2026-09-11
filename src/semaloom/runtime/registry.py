@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.digest import sha256_digest
 
 
 class StaleRevision(RuntimeError):
@@ -19,7 +20,8 @@ class Registry:
         self.engine = engine
 
     def publish(self, bundle: CompiledBundle, *, publisher: str) -> str:
-        payload = bundle.model_dump(mode="json", by_alias=True)
+        payload = bundle.model_dump(mode="json", by_alias=True, exclude_none=True)
+        _verify_digest(payload, bundle.digest)
         with self.engine.begin() as conn:
             conn.execute(
                 text(
@@ -85,4 +87,13 @@ class Registry:
         if row is None:
             raise KeyError(digest)
         payload = row.payload if isinstance(row.payload, dict) else json.loads(row.payload)
-        return CompiledBundle.model_validate(payload)
+        bundle = CompiledBundle.model_validate(payload)
+        _verify_digest(payload, digest)
+        return bundle
+
+
+def _verify_digest(payload: dict[str, object], expected: str) -> None:
+    unsigned = dict(payload)
+    claimed = unsigned.pop("digest", None)
+    if claimed != expected or sha256_digest(unsigned) != expected:
+        raise ValueError("RELEASE_DIGEST_MISMATCH")

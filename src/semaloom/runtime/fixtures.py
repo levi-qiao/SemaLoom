@@ -2,21 +2,34 @@
 
 from __future__ import annotations
 
+import os
+
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from semaloom.adapters.postgres import engine_from_url
 
-DEFAULT_URLS = {
-    "tax_pg": "postgresql+psycopg://leviqiao@127.0.0.1:5432/semaloom_tax",
-    "orders_pg": "postgresql+psycopg://leviqiao@127.0.0.1:5432/semaloom_orders",
-    "suppliers_pg": "postgresql+psycopg://leviqiao@127.0.0.1:5432/semaloom_suppliers",
-    "meta": "postgresql+psycopg://leviqiao@127.0.0.1:5432/semaloom_meta",
+LOCAL_URLS = {
+    "tax_pg": "postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_tax",
+    "orders_pg": "postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_orders",
+    "suppliers_pg": ("postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_suppliers"),
+    "meta": "postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_meta",
 }
 
 
+def configured_urls() -> dict[str, str]:
+    """Resolve physical source bindings at the application boundary."""
+
+    return {
+        "tax_pg": os.getenv("SEMALOOM_TAX_DATABASE_URL", LOCAL_URLS["tax_pg"]),
+        "orders_pg": os.getenv("SEMALOOM_ORDERS_DATABASE_URL", LOCAL_URLS["orders_pg"]),
+        "suppliers_pg": os.getenv("SEMALOOM_SUPPLIERS_DATABASE_URL", LOCAL_URLS["suppliers_pg"]),
+        "meta": os.getenv("SEMALOOM_META_DATABASE_URL", LOCAL_URLS["meta"]),
+    }
+
+
 def engines(urls: dict[str, str] | None = None) -> dict[str, Engine]:
-    mapping = urls or DEFAULT_URLS
+    mapping = urls or configured_urls()
     return {key: engine_from_url(url) for key, url in mapping.items()}
 
 

@@ -4,15 +4,72 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  ci:
+  backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: semaloom
+          POSTGRES_PASSWORD: semaloom
+          POSTGRES_DB: semaloom_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U semaloom -d semaloom_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: semaloom
+      SEMALOOM_TAX_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_tax
+      SEMALOOM_ORDERS_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_orders
+      SEMALOOM_SUPPLIERS_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_suppliers
+      SEMALOOM_META_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_meta
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - run: uv python install
       - run: uv sync --frozen --all-groups
+      - name: Create isolated fixture databases
+        run: |
+          for database in semaloom_tax semaloom_orders semaloom_suppliers semaloom_meta; do
+            createdb --host 127.0.0.1 --username semaloom "$database"
+          done
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run mypy
       - run: uv run pytest
       - run: uv run semaloom identity
+      - run: uv build
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: frontend/.node-version
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: corepack enable
+      - run: corepack install
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm build
+      - name: Verify packaged Studio assets are current
+        working-directory: .
+        run: git diff --exit-code -- src/semaloom/app/static

@@ -39,6 +39,27 @@ def test_real_packs_compile_with_stable_digest() -> None:
     assert second.bundle is not None
     assert len(first.bundle.digest) == 64
     assert first.bundle.digest == second.bundle.digest
+    assert {item.id for item in first.bundle.integration_bindings} == {
+        "procurement.draft-api",
+        "procurement.postgres",
+        "procurement.suppliers",
+        "tax.draft-api",
+        "tax.postgres",
+    }
+
+
+def test_integration_binding_ownership_is_validated() -> None:
+    original = _load(TAX)
+    changed = _load(TAX)
+    integration = next(item for item in changed if item.get("id") == "tax.postgres")
+    integration["sourceId"] = "alternate_tax_source"
+
+    invalid = compile_documents(changed)
+    valid = compile_documents(original)
+
+    assert not invalid.ok
+    assert any(item.code == "INVALID_DEFINITION" for item in invalid.diagnostics)
+    assert valid.ok and valid.bundle is not None
 
 
 def test_field_reorder_does_not_change_digest() -> None:

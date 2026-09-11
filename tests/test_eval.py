@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from semaloom.core.expr import parse_expr
 from semaloom.core.model import RuleDef
 from semaloom.core.results import Observation
@@ -85,3 +87,57 @@ def test_unavailable_is_not_false() -> None:
     assert claim.truth == "UNKNOWN"
     assert diagnostics
     assert diagnostics[0].code == "PROVIDER_ERROR"
+
+
+def test_boolean_comparison_and_rounding_failure_are_typed_outcomes() -> None:
+    boolean_rule = RuleDef.from_document(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Rule",
+            "id": "test.booleanComparison",
+            "version": "1.0.0",
+            "claim": "test.booleanComparison",
+            "inputs": [],
+            "expression": {
+                "op": "eq",
+                "args": [{"op": "bool", "value": True}, {"op": "bool", "value": False}],
+            },
+        }
+    )
+    rounded_rule = RuleDef.from_document(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Rule",
+            "id": "test.roundingOverflow",
+            "version": "1.0.0",
+            "claim": "test.roundingOverflow",
+            "inputs": [],
+            "expression": {
+                "op": "round",
+                "value": {"op": "decimal", "value": "1E+100"},
+                "places": 2,
+            },
+        }
+    )
+
+    boolean_claim, boolean_diagnostics = evaluate_rule(boolean_rule, {})
+    rounded_claim, rounded_diagnostics = evaluate_rule(rounded_rule, {})
+
+    assert boolean_claim.truth == "FALSE"
+    assert boolean_diagnostics == ()
+    assert rounded_claim.truth == "UNKNOWN"
+    assert rounded_diagnostics[0].code == "RULE_EVALUATION_ERROR"
+
+
+def test_comparison_requires_exactly_two_operands() -> None:
+    with pytest.raises(ValueError, match="exactly two"):
+        parse_expr(
+            {
+                "op": "eq",
+                "args": [
+                    {"op": "decimal", "value": "1"},
+                    {"op": "decimal", "value": "1"},
+                    {"op": "decimal", "value": "1"},
+                ],
+            }
+        )

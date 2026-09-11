@@ -1,0 +1,10 @@
+changelog:
+  categories:
+    - title: Breaking changes
+      labels: ["breaking-change"]
+    - title: Features
+      labels: ["enhancement", "proposal"]
+    - title: Fixes
+      labels: ["bug"]
+    - title: Other changes
+      labels: ["*"]

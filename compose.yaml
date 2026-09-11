@@ -1,5 +1,4 @@
-# Local PostgreSQL fixture for later query/metadata tasks.
-# T00 does not require this process to launch the identity entry.
+# Local PostgreSQL fixture for query, metadata, and Studio tasks.
 # Start: docker compose up -d
 # Stop:  docker compose down
 # Data is ephemeral (tmpfs); do not store real business data here.
@@ -12,9 +11,11 @@ services:
       POSTGRES_PASSWORD: semaloom
       POSTGRES_DB: semaloom_dev
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     tmpfs:
       - /var/lib/postgresql/data
+    volumes:
+      - ./ops/postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-semaloom-databases.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U semaloom -d semaloom_dev"]
       interval: 5s

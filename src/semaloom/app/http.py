@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
-from semaloom.runtime.auth import RequestActor
+from semaloom.runtime.auth import RequestActor, authorize_query
 from semaloom.runtime.eval import EvaluationError, evaluate_named_claim
 from semaloom.runtime.studio import save_draft, studio_graph, studio_inspector
 
@@ -20,6 +20,7 @@ TOKENS: dict[str, RequestActor] = {
         tenant="tenant-a", subject="bob", roles=("approver", "analyst")
     ),
     "tenant-b-analyst": RequestActor(tenant="tenant-b", subject="carol", roles=("analyst",)),
+    "tenant-a-modeler": RequestActor(tenant="tenant-a", subject="dana", roles=("modeler",)),
 }
 
 FORBIDDEN_KEYS = frozenset({"sql", "url", "permissions", "table", "column", "join"})
@@ -69,6 +70,11 @@ def reject_forbidden(payload: dict[str, Any]) -> None:
     lowered = {str(key).lower() for key in payload}
     if lowered & FORBIDDEN_KEYS:
         raise HTTPException(status_code=400, detail="INVALID_REQUEST")
+
+
+def require_role(actor: RequestActor, *roles: str) -> None:
+    if not set(actor.roles) & set(roles):
+        raise HTTPException(status_code=403, detail="FORBIDDEN")
 
 
 @router.post("/query")
@@ -130,9 +136,14 @@ def plan_action(
 ) -> dict[str, Any]:
     actor = actor_from_header(authorization)
     services = request.app.state.services
-    plan = services.actions.plan(
-        actor, action_id=body.action_id, target=body.target, parameters=body.parameters
-    )
+    try:
+        plan = services.actions.plan(
+            actor, action_id=body.action_id, target=body.target, parameters=body.parameters
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     dumped = plan.model_dump(mode="json", by_alias=True)
     return dict(dumped)
 
@@ -145,7 +156,12 @@ def approve_action(
 ) -> dict[str, str]:
     actor = actor_from_header(authorization)
     services = request.app.state.services
-    services.actions.approve(actor, body.plan_id)
+    try:
+        services.actions.approve(actor, body.plan_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"status": "APPROVED", "planId": body.plan_id}
 
 
@@ -173,9 +189,14 @@ def action_status(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    actor_from_header(authorization)
+    actor = actor_from_header(authorization)
     services = request.app.state.services
-    execution = services.actions.status(plan_id)
+    try:
+        execution = services.actions.status(actor, plan_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="NOT_FOUND") from exc
     if execution is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
     dumped = execution.model_dump(mode="json", by_alias=True)
@@ -192,7 +213,8 @@ def studio_graph_endpoint(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    actor_from_header(authorization)
+    actor = actor_from_header(authorization)
+    require_role(actor, "modeler", "model-viewer", "source-admin")
     return studio_graph(request.app.state.services.bundle)
 
 
@@ -202,7 +224,8 @@ def studio_inspector_endpoint(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    actor_from_header(authorization)
+    actor = actor_from_header(authorization)
+    require_role(actor, "modeler", "model-viewer", "source-admin")
     payload = studio_inspector(request.app.state.services.bundle, objectId)
     if payload is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
@@ -214,7 +237,8 @@ def studio_mappings_endpoint(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    actor_from_header(authorization)
+    actor = actor_from_header(authorization)
+    require_role(actor, "modeler", "model-viewer", "source-admin")
     bundle = request.app.state.services.bundle
     return {
         "mappings": [
@@ -236,7 +260,8 @@ def studio_save_draft(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, int | str]:
-    actor_from_header(authorization)
+    actor = actor_from_header(authorization)
+    require_role(actor, "modeler")
     try:
         revision = save_draft(
             request.app.state.services.registry.engine,
@@ -250,7 +275,10 @@ def studio_save_draft(
 
 
 @router.get("/mcp/tools")
-def mcp_tools() -> dict[str, Any]:
+def mcp_tools(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    actor = actor_from_header(authorization)
+    if not authorize_query(actor, "discover").allowed:
+        raise HTTPException(status_code=403, detail="FORBIDDEN")
     return {
         "tools": [
             {"name": "semantic_query", "input": ["metric", "bindings"]},

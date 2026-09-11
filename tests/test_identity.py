@@ -47,3 +47,8 @@ def test_identity_http_endpoint_matches_build_identity() -> None:
 
     assert response.status_code == 200
     assert response.json() == expected
+
+
+def test_non_demo_http_profile_fails_closed() -> None:
+    with pytest.raises(RuntimeError, match="only the local-dev profile is implemented"):
+        create_app(profile="production", load_services=True)

@@ -55,6 +55,8 @@ def parse_expr(data: object) -> Expr:
     args = data.get("args")
     if not isinstance(args, list) or len(args) < 2:
         raise ValueError(f"{op} requires at least two args")
+    if op in COMPARE_OPS and len(args) != 2:
+        raise ValueError(f"{op} requires exactly two args")
     return {"op": op, "args": [parse_expr(item) for item in args]}
 
 

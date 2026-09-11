@@ -28,9 +28,15 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("load-fixtures", help="Load synthetic PostgreSQL fixtures")
     query_cmd = subparsers.add_parser("query", help="Run a semantic metric point query")
     query_cmd.add_argument("--metric", required=True)
-    query_cmd.add_argument("--taxpayer", default="TAXPAYER-A")
-    query_cmd.add_argument("--year", type=int, default=2024)
-    query_cmd.add_argument("--perspective", default="TAX_RETURN")
+    query_cmd.add_argument(
+        "--binding",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Semantic binding; repeat for each business key or perspective",
+    )
+    query_cmd.add_argument("--period-from", required=True)
+    query_cmd.add_argument("--period-to", required=True)
     query_cmd.add_argument("--tenant", default="tenant-a")
     return parser
 
@@ -78,6 +84,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
         from semaloom.runtime.auth import RequestActor
 
+        try:
+            bindings = _parse_bindings(args.binding)
+        except ValueError as exc:
+            parser.error(str(exc))
         services = build_services(load_data=False)
         envelope = services.query.execute(
             QueryRequest(
@@ -85,15 +95,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 select=(
                     MetricSelect(
                         metric=args.metric,
-                        bindings={
-                            "taxpayer": args.taxpayer,
-                            "taxYear": args.year,
-                            "perspective": args.perspective,
-                        },
+                        bindings=bindings,
                     ),
                 ),
                 context=QueryContext(
-                    business_period={"from": f"{args.year}-01-01", "to": f"{args.year + 1}-01-01"}
+                    business_period={"from": args.period_from, "to": args.period_to}
                 ),
             ),
             RequestActor(tenant=args.tenant, subject="cli", roles=("analyst",)),
@@ -105,6 +111,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if envelope.status == "SUCCEEDED" else 1
     parser.error(f"unknown command: {command}")
     return 2
+
+
+def _parse_bindings(raw: list[str]) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    for item in raw:
+        key, separator, value = item.partition("=")
+        if not separator or not key or not value:
+            raise ValueError(f"invalid --binding {item!r}; expected KEY=VALUE")
+        if key in bindings:
+            raise ValueError(f"duplicate --binding key {key!r}")
+        bindings[key] = value
+    if not bindings:
+        raise ValueError("at least one --binding KEY=VALUE is required")
+    return bindings
 
 
 if __name__ == "__main__":

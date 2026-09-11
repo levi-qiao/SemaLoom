@@ -12,6 +12,13 @@
     - tax.auditIncome.pg
     - tax.vatPayable.pg
     - tax.Taxpayer.pg
+
+- apiVersion: semaloom/v0.1
+  kind: IntegrationBinding
+  id: tax.draft-api
+  version: "1.0.0"
+  provider: openapi
+  sourceId: tax_draft_api
   actionBindings:
     - tax.CreateTaxAdjustmentDraft.openapi
 
@@ -33,6 +40,9 @@
     grainColumns:
       taxpayer: taxpayer_id
       taxpayerId: taxpayer_id
+    propertyColumns:
+      name: name
+      jurisdiction: jurisdiction
       taxYear: tax_year
       perspective: perspective
     filters:

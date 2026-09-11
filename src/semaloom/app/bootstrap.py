@@ -10,8 +10,9 @@ from sqlalchemy import text
 from semaloom.adapters.postgres import PostgresReadProvider
 from semaloom.compiler import compile_paths
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.provider import ReadProvider
 from semaloom.runtime.action import ActionService, DraftStore
-from semaloom.runtime.fixtures import DEFAULT_URLS, engines, load_synthetic
+from semaloom.runtime.fixtures import configured_urls, engines, load_synthetic
 from semaloom.runtime.query import QueryService
 from semaloom.runtime.registry import Registry
 
@@ -25,7 +26,7 @@ class AppServices:
     registry: Registry
     actions: ActionService
     drafts: DraftStore
-    provider: PostgresReadProvider
+    provider: ReadProvider
     environment: str = "dev"
 
     def query_for_digest(self, digest: str) -> QueryService:
@@ -79,4 +80,4 @@ def build_services(*, load_data: bool = True) -> AppServices:
 
 
 def source_urls() -> dict[str, str]:
-    return dict(DEFAULT_URLS)
+    return configured_urls()

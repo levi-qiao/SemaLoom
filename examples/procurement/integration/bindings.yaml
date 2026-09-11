@@ -10,6 +10,13 @@
     - procurement.orderQuantity.orders
     - procurement.Organization.orders
     - procurement.approvalLimit.orders
+
+- apiVersion: semaloom/v0.1
+  kind: IntegrationBinding
+  id: procurement.draft-api
+  version: "1.0.0"
+  provider: openapi
+  sourceId: proc_draft_api
   actionBindings:
     - procurement.CreatePurchaseDraft.openapi
 
@@ -39,6 +46,8 @@
       orderId: order_id
       supplierId: supplier_id
       organizationId: organization_id
+    propertyColumns:
+      status: status
 
 - apiVersion: semaloom/v0.1
   kind: Mapping
@@ -93,6 +102,8 @@
     identityColumn: organization_id
     grainColumns:
       organizationId: organization_id
+    propertyColumns:
+      name: name
 
 - apiVersion: semaloom/v0.1
   kind: Mapping
@@ -126,6 +137,8 @@
     identityColumn: supplier_id
     grainColumns:
       supplierId: supplier_id
+    propertyColumns:
+      name: name
 
 - apiVersion: semaloom/v0.1
   kind: ActionBinding

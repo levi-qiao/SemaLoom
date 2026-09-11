@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from semaloom.core.model import MappingDef
+from semaloom.core.provider import ObjectRead
 from semaloom.core.results import Observation
 
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -42,8 +45,11 @@ class PostgresReadProvider:
             table = require_ident(physical.get("table"), field="table")
             identity_col = require_ident(physical.get("identityColumn"), field="identityColumn")
             value_col = require_ident(physical.get("valueColumn"), field="valueColumn")
+            tenant_col = require_ident(
+                physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
+            )
             params: dict[str, Any] = {"tenant": tenant, "identity": identity_value}
-            clauses = [f"{identity_col} = :identity", "tenant_id = :tenant"]
+            clauses = [f"{identity_col} = :identity", f"{tenant_col} = :tenant"]
             filters = physical.get("filters")
             if isinstance(filters, dict):
                 for key, value in filters.items():
@@ -62,7 +68,7 @@ class PostgresReadProvider:
             sql = text(
                 f"SELECT {value_col} AS value FROM {table} WHERE {' AND '.join(clauses)} LIMIT 2"
             )
-            with engine.connect() as conn:
+            with _read_transaction(engine) as conn:
                 rows = list(conn.execute(sql, params))
         except (SQLAlchemyError, KeyError, ValueError):
             return Observation(
@@ -122,45 +128,64 @@ class PostgresReadProvider:
         *,
         tenant: str,
         identity_value: str,
-    ) -> dict[str, Any] | None:
+    ) -> ObjectRead:
+        observed = datetime.now(UTC).isoformat()
         try:
             engine = self._engine(mapping.source_id)
             table = require_ident(mapping.physical.get("table"), field="table")
             identity_col = require_ident(
                 mapping.physical.get("identityColumn"), field="identityColumn"
             )
-            sql = text(
-                f"SELECT * FROM {table} WHERE {identity_col} = :identity "
-                "AND tenant_id = :tenant LIMIT 2"
+            tenant_col = require_ident(
+                mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
             )
-            with engine.connect() as conn:
+            projection = _object_projection(mapping)
+            if not projection:
+                raise ValueError("object mapping has no approved projection")
+            selected = ", ".join(
+                f'{column} AS "{semantic}"' for semantic, column in projection.items()
+            )
+            sql = text(
+                f"SELECT {selected} FROM {table} WHERE {identity_col} = :identity "
+                f"AND {tenant_col} = :tenant LIMIT 2"
+            )
+            with _read_transaction(engine) as conn:
                 rows = (
                     conn.execute(sql, {"identity": identity_value, "tenant": tenant})
                     .mappings()
                     .all()
                 )
         except (SQLAlchemyError, KeyError, ValueError):
-            return None
-        if len(rows) != 1:
-            return None
-        return dict(rows[0])
-
-    def fetch_keys(
-        self,
-        mapping: MappingDef,
-        *,
-        tenant: str,
-        identity_value: str,
-        key_column: str,
-    ) -> list[str]:
-        row = self.fetch_object(mapping, tenant=tenant, identity_value=identity_value)
-        if row is None:
-            return []
-        column = require_ident(key_column, field="key_column")
-        value = row.get(column) or row.get(key_column)
-        if value is None:
-            return []
-        return [str(value)]
+            return ObjectRead(
+                kind="UNAVAILABLE",
+                reason="PROVIDER_ERROR",
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
+        if len(rows) > 1:
+            return ObjectRead(
+                kind="UNAVAILABLE",
+                reason="CARDINALITY_VIOLATION",
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
+        if not rows:
+            return ObjectRead(
+                kind="MISSING",
+                reason="NO_ROW",
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
+        return ObjectRead(
+            kind="PRESENT",
+            values=dict(rows[0]),
+            mapping_id=mapping.id,
+            source_id=mapping.source_id,
+            observed_at=observed,
+        )
 
     def _engine(self, source_id: str) -> Engine:
         try:
@@ -171,3 +196,23 @@ class PostgresReadProvider:
 
 def engine_from_url(url: str) -> Engine:
     return create_engine(url, pool_pre_ping=True, pool_size=4, max_overflow=0)
+
+
+@contextmanager
+def _read_transaction(engine: Engine) -> Iterator[Connection]:
+    with engine.connect() as conn, conn.begin():
+        conn.execute(text("SET TRANSACTION READ ONLY"))
+        conn.execute(text("SET LOCAL statement_timeout = 5000"))
+        yield conn
+
+
+def _object_projection(mapping: MappingDef) -> dict[str, str]:
+    projection: dict[str, str] = {}
+    for field in ("grainColumns", "propertyColumns"):
+        raw = mapping.physical.get(field)
+        if not isinstance(raw, dict):
+            continue
+        for semantic, physical in raw.items():
+            alias = require_ident(semantic, field=f"{field}.semantic")
+            projection[alias] = require_ident(physical, field=f"{field}.{semantic}")
+    return projection

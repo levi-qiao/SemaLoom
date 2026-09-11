@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible SemaLoom defect using synthetic or redacted data.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, private schemas, or real business records.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: What happened, including the stable diagnostic code when available?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide the smallest synthetic domain pack, request, or command that reproduces it.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.x.y or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Compiler and semantic contracts
+        - Query and rules runtime
+        - Integration adapters
+        - Actions and persistence
+        - Studio
+        - Packaging and documentation
+    validations:
+      required: true
