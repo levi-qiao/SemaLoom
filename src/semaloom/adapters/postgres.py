@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from semaloom.core.model import MappingDef
 from semaloom.core.results import Observation
@@ -34,32 +35,44 @@ class PostgresReadProvider:
         identity_value: str,
         extra_filters: dict[str, str] | None = None,
     ) -> Observation:
-        engine = self._engine(mapping.source_id)
         physical = mapping.physical
-        table = require_ident(physical.get("table"), field="table")
-        identity_col = require_ident(physical.get("identityColumn"), field="identityColumn")
-        value_col = require_ident(physical.get("valueColumn"), field="valueColumn")
-        params: dict[str, Any] = {"tenant": tenant, "identity": identity_value}
-        clauses = [f"{identity_col} = :identity", "tenant_id = :tenant"]
-        filters = physical.get("filters")
-        if isinstance(filters, dict):
-            for key, value in filters.items():
-                column = require_ident(key if key != "metric" else "metric", field=f"filter.{key}")
-                pname = f"f_{column}"
-                clauses.append(f"{column} = :{pname}")
-                params[pname] = value
-        if extra_filters:
-            for key, value in extra_filters.items():
-                column = require_ident(key, field=f"binding.{key}")
-                pname = f"b_{column}"
-                clauses.append(f"{column} = :{pname}")
-                params[pname] = value
-        sql = text(
-            f"SELECT {value_col} AS value FROM {table} WHERE {' AND '.join(clauses)} LIMIT 2"
-        )
-        with engine.connect() as conn:
-            rows = list(conn.execute(sql, params))
         observed = datetime.now(UTC).isoformat()
+        try:
+            engine = self._engine(mapping.source_id)
+            table = require_ident(physical.get("table"), field="table")
+            identity_col = require_ident(physical.get("identityColumn"), field="identityColumn")
+            value_col = require_ident(physical.get("valueColumn"), field="valueColumn")
+            params: dict[str, Any] = {"tenant": tenant, "identity": identity_value}
+            clauses = [f"{identity_col} = :identity", "tenant_id = :tenant"]
+            filters = physical.get("filters")
+            if isinstance(filters, dict):
+                for key, value in filters.items():
+                    column = require_ident(
+                        key if key != "metric" else "metric", field=f"filter.{key}"
+                    )
+                    pname = f"f_{column}"
+                    clauses.append(f"{column} = :{pname}")
+                    params[pname] = value
+            if extra_filters:
+                for key, value in extra_filters.items():
+                    column = require_ident(key, field=f"binding.{key}")
+                    pname = f"b_{column}"
+                    clauses.append(f"{column} = :{pname}")
+                    params[pname] = value
+            sql = text(
+                f"SELECT {value_col} AS value FROM {table} WHERE {' AND '.join(clauses)} LIMIT 2"
+            )
+            with engine.connect() as conn:
+                rows = list(conn.execute(sql, params))
+        except (SQLAlchemyError, KeyError, ValueError):
+            return Observation(
+                kind="UNAVAILABLE",
+                target=mapping.target,
+                reason="PROVIDER_ERROR",
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
         if len(rows) > 1:
             return Observation(
                 kind="UNAVAILABLE",
@@ -110,17 +123,24 @@ class PostgresReadProvider:
         tenant: str,
         identity_value: str,
     ) -> dict[str, Any] | None:
-        engine = self._engine(mapping.source_id)
-        table = require_ident(mapping.physical.get("table"), field="table")
-        identity_col = require_ident(mapping.physical.get("identityColumn"), field="identityColumn")
-        sql = text(
-            f"SELECT * FROM {table} WHERE {identity_col} = :identity "
-            "AND tenant_id = :tenant LIMIT 2"
-        )
-        with engine.connect() as conn:
-            rows = (
-                conn.execute(sql, {"identity": identity_value, "tenant": tenant}).mappings().all()
+        try:
+            engine = self._engine(mapping.source_id)
+            table = require_ident(mapping.physical.get("table"), field="table")
+            identity_col = require_ident(
+                mapping.physical.get("identityColumn"), field="identityColumn"
             )
+            sql = text(
+                f"SELECT * FROM {table} WHERE {identity_col} = :identity "
+                "AND tenant_id = :tenant LIMIT 2"
+            )
+            with engine.connect() as conn:
+                rows = (
+                    conn.execute(sql, {"identity": identity_value, "tenant": tenant})
+                    .mappings()
+                    .all()
+                )
+        except (SQLAlchemyError, KeyError, ValueError):
+            return None
         if len(rows) != 1:
             return None
         return dict(rows[0])

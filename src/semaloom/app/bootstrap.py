@@ -25,6 +25,17 @@ class AppServices:
     registry: Registry
     actions: ActionService
     drafts: DraftStore
+    provider: PostgresReadProvider
+    environment: str = "dev"
+
+    def query_for_digest(self, digest: str) -> QueryService:
+        return QueryService(self.registry.load(digest), self.provider)
+
+    def query_active(self) -> QueryService:
+        current = self.registry.current(self.environment)
+        if current is None:
+            return self.query
+        return QueryService(self.registry.load(current), self.provider)
 
 
 def example_roots() -> list[Path]:
@@ -47,15 +58,23 @@ def build_services(*, load_data: bool = True) -> AppServices:
         {key: pool[key] for key in ("tax_pg", "orders_pg", "suppliers_pg")}
     )
     drafts = DraftStore()
+    registry = Registry(pool["meta"])
     if load_data:
         with pool["meta"].connect() as conn:
             conn.execute(text("SELECT execution_id FROM action_execution LIMIT 1"))
+        registry.publish(bundle, publisher="local-dev")
+        if registry.current("dev") is None:
+            registry.activate("dev", bundle.digest, expected_revision=None)
+        current = registry.current("dev")
+        if current is not None:
+            bundle = registry.load(current)
     return AppServices(
         bundle=bundle,
         query=QueryService(bundle, provider),
-        registry=Registry(pool["meta"]),
+        registry=registry,
         actions=ActionService(bundle, pool["meta"], drafts),
         drafts=drafts,
+        provider=provider,
     )
 
 

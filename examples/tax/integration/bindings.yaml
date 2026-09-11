@@ -30,6 +30,11 @@
     table: tax_metric
     identityColumn: taxpayer_id
     valueColumn: amount
+    grainColumns:
+      taxpayer: taxpayer_id
+      taxpayerId: taxpayer_id
+      taxYear: tax_year
+      perspective: perspective
     filters:
       metric: operatingRevenue
       perspective: TAX_RETURN
@@ -49,6 +54,11 @@
     table: tax_metric
     identityColumn: taxpayer_id
     valueColumn: amount
+    grainColumns:
+      taxpayer: taxpayer_id
+      taxpayerId: taxpayer_id
+      taxYear: tax_year
+      perspective: perspective
     filters:
       metric: operatingRevenue
       perspective: AUDIT_REPORT
@@ -68,6 +78,11 @@
     table: tax_metric
     identityColumn: taxpayer_id
     valueColumn: amount
+    grainColumns:
+      taxpayer: taxpayer_id
+      taxpayerId: taxpayer_id
+      taxYear: tax_year
+      perspective: perspective
     filters:
       metric: otherRevenue
       perspective: TAX_RETURN
@@ -87,6 +102,11 @@
     table: tax_metric
     identityColumn: taxpayer_id
     valueColumn: amount
+    grainColumns:
+      taxpayer: taxpayer_id
+      taxpayerId: taxpayer_id
+      taxYear: tax_year
+      perspective: perspective
     filters:
       metric: reportedIncome
       perspective: TAX_RETURN
@@ -106,6 +126,11 @@
     table: tax_metric
     identityColumn: taxpayer_id
     valueColumn: amount
+    grainColumns:
+      taxpayer: taxpayer_id
+      taxpayerId: taxpayer_id
+      taxYear: tax_year
+      perspective: perspective
     filters:
       metric: auditIncome
       perspective: AUDIT_REPORT
@@ -125,6 +150,11 @@
     table: tax_metric
     identityColumn: taxpayer_id
     valueColumn: amount
+    grainColumns:
+      taxpayer: taxpayer_id
+      taxpayerId: taxpayer_id
+      taxYear: tax_year
+      perspective: perspective
     filters:
       metric: vatPayable
       perspective: TAX_RETURN
@@ -142,6 +172,9 @@
   physical:
     table: tax_taxpayer
     identityColumn: taxpayer_id
+    grainColumns:
+      taxpayer: taxpayer_id
+      taxpayerId: taxpayer_id
 
 - apiVersion: semaloom/v0.1
   kind: ActionBinding

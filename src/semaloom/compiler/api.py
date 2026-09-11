@@ -171,7 +171,7 @@ def compile_documents(
 
     _check_ids(parsed, diagnostics)
     _check_packs(packs, parsed, diagnostics)
-    _check_object_metrics(objects, metrics, diagnostics)
+    _check_object_metrics(objects, metrics, packs, diagnostics)
     _check_links(objects, links, diagnostics)
     _check_rules(metrics, objects, rules, diagnostics)
     _check_policies(rules, policies, diagnostics)
@@ -372,6 +372,7 @@ def _index(items: Sequence[Any]) -> dict[str, Any]:
 def _check_object_metrics(
     objects: Sequence[ObjectTypeDef],
     metrics: Sequence[MetricDef],
+    packs: Sequence[DomainPackDef],
     diagnostics: list[Diagnostic],
 ) -> None:
     object_index = _index(objects)
@@ -408,17 +409,21 @@ def _check_object_metrics(
             diagnostics.append(
                 Diagnostic(code="MISSING_UNIT", path=metric.id, message="unit is required")
             )
+        pack = next(
+            (item for item in packs if namespace_of(metric.id) == item.namespace),
+            None,
+        )
+        context_ids = {dim.id for dim in pack.context_dimensions} if pack is not None else set()
         for dim in metric.grain:
-            if dim in {"taxYear", "perspective", "period", "organizationId", "jurisdiction"}:
+            if dim in property_ids or dim in obj.identity_keys or dim in context_ids:
                 continue
-            if dim not in property_ids and dim not in obj.identity_keys:
-                diagnostics.append(
-                    Diagnostic(
-                        code="INVALID_DIMENSION_TYPE",
-                        path=f"{metric.id}.grain",
-                        message=f"unknown grain dimension {dim}",
-                    )
+            diagnostics.append(
+                Diagnostic(
+                    code="INVALID_DIMENSION_TYPE",
+                    path=f"{metric.id}.grain",
+                    message=f"unknown grain dimension {dim}",
                 )
+            )
         for dep in metric.derived_from:
             if dep not in {other.id for other in metrics}:
                 diagnostics.append(

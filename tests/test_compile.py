@@ -194,6 +194,81 @@ def test_missing_link_identity_is_rejected() -> None:
     assert any(item.code == "MISSING_LINK_IDENTITY" for item in result.diagnostics)
 
 
+def test_missing_unit_is_rejected() -> None:
+    docs = _load(TAX)
+    docs.append(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Metric",
+            "id": "tax.noUnit",
+            "version": "1.0.0",
+            "objectType": "tax.Taxpayer",
+            "valueType": "DECIMAL",
+            "unit": "",
+            "grain": ["taxpayerId"],
+        }
+    )
+    result = compile_documents(docs)
+    assert not result.ok
+    assert any(item.code == "MISSING_UNIT" for item in result.diagnostics)
+
+
+def test_omitted_unit_is_rejected() -> None:
+    docs = _load(TAX)
+    docs.append(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Metric",
+            "id": "tax.omittedUnit",
+            "version": "1.0.0",
+            "objectType": "tax.Taxpayer",
+            "valueType": "DECIMAL",
+            "grain": ["taxpayerId"],
+        }
+    )
+    result = compile_documents(docs)
+    assert not result.ok
+    assert any(item.code in {"MISSING_UNIT", "INVALID_DEFINITION"} for item in result.diagnostics)
+
+
+def test_invalid_value_type_is_rejected() -> None:
+    docs = _load(TAX)
+    docs.append(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Metric",
+            "id": "tax.badType",
+            "version": "1.0.0",
+            "objectType": "tax.Taxpayer",
+            "valueType": "FLOAT",
+            "unit": "CNY",
+            "grain": ["taxpayerId"],
+        }
+    )
+    result = compile_documents(docs)
+    assert not result.ok
+    assert any(item.code == "INVALID_DEFINITION" for item in result.diagnostics)
+
+
+def test_undeclared_context_dimension_is_rejected() -> None:
+    docs = _load(TAX)
+    docs.append(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Metric",
+            "id": "tax.unknownDim",
+            "version": "1.0.0",
+            "objectType": "tax.Taxpayer",
+            "valueType": "DECIMAL",
+            "unit": "CNY",
+            "grain": ["taxpayerId", "notADimension"],
+        }
+    )
+    result = compile_documents(docs)
+    assert not result.ok
+    assert any(item.code == "INVALID_DIMENSION_TYPE" for item in result.diagnostics)
+
+
 def test_incomplete_grain_is_rejected() -> None:
     docs = _load(TAX)
     docs.append(

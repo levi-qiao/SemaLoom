@@ -6,3 +6,6 @@ contractVersion: v0.1
 namespace: procurement
 label: Synthetic procurement
 dependencies: []
+contextDimensions:
+  - id: period
+    valueType: DATE

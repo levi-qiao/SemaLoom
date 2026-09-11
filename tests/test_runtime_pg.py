@@ -4,8 +4,10 @@ from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
-from semaloom.app.bootstrap import build_services, compile_examples
+from semaloom.app.bootstrap import AppServices, build_services, compile_examples
 from semaloom.app.factory import create_app
+from semaloom.compiler.digest import sha256_digest
+from semaloom.core.bundle import CompiledBundle
 from semaloom.core.results import MetricSelect, ObjectSelect, QueryContext, QueryRequest
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.eval import evaluate_named_claim
@@ -93,48 +95,87 @@ def test_two_database_link_composition() -> None:
     assert envelope.extras["targetSourceId"] == "suppliers_pg"
 
 
+def _claim(
+    services: AppServices,
+    *,
+    taxpayer: str,
+    year: int,
+    query: QueryService | None = None,
+    bundle: CompiledBundle | None = None,
+) -> tuple:
+    target = bundle if bundle is not None else services.bundle
+    runner = query if query is not None else services.query
+    return evaluate_named_claim(
+        target,
+        runner,
+        ANALYST,
+        claim_id="tax.incomeReconciles",
+        bindings={"taxpayer": taxpayer, "taxYear": year},
+        period_from=f"{year}-01-01",
+        period_to=f"{year + 1}-01-01",
+        dimensions={"jurisdiction": "CN"},
+    )
+
+
 def test_claim_true_false_unknown_and_error() -> None:
-    services = build_services(load_data=False)
-    true_claim, _, _, _ = evaluate_named_claim(
-        services.bundle,
-        services.query,
-        ANALYST,
-        claim_id="tax.incomeReconciles",
-        bindings={"taxpayer": "TAXPAYER-A", "taxYear": 2024},
-        period_from="2024-01-01",
-        period_to="2025-01-01",
-        dimensions={"jurisdiction": "CN"},
-    )
+    services = build_services(load_data=True)
+    true_claim, _, _, _ = _claim(services, taxpayer="TAXPAYER-A", year=2024)
     assert true_claim.truth == "TRUE"
-    unknown_claim, _, _diagnostics, _ = evaluate_named_claim(
-        services.bundle,
-        services.query,
-        ANALYST,
-        claim_id="tax.incomeReconciles",
-        bindings={"taxpayer": "TAXPAYER-A", "taxYear": 2025},
-        period_from="2025-01-01",
-        period_to="2026-01-01",
-        dimensions={"jurisdiction": "CN"},
-    )
+    false_claim, _, _, _ = _claim(services, taxpayer="TAXPAYER-B", year=2024)
+    assert false_claim.truth == "FALSE"
+    unknown_claim, unknown_obs, _, _ = _claim(services, taxpayer="TAXPAYER-A", year=2025)
     assert unknown_claim.truth == "UNKNOWN"
     assert (
         "NULL_INPUT" in unknown_claim.reason_codes or "MISSING_INPUT" in unknown_claim.reason_codes
     )
+    assert all(item.kind != "UNAVAILABLE" for item in unknown_obs)
+    payload = services.bundle.model_dump(mode="json", by_alias=True)
+    for mapping in payload["mappings"]:
+        if mapping["id"] == "tax.reportedIncome.pg":
+            mapping["physical"]["table"] = "no_such_relation"
+    payload.pop("digest", None)
+    payload["digest"] = sha256_digest(payload)
+    broken = CompiledBundle.model_validate(payload)
+    error_claim, error_obs, error_diags, _ = _claim(
+        services,
+        taxpayer="TAXPAYER-A",
+        year=2024,
+        query=QueryService(broken, services.provider),
+        bundle=broken,
+    )
+    assert error_claim.truth == "UNKNOWN"
+    assert any(item.kind == "UNAVAILABLE" for item in error_obs)
+    assert any(item.code == "PROVIDER_ERROR" for item in error_diags)
+    assert "UNAVAILABLE" in error_claim.reason_codes
+
+
+def _relabel(bundle: CompiledBundle, label: str) -> CompiledBundle:
+    payload = bundle.model_dump(mode="json", by_alias=True)
+    payload["packs"][0]["label"] = label
+    payload.pop("digest", None)
+    payload["digest"] = sha256_digest(payload)
+    return CompiledBundle.model_validate(payload)
 
 
 def test_release_activation_does_not_mix_in_flight_bundle() -> None:
-    services = build_services(load_data=False)
-    digest = services.registry.publish(services.bundle, publisher="tester")
-    services.registry.activate("dev", digest, expected_revision=None)
-    in_flight = QueryService(services.bundle, services.query.provider)
-    services.registry.activate("dev", digest, expected_revision=1)
-    envelope = in_flight.execute(
-        _metric_request(
-            "tax.reportedIncome", taxpayer="TAXPAYER-A", taxYear=2024, perspective="TAX_RETURN"
-        ),
-        ANALYST,
+    services = build_services(load_data=True)
+    bundle_a = services.bundle
+    bundle_b = _relabel(bundle_a, "release-B")
+    assert bundle_a.digest != bundle_b.digest
+    services.registry.publish(bundle_a, publisher="tester")
+    services.registry.publish(bundle_b, publisher="tester")
+    revision = services.registry.activate("dev", bundle_a.digest, expected_revision=None)
+    in_flight = services.query_for_digest(bundle_a.digest)
+    services.registry.activate("dev", bundle_b.digest, expected_revision=revision)
+    request = _metric_request(
+        "tax.reportedIncome", taxpayer="TAXPAYER-A", taxYear=2024, perspective="TAX_RETURN"
     )
-    assert envelope.release_digest == services.bundle.digest
+    env_a = in_flight.execute(request, ANALYST)
+    env_b = services.query_active().execute(request, ANALYST)
+    assert env_a.release_digest == bundle_a.digest
+    assert env_b.release_digest == bundle_b.digest
+    assert env_a.observations[0].kind == "PRESENT"
+    assert env_b.observations[0].kind == "PRESENT"
 
 
 def test_action_plan_has_no_write_and_retry_is_one_effect() -> None:

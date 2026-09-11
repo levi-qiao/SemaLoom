@@ -8,7 +8,7 @@ from semaloom.app.bootstrap import build_services, compile_examples
 from semaloom.app.factory import create_app
 from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
 from semaloom.runtime.auth import RequestActor
-from semaloom.runtime.eval import evaluate_named_claim
+from semaloom.runtime.eval import EvaluationError, evaluate_named_claim
 from semaloom.runtime.studio import studio_graph, studio_inspector
 
 ANALYST = RequestActor(tenant="tenant-a", subject="alice", roles=("analyst",))
@@ -67,10 +67,64 @@ def test_second_domain_gold_paths() -> None:
     assert execution.status == "VERIFIED"
 
 
+def test_policy_period_switch_and_straddle_reject() -> None:
+    services = build_services(load_data=True)
+    y2024, _, _, _ = evaluate_named_claim(
+        services.bundle,
+        services.query,
+        ANALYST,
+        claim_id="tax.incomeReconciles",
+        bindings={"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+        period_from="2024-01-01",
+        period_to="2025-01-01",
+        dimensions={"jurisdiction": "CN"},
+    )
+    y2025, _, _, _ = evaluate_named_claim(
+        services.bundle,
+        services.query,
+        ANALYST,
+        claim_id="tax.incomeReconciles",
+        bindings={"taxpayer": "TAXPAYER-A", "taxYear": 2025},
+        period_from="2025-01-01",
+        period_to="2026-01-01",
+        dimensions={"jurisdiction": "CN"},
+    )
+    assert y2024.context["policyId"] == "tax.incomeReconcilesY2024"
+    assert y2025.context["policyId"] == "tax.incomeReconcilesY2025"
+    assert y2024.context["policyId"] != y2025.context["policyId"]
+    try:
+        evaluate_named_claim(
+            services.bundle,
+            services.query,
+            ANALYST,
+            claim_id="tax.incomeReconciles",
+            bindings={"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            period_from="2024-06-01",
+            period_to="2025-06-01",
+            dimensions={"jurisdiction": "CN"},
+        )
+        raise AssertionError("straddling period must be rejected")
+    except EvaluationError as exc:
+        assert exc.code == "POLICY_PERIOD_SPLIT_REQUIRED"
+
+
 def test_core_and_compiler_have_no_industry_branches() -> None:
-    forbidden = ("if domain ==", "if domain==", "tax.operatingRevenue", "procurement.Order")
-    for folder in (CORE / "core", CORE / "compiler"):
-        for path in folder.rglob("*.py"):
+    forbidden = (
+        "if domain ==",
+        "if domain==",
+        "tax.operatingRevenue",
+        "procurement.Order",
+        "GRAIN_COLUMNS",
+        '"taxYear"',
+        '"organizationId"',
+        '"jurisdiction"',
+        '"taxpayer"',
+        '"orderId"',
+    )
+    roots = (CORE / "core", CORE / "compiler", CORE / "runtime" / "query.py")
+    for folder in roots:
+        paths = [folder] if folder.is_file() else folder.rglob("*.py")
+        for path in paths:
             text = path.read_text(encoding="utf-8")
             for token in forbidden:
                 assert token not in text, f"{path} contains {token}"

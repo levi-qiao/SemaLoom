@@ -156,11 +156,21 @@ class PackDependency(BaseModel):
     version: str
 
 
+class ContextDimension(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid", populate_by_name=True, validate_by_name=True, frozen=True
+    )
+
+    id: str
+    value_type: ValueType = Field(alias="valueType")
+
+
 class DomainPackDef(_Doc):
     kind: Literal["DomainPack"] = "DomainPack"
     contract_version: Literal["v0.1"] = Field(alias="contractVersion")
     namespace: str
     dependencies: tuple[PackDependency, ...] = ()
+    context_dimensions: tuple[ContextDimension, ...] = Field(default=(), alias="contextDimensions")
 
 
 class MappingDef(_Doc):

@@ -6,3 +6,10 @@ contractVersion: v0.1
 namespace: tax
 label: Synthetic tax (demo, not valid tax law)
 dependencies: []
+contextDimensions:
+  - id: taxYear
+    valueType: INTEGER
+  - id: perspective
+    valueType: STRING
+  - id: jurisdiction
+    valueType: STRING

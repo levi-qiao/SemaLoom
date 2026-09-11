@@ -35,6 +35,10 @@
   physical:
     table: proc_order
     identityColumn: order_id
+    grainColumns:
+      orderId: order_id
+      supplierId: supplier_id
+      organizationId: organization_id
 
 - apiVersion: semaloom/v0.1
   kind: Mapping
@@ -49,6 +53,10 @@
   physical:
     table: proc_order
     identityColumn: order_id
+    grainColumns:
+      orderId: order_id
+      supplierId: supplier_id
+      organizationId: organization_id
     valueColumn: amount
 
 - apiVersion: semaloom/v0.1
@@ -64,6 +72,10 @@
   physical:
     table: proc_order
     identityColumn: order_id
+    grainColumns:
+      orderId: order_id
+      supplierId: supplier_id
+      organizationId: organization_id
     valueColumn: quantity
 
 - apiVersion: semaloom/v0.1
@@ -79,6 +91,8 @@
   physical:
     table: proc_organization
     identityColumn: organization_id
+    grainColumns:
+      organizationId: organization_id
 
 - apiVersion: semaloom/v0.1
   kind: Mapping
@@ -93,6 +107,8 @@
   physical:
     table: proc_organization
     identityColumn: organization_id
+    grainColumns:
+      organizationId: organization_id
     valueColumn: approval_limit
 
 - apiVersion: semaloom/v0.1
@@ -108,6 +124,8 @@
   physical:
     table: proc_supplier
     identityColumn: supplier_id
+    grainColumns:
+      supplierId: supplier_id
 
 - apiVersion: semaloom/v0.1
   kind: ActionBinding

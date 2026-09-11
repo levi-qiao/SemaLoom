@@ -21,16 +21,6 @@ from semaloom.core.results import (
 )
 from semaloom.runtime.auth import RequestActor, authorize_query
 
-GRAIN_COLUMNS = {
-    "taxpayer": "taxpayer_id",
-    "taxpayerId": "taxpayer_id",
-    "taxYear": "tax_year",
-    "perspective": "perspective",
-    "organizationId": "organization_id",
-    "orderId": "order_id",
-    "supplierId": "supplier_id",
-}
-
 
 class QueryService:
     def __init__(self, bundle: CompiledBundle, provider: PostgresReadProvider) -> None:
@@ -126,11 +116,15 @@ class QueryService:
                 ),
                 status="FAILED",
             )
+        grain = _grain_columns(source_mapping)
+        key_column = grain.get(link.identity.source) or str(
+            source_mapping.physical.get("identityColumn") or link.identity.source
+        )
         keys = self.provider.fetch_keys(
             source_mapping,
             tenant=actor.tenant,
             identity_value=source_identity,
-            key_column=GRAIN_COLUMNS.get(link.identity.source, link.identity.source),
+            key_column=key_column,
         )
         observations: list[Observation] = []
         activities: list[SourceActivity] = []
@@ -193,12 +187,13 @@ class QueryService:
         identity_key = _identity_binding(item.bindings, mapping)
         metric_def = next((entry for entry in self.bundle.metrics if entry.id == item.metric), None)
         allowed = set(metric_def.grain) if metric_def is not None else set(item.bindings)
+        grain = _grain_columns(mapping)
         extra = {
-            GRAIN_COLUMNS[key]: str(value)
+            grain[key]: str(value)
             for key, value in item.bindings.items()
             if key in allowed
-            and key in GRAIN_COLUMNS
-            and GRAIN_COLUMNS[key] != mapping.physical.get("identityColumn")
+            and key in grain
+            and grain[key] != mapping.physical.get("identityColumn")
         }
         observation = self.provider.fetch_metric(
             mapping,
@@ -280,13 +275,17 @@ def _select_target(item: MetricSelect | ObjectSelect) -> str:
     return item.metric if isinstance(item, MetricSelect) else item.object_type
 
 
+def _grain_columns(mapping: MappingDef) -> dict[str, str]:
+    raw = mapping.physical.get("grainColumns")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): str(value) for key, value in raw.items()}
+
+
 def _identity_binding(bindings: dict[str, str | int], mapping: MappingDef) -> str:
     identity_col = mapping.physical.get("identityColumn")
-    for key, column in GRAIN_COLUMNS.items():
+    for key, column in _grain_columns(mapping).items():
         if column == identity_col and key in bindings:
-            return str(bindings[key])
-    for key in ("taxpayer", "taxpayerId", "orderId", "organizationId", "supplierId"):
-        if key in bindings:
             return str(bindings[key])
     raise ValueError("identity binding is required")
 

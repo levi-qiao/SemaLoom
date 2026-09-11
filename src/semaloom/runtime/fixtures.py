@@ -66,6 +66,7 @@ def _load_tax(engine: Engine) -> None:
                 INSERT INTO tax_taxpayer(tenant_id, taxpayer_id, name, jurisdiction)
                 VALUES
                   ('tenant-a', 'TAXPAYER-A', 'Demo Co', 'CN'),
+                  ('tenant-a', 'TAXPAYER-B', 'Gap Co', 'CN'),
                   ('tenant-b', 'TAXPAYER-A', 'Other Co', 'CN')
                 """
             )
@@ -85,6 +86,8 @@ def _load_tax(engine: Engine) -> None:
                   ('tenant-a', 'TAXPAYER-A', 2024, 'TAX_RETURN', 'vatPayable', 13.00),
                   ('tenant-a', 'TAXPAYER-A', 2025, 'TAX_RETURN', 'reportedIncome', 200.00),
                   ('tenant-a', 'TAXPAYER-A', 2025, 'AUDIT_REPORT', 'auditIncome', NULL),
+                  ('tenant-a', 'TAXPAYER-B', 2024, 'TAX_RETURN', 'reportedIncome', 80.00),
+                  ('tenant-a', 'TAXPAYER-B', 2024, 'AUDIT_REPORT', 'auditIncome', 90.00),
                   ('tenant-b', 'TAXPAYER-A', 2024, 'TAX_RETURN', 'reportedIncome', 999.99)
                 """
             )
