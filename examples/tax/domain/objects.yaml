@@ -1,0 +1,35 @@
+- apiVersion: semaloom/v0.1
+  kind: ObjectType
+  id: tax.Taxpayer
+  version: "1.0.0"
+  label: Taxpayer
+  identityKeys: [taxpayerId]
+  properties:
+    - id: taxpayerId
+      valueType: STRING
+      required: true
+    - id: name
+      valueType: STRING
+    - id: jurisdiction
+      valueType: STRING
+      required: true
+
+- apiVersion: semaloom/v0.1
+  kind: ObjectType
+  id: tax.Filing
+  version: "1.0.0"
+  label: Tax filing
+  identityKeys: [filingId]
+  properties:
+    - id: filingId
+      valueType: STRING
+      required: true
+    - id: taxpayerId
+      valueType: STRING
+      required: true
+    - id: taxYear
+      valueType: INTEGER
+      required: true
+    - id: perspective
+      valueType: STRING
+      required: true

@@ -1,5 +1,11 @@
-"""Shared compiler import root.
+"""Shared compiler. Depends only on protocol-neutral core contracts."""
 
-Depends only on protocol-neutral core contracts. Must not import adapter
-or domain-pack implementations.
-"""
+from semaloom.compiler.api import CompileResult, compile_documents, compile_paths
+from semaloom.compiler.schema import document_schemas
+
+__all__ = [
+    "CompileResult",
+    "compile_documents",
+    "compile_paths",
+    "document_schemas",
+]

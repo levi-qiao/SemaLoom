@@ -21,7 +21,10 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.115",
+    "psycopg[binary]>=3.2",
     "pydantic>=2.10",
+    "pyyaml>=6.0",
+    "sqlalchemy>=2.0",
     "uvicorn[standard]>=0.32",
 ]
 
@@ -39,6 +42,7 @@ dev = [
     "mypy>=1.14",
     "pytest>=8.3",
     "ruff>=0.11",
+    "types-PyYAML>=6.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -48,6 +52,7 @@ packages = ["src/semaloom"]
 include = [
     "/src",
     "/tests",
+    "/examples",
     "/LICENSE",
     "/README.md",
     "/pyproject.toml",
@@ -71,6 +76,7 @@ python_version = "3.13"
 strict = true
 packages = ["semaloom"]
 mypy_path = "src"
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

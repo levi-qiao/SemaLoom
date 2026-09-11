@@ -1,0 +1,63 @@
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: tax.operatingRevenue
+  version: "1.0.0"
+  objectType: tax.Taxpayer
+  valueType: DECIMAL
+  unit: CNY
+  grain: [taxpayerId, taxYear, perspective]
+  aggregation: NONE
+  label: Operating revenue (demo)
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: tax.otherRevenue
+  version: "1.0.0"
+  objectType: tax.Taxpayer
+  valueType: DECIMAL
+  unit: CNY
+  grain: [taxpayerId, taxYear, perspective]
+  aggregation: NONE
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: tax.reportedIncome
+  version: "1.0.0"
+  objectType: tax.Taxpayer
+  valueType: DECIMAL
+  unit: CNY
+  grain: [taxpayerId, taxYear]
+  perspective: TAX_RETURN
+  aggregation: NONE
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: tax.auditIncome
+  version: "1.0.0"
+  objectType: tax.Taxpayer
+  valueType: DECIMAL
+  unit: CNY
+  grain: [taxpayerId, taxYear]
+  perspective: AUDIT_REPORT
+  aggregation: NONE
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: tax.vatPayable
+  version: "1.0.0"
+  objectType: tax.Taxpayer
+  valueType: DECIMAL
+  unit: CNY
+  grain: [taxpayerId, taxYear, perspective]
+  aggregation: NONE
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: tax.adjustmentAmount
+  version: "1.0.0"
+  objectType: tax.Taxpayer
+  valueType: DECIMAL
+  unit: CNY
+  grain: [taxpayerId, taxYear]
+  aggregation: NONE
+  derivedFrom: [tax.reportedIncome, tax.auditIncome]

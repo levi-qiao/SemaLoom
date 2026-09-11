@@ -1,0 +1,41 @@
+- apiVersion: semaloom/v0.1
+  kind: ObjectType
+  id: procurement.Organization
+  version: "1.0.0"
+  identityKeys: [organizationId]
+  properties:
+    - id: organizationId
+      valueType: STRING
+      required: true
+    - id: name
+      valueType: STRING
+
+- apiVersion: semaloom/v0.1
+  kind: ObjectType
+  id: procurement.Supplier
+  version: "1.0.0"
+  identityKeys: [supplierId]
+  properties:
+    - id: supplierId
+      valueType: STRING
+      required: true
+    - id: name
+      valueType: STRING
+
+- apiVersion: semaloom/v0.1
+  kind: ObjectType
+  id: procurement.Order
+  version: "1.0.0"
+  identityKeys: [orderId]
+  properties:
+    - id: orderId
+      valueType: STRING
+      required: true
+    - id: organizationId
+      valueType: STRING
+      required: true
+    - id: supplierId
+      valueType: STRING
+      required: true
+    - id: status
+      valueType: STRING

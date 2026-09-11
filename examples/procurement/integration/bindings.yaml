@@ -1,0 +1,124 @@
+- apiVersion: semaloom/v0.1
+  kind: IntegrationBinding
+  id: procurement.postgres
+  version: "1.0.0"
+  provider: postgres
+  sourceId: orders_pg
+  mappings:
+    - procurement.Order.orders
+    - procurement.orderAmount.orders
+    - procurement.orderQuantity.orders
+    - procurement.Organization.orders
+    - procurement.approvalLimit.orders
+  actionBindings:
+    - procurement.CreatePurchaseDraft.openapi
+
+- apiVersion: semaloom/v0.1
+  kind: IntegrationBinding
+  id: procurement.suppliers
+  version: "1.0.0"
+  provider: postgres
+  sourceId: suppliers_pg
+  mappings:
+    - procurement.Supplier.suppliers
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: procurement.Order.orders
+  version: "1.0.0"
+  target: procurement.Order
+  sourceId: orders_pg
+  provider: postgres
+  objectType: procurement.Order
+  expectedCardinality: ONE
+  completeness: AUTHORITATIVE
+  physical:
+    table: proc_order
+    identityColumn: order_id
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: procurement.orderAmount.orders
+  version: "1.0.0"
+  target: procurement.orderAmount
+  sourceId: orders_pg
+  provider: postgres
+  objectType: procurement.Order
+  expectedCardinality: ONE
+  completeness: AUTHORITATIVE
+  physical:
+    table: proc_order
+    identityColumn: order_id
+    valueColumn: amount
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: procurement.orderQuantity.orders
+  version: "1.0.0"
+  target: procurement.orderQuantity
+  sourceId: orders_pg
+  provider: postgres
+  objectType: procurement.Order
+  expectedCardinality: ONE
+  completeness: AUTHORITATIVE
+  physical:
+    table: proc_order
+    identityColumn: order_id
+    valueColumn: quantity
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: procurement.Organization.orders
+  version: "1.0.0"
+  target: procurement.Organization
+  sourceId: orders_pg
+  provider: postgres
+  objectType: procurement.Organization
+  expectedCardinality: ONE
+  completeness: AUTHORITATIVE
+  physical:
+    table: proc_organization
+    identityColumn: organization_id
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: procurement.approvalLimit.orders
+  version: "1.0.0"
+  target: procurement.approvalLimit
+  sourceId: orders_pg
+  provider: postgres
+  objectType: procurement.Organization
+  expectedCardinality: ONE
+  completeness: AUTHORITATIVE
+  physical:
+    table: proc_organization
+    identityColumn: organization_id
+    valueColumn: approval_limit
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: procurement.Supplier.suppliers
+  version: "1.0.0"
+  target: procurement.Supplier
+  sourceId: suppliers_pg
+  provider: postgres
+  objectType: procurement.Supplier
+  expectedCardinality: ONE
+  completeness: AUTHORITATIVE
+  physical:
+    table: proc_supplier
+    identityColumn: supplier_id
+
+- apiVersion: semaloom/v0.1
+  kind: ActionBinding
+  id: procurement.CreatePurchaseDraft.openapi
+  version: "1.0.0"
+  action: procurement.CreatePurchaseDraft
+  sourceId: proc_draft_api
+  provider: openapi
+  idempotent: true
+  reconcilable: true
+  physical:
+    operationId: createPurchaseDraft
+    method: POST
+    path: /drafts

@@ -1,0 +1,8 @@
+apiVersion: semaloom/v0.1
+kind: DomainPack
+id: tax
+version: "1.0.0"
+contractVersion: v0.1
+namespace: tax
+label: Synthetic tax (demo, not valid tax law)
+dependencies: []

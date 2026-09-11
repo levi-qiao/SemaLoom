@@ -1,0 +1,23 @@
+- apiVersion: semaloom/v0.1
+  kind: Link
+  id: procurement.orderSupplier
+  version: "1.0.0"
+  source: procurement.Order
+  target: procurement.Supplier
+  cardinality: ONE
+  identity:
+    source: supplierId
+    target: supplierId
+  traversal: FORWARD
+
+- apiVersion: semaloom/v0.1
+  kind: Link
+  id: procurement.orderOrganization
+  version: "1.0.0"
+  source: procurement.Order
+  target: procurement.Organization
+  cardinality: ONE
+  identity:
+    source: organizationId
+    target: organizationId
+  traversal: FORWARD

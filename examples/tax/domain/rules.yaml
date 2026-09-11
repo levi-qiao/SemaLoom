@@ -1,0 +1,84 @@
+- apiVersion: semaloom/v0.1
+  kind: Rule
+  id: tax.incomeReconciles
+  version: "1.0.0"
+  label: Reported income matches audit income (demo)
+  claim: tax.incomeReconciles
+  applicability: [jurisdiction]
+  inputs:
+    - name: reported
+      metric: tax.reportedIncome
+      required: true
+    - name: audit
+      metric: tax.auditIncome
+      required: true
+  expression:
+    op: eq
+    args:
+      - op: round
+        value:
+          op: sub
+          args:
+            - {op: ref, name: reported}
+            - {op: ref, name: audit}
+        places: 2
+        mode: ROUND_HALF_UP
+      - {op: decimal, value: "0.00"}
+
+- apiVersion: semaloom/v0.1
+  kind: Rule
+  id: tax.roundedTaxableIncome
+  version: "1.0.0"
+  outputMetric: tax.adjustmentAmount
+  inputs:
+    - name: reported
+      metric: tax.reportedIncome
+      required: true
+    - name: audit
+      metric: tax.auditIncome
+      required: true
+  expression:
+    op: round
+    value:
+      op: sub
+      args:
+        - {op: ref, name: audit}
+        - {op: ref, name: reported}
+    places: 2
+    mode: ROUND_HALF_UP
+
+- apiVersion: semaloom/v0.1
+  kind: Rule
+  id: tax.vatPresent
+  version: "1.0.0"
+  claim: tax.vatPresent
+  inputs:
+    - name: vat
+      metric: tax.vatPayable
+      required: true
+  expression:
+    op: ge
+    args:
+      - {op: ref, name: vat}
+      - {op: decimal, value: "0.00"}
+
+- apiVersion: semaloom/v0.1
+  kind: Rule
+  id: tax.revenueComplete
+  version: "1.0.0"
+  claim: tax.revenueComplete
+  inputs:
+    - name: operating
+      metric: tax.operatingRevenue
+      required: true
+    - name: other
+      metric: tax.otherRevenue
+      required: true
+  expression:
+    op: ge
+    args:
+      - op: add
+        args:
+          - {op: ref, name: operating}
+          - {op: ref, name: other}
+      - {op: decimal, value: "0.00"}

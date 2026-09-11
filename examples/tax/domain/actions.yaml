@@ -1,0 +1,25 @@
+- apiVersion: semaloom/v0.1
+  kind: Action
+  id: tax.CreateTaxAdjustmentDraft
+  version: "1.0.0"
+  targetObject: tax.Taxpayer
+  effect: Create a tax adjustment draft in the synthetic filing system
+  preconditions: [tax.incomeReconciles]
+  parameters:
+    - name: amount
+      valueType: DECIMAL
+      required: true
+    - name: taxYear
+      valueType: INTEGER
+      required: true
+    - name: note
+      valueType: STRING
+      required: false
+
+- apiVersion: semaloom/v0.1
+  kind: AuthorizationProfile
+  id: tax.defaultAccess
+  version: "1.0.0"
+  roles: [analyst, approver]
+  capabilities: [query, evaluateClaim, planAction]
+  resourceTypes: [tax.Taxpayer, tax.Filing]

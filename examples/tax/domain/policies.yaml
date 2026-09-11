@@ -1,0 +1,21 @@
+- apiVersion: semaloom/v0.1
+  kind: Policy
+  id: tax.incomeReconcilesY2024
+  version: "1.0.0"
+  rule: tax.incomeReconciles
+  dimensions:
+    jurisdiction: CN
+  interval:
+    effectiveFrom: "2024-01-01"
+    effectiveTo: "2025-01-01"
+
+- apiVersion: semaloom/v0.1
+  kind: Policy
+  id: tax.incomeReconcilesY2025
+  version: "1.0.0"
+  rule: tax.incomeReconciles
+  dimensions:
+    jurisdiction: CN
+  interval:
+    effectiveFrom: "2025-01-01"
+    effectiveTo: null

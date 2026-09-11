@@ -1,0 +1,52 @@
+- apiVersion: semaloom/v0.1
+  kind: Rule
+  id: procurement.amountWithinLimit
+  version: "1.0.0"
+  claim: procurement.amountWithinLimit
+  applicability: [organizationId]
+  inputs:
+    - name: amount
+      metric: procurement.orderAmount
+      required: true
+    - name: limit
+      metric: procurement.approvalLimit
+      required: true
+  expression:
+    op: le
+    args:
+      - {op: ref, name: amount}
+      - {op: ref, name: limit}
+
+- apiVersion: semaloom/v0.1
+  kind: Policy
+  id: procurement.amountWithinLimitOrgA
+  version: "1.0.0"
+  rule: procurement.amountWithinLimit
+  dimensions:
+    organizationId: ORG-A
+  interval:
+    effectiveFrom: "2024-01-01"
+    effectiveTo: null
+
+- apiVersion: semaloom/v0.1
+  kind: Action
+  id: procurement.CreatePurchaseDraft
+  version: "1.0.0"
+  targetObject: procurement.Order
+  effect: Create a purchase draft in the synthetic order system
+  preconditions: [procurement.amountWithinLimit]
+  parameters:
+    - name: amount
+      valueType: DECIMAL
+      required: true
+    - name: note
+      valueType: STRING
+      required: false
+
+- apiVersion: semaloom/v0.1
+  kind: AuthorizationProfile
+  id: procurement.defaultAccess
+  version: "1.0.0"
+  roles: [buyer, approver]
+  capabilities: [query, evaluateClaim, planAction]
+  resourceTypes: [procurement.Order, procurement.Supplier]

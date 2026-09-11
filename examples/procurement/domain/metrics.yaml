@@ -1,0 +1,29 @@
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: procurement.orderAmount
+  version: "1.0.0"
+  objectType: procurement.Order
+  valueType: DECIMAL
+  unit: CNY
+  grain: [orderId]
+  aggregation: NONE
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: procurement.orderQuantity
+  version: "1.0.0"
+  objectType: procurement.Order
+  valueType: DECIMAL
+  unit: EA
+  grain: [orderId]
+  aggregation: NONE
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: procurement.approvalLimit
+  version: "1.0.0"
+  objectType: procurement.Organization
+  valueType: DECIMAL
+  unit: CNY
+  grain: [organizationId]
+  aggregation: NONE
