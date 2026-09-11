@@ -60,5 +60,5 @@ must not be exposed as production authentication. Full setup and cleanup steps a
 - [Contributing](CONTRIBUTING.md) — development workflow and checks.
 - [Security](SECURITY.md) — trust boundaries and private reporting.
 
-Apache-2.0 licensed. See [LICENSE](LICENSE), [Code of Conduct](CODE_OF_CONDUCT.md), and
-[Support](SUPPORT.md).
+Apache-2.0 licensed. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md),
+[Code of Conduct](CODE_OF_CONDUCT.md), and [Support](SUPPORT.md).
