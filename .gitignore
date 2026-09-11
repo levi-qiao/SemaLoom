@@ -1,0 +1,20 @@
+.agents/
+# Track the project agent instructions even if a global ignore lists AGENTS.md.
+!AGENTS.md
+.DS_Store
+.idea/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.env
+.env.*
+!.env.example
+*.log
