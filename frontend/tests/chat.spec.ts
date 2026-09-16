@@ -92,7 +92,13 @@ test('ontology explanations show definition tables and keep the answer beginning
   await page.getByRole('button',{name:'发送',exact:true}).click();
   await expect(page.getByText('本体说明 · AI 解读，非数据查询结果',{exact:true})).toBeInViewport();
   await expect(page.getByText('可以围绕当前库存模型提问。',{exact:true})).toBeInViewport();
-  await expect(page.getByRole('cell',{name:'当前版本声明的库存口径',exact:true})).toBeAttached();
+  await page.getByText(/当前业务模型目录/).click();
+  await expect(page.getByRole('cell',{name:'当前版本声明的库存口径',exact:true})).toBeVisible();
   expect(await page.locator('.ontology-catalog > .evidence-table-wrap').evaluate(e=>e.getBoundingClientRect().height)).toBeLessThanOrEqual(361);
+  await page.getByRole('button', {name: '查看定义'}).click();
+  await expect(page.locator('.evidence-modal')).toBeVisible();
+  await expect(page.locator('.evidence-modal').getByText('inventory.stock')).toBeVisible();
+  await page.getByRole('button', {name: '关闭'}).click();
+  await expect(page.locator('.evidence-modal')).toHaveCount(0);
   await expect(page.locator('.chat-evidence pre')).toHaveCount(0);
 });
