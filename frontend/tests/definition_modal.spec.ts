@@ -108,9 +108,6 @@ test('definition modal renders human business language and physical provenance f
   await expect(modal.getByText('幂等执行保障')).toBeVisible();
   await expect(modal.getByText('支持对账与补偿')).toBeVisible();
 
-  // Screenshot Action Modal
-  await page.screenshot({ path: '/var/folders/w6/c0cnf1y93l92d34q4bjq90r40000gn/T/modal_action.png' });
-
   // Close modal
   await page.getByRole('button', { name: '关闭' }).click();
   await expect(modal).toHaveCount(0);
@@ -131,7 +128,4 @@ test('definition modal renders human business language and physical provenance f
   await expect(modal.getByRole('cell', { name: 'order_id' })).toBeVisible();
   await expect(modal.getByRole('cell', { name: '金额' })).toBeVisible();
   await expect(modal.getByRole('cell', { name: 'amount' })).toBeVisible();
-
-  // Screenshot ObjectType Modal
-  await page.screenshot({ path: '/var/folders/w6/c0cnf1y93l92d34q4bjq90r40000gn/T/modal_entity.png' });
 });
