@@ -3,6 +3,7 @@ import Markdown from "react-markdown";
 import { apiHeaders, checkedJson, errorDetail, type StudioSession } from "./api";
 
 import { EvidenceCard, type Evidence } from "./EvidenceCard";
+import { IconSend, IconSparkle } from "./icons";
 type Confidence = { score: number; level: string; label: string; factors: { code: string; detail: string }[] };
 type FollowUp = { label: string; message: string };
 type Answer = {
@@ -174,8 +175,18 @@ export function ChatPage({ session }: { session: StudioSession }) {
   }
 
   return <section className="chat-page" aria-label="业务问答">
-    <div className="chat-toolbar"><div><strong>业务分析助手</strong><small>{config?.model ?? "正在检查连接"} · 基于当前运行模型</small></div>
-      <button className="secondary" onClick={fresh} disabled={busy}>新建对话</button></div>
+    <div className="chat-toolbar">
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ display: "grid", placeItems: "center", width: 28, height: 28, borderRadius: 6, background: "var(--accent-subtle)", color: "var(--accent)" }}>
+          <IconSparkle size={15} />
+        </span>
+        <div>
+          <strong>业务分析助手</strong>
+          <small>{config?.model ?? "正在检查连接"} · 基于当前运行模型</small>
+        </div>
+      </div>
+      <button className="secondary" onClick={fresh} disabled={busy}>新建对话</button>
+    </div>
     <div className="chat-history" aria-live="polite">
       {!turns.length && !pending && <div className="chat-empty"><h2>从一个业务问题开始</h2><p>查找企业、比较数字，或检查已定义的业务规则。结果会附上引擎证据。</p>
         <div className="cluster">{["当前有哪些可分析的业务对象？", "当前模型有哪些业务规则和适用范围？"].map(question => <button className="secondary" key={question} onClick={() => setText(question)}>{question}</button>)}</div></div>}

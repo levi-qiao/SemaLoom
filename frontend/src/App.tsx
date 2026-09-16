@@ -19,6 +19,7 @@ import { draftSaveLabel, gateErrorMessage } from "./labels";
 import { ReleasePage } from "./ReleasePage";
 import { SourcePage } from "./SourcePage";
 import { StudioDialog } from "./StudioDialog";
+import { IconChat, IconEntity, IconGraph, IconRelease, IconSource } from "./icons";
 import type { DraftDocument, Edge, GraphMeta, Mapping, Node, Source, View } from "./types";
 
 type DialogState =
@@ -339,11 +340,11 @@ export default function App() {
           <div><strong>SemaLoom</strong><small>Semantic Studio</small></div>
         </div>
         <div className="nav-group">
-          <NavButton label="图谱" active={view === "graph"} onClick={() => selectView("graph")} />
-          <NavButton label="实体" active={view === "objects"} onClick={() => selectView("objects")} />
-          <NavButton label="数据源" active={view === "sources"} onClick={() => selectView("sources")} />
-          <NavButton label="问答" active={view === "chat"} onClick={() => selectView("chat")} />
-          <NavButton label="变更" active={view === "release"} onClick={() => selectView("release")} />
+          <NavButton icon={<IconGraph size={17} />} label="图谱" active={view === "graph"} onClick={() => selectView("graph")} />
+          <NavButton icon={<IconEntity size={17} />} label="实体" active={view === "objects"} onClick={() => selectView("objects")} />
+          <NavButton icon={<IconSource size={17} />} label="数据源" active={view === "sources"} onClick={() => selectView("sources")} />
+          <NavButton icon={<IconChat size={17} />} label="问答" active={view === "chat"} onClick={() => selectView("chat")} />
+          <NavButton icon={<IconRelease size={17} />} label="变更" active={view === "release"} onClick={() => selectView("release")} />
         </div>
         <div className="nav-spacer" />
         <div className="environment">
@@ -354,8 +355,8 @@ export default function App() {
       <main>
         <header>
           <div className="context-title">
-            <small>{viewNames[view].description}</small>
             <h1>{viewNames[view].title}</h1>
+            <small>{viewNames[view].description}</small>
           </div>
           <div className="header-actions">
             {view === "release" || view === "chat" ? null : (
@@ -519,6 +520,11 @@ export default function App() {
   );
 }
 
-function NavButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return <button aria-pressed={active} className={active ? "active" : ""} onClick={onClick}>{label}</button>;
+function NavButton({ label, icon, active, onClick }: { label: string; icon?: React.ReactNode; active: boolean; onClick: () => void }) {
+  return (
+    <button aria-pressed={active} className={active ? "active" : ""} onClick={onClick}>
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
 }

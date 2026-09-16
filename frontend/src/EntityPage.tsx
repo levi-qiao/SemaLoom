@@ -139,15 +139,19 @@ export function EntityPage({
             onChange={onChange}
             onError={onError}
           />
-          {confirmDelete ? (
-            <div className="confirm-delete">
-              <p>确定删除实体「{String(selected.label || selected.id)}」？其他未保存修改会保留。</p>
-              <button className="danger-button" onClick={confirmRemove}>确认删除</button>
-              <button className="secondary" onClick={() => setConfirmDelete(false)}>取消</button>
-            </div>
-          ) : (
-            <button className="danger-button" onClick={() => void requestDelete()}>删除此实体</button>
-          )}
+          <div style={{ marginTop: 28, paddingTop: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end" }}>
+            {confirmDelete ? (
+              <div className="confirm-delete" style={{ width: "100%", marginTop: 0 }}>
+                <p>确定删除实体「{String(selected.label || selected.id)}」？其他未保存修改会保留。</p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="danger-button" onClick={confirmRemove}>确认删除</button>
+                  <button className="secondary" onClick={() => setConfirmDelete(false)}>取消</button>
+                </div>
+              </div>
+            ) : (
+              <button className="danger-button" onClick={() => void requestDelete()}>删除此实体</button>
+            )}
+          </div>
         </Panel>
       ) : (
         <Panel title="实体">
