@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiHeaders, checkedJson } from "./api";
 import {
   array,
+  defaultMappingCapabilities,
   emptyMappingPhysical,
   emptyMetricPhysical,
   isOpenApi,
@@ -87,15 +88,6 @@ export function MappingEditor({
     setPreviewError(null);
   }, [mapping.physical, saved]);
 
-  useEffect(() => {
-    setBindings({});
-    setIdentity("");
-    setActiveField(identityKeys[0] ?? "");
-    setTableRows([]);
-    setRowsReason(null);
-    setPickedRow(null);
-  }, [mapping.id]);
-
   const tables = resources.filter((item) => item.kind === "table" || (!item.kind && !item.method));
   const operations = resources.filter((item) => item.kind === "operation" || item.method === "GET");
   const table = text(physical.table);
@@ -105,20 +97,34 @@ export function MappingEditor({
   const columns = api ? selectedOperation?.columns ?? [] : selectedTable?.columns ?? [];
   const parameters = selectedOperation?.parameters ?? [];
   const properties = array(objectType?.properties) as Record<string, unknown>[];
-  const identityKeys = array(objectType?.identityKeys).map(String);
+  const identityKeys = array(objectType?.identityKeys).map(String).filter(Boolean);
+  const primaryIdentity = identityKeys[0] ?? "id";
   const grain = object(api ? physical.grainPointers : physical.grainColumns);
   const propertyBindings = object(api ? physical.propertyPointers : physical.propertyColumns);
   const filters = object(physical.filters);
   const hasResource = api ? Boolean(path || text(physical.operationId)) : Boolean(table);
+
+  useEffect(() => {
+    setBindings({});
+    setIdentity("");
+    setActiveField(identityKeys[0] ?? "");
+    setTableRows([]);
+    setRowsReason(null);
+    setPickedRow(null);
+  }, [mapping.id]);
+
   const boundColumns = useMemo(() => {
     const found = new Set<string>();
     for (const value of Object.values({ ...grain, ...propertyBindings })) {
       if (value) found.add(String(value));
     }
+    for (const value of Object.values(object(physical.identityColumns))) {
+      if (value) found.add(String(value));
+    }
     if (text(physical.identityColumn)) found.add(text(physical.identityColumn));
     if (text(physical.valueColumn)) found.add(text(physical.valueColumn));
     return found;
-  }, [grain, propertyBindings, physical.identityColumn, physical.valueColumn]);
+  }, [grain, propertyBindings, physical.identityColumns, physical.identityColumn, physical.valueColumn]);
   const extraBindings = useMemo(
     () => requiredPreviewBindings(physical, metricMode, identityKeys),
     [physical, metricMode, identityKeys],
@@ -160,14 +166,14 @@ export function MappingEditor({
   function setSource(nextId: string) {
     const profile = profiles.find((item) => item.sourceId === nextId);
     const provider = profile?.provider ?? "postgres";
-    const identityKey = identityKeys[0] ?? "id";
     const nextMapping = {
       ...mapping,
       sourceId: nextId,
       provider,
+      capabilities: defaultMappingCapabilities(provider),
       physical: metric
-        ? emptyMetricPhysical(provider, identityKey, array(metric.grain).map(String))
-        : emptyMappingPhysical(provider, identityKey),
+        ? emptyMetricPhysical(provider, identityKeys, array(metric.grain).map(String))
+        : emptyMappingPhysical(provider, identityKeys),
     };
     onChange(rehomeMapping(replaceDocument(documents, nextMapping), nextMapping.id, nextId, provider));
   }
@@ -185,13 +191,14 @@ export function MappingEditor({
 
   function selectOperation(nextPath: string) {
     const resource = operations.find((item) => item.name === nextPath);
-    const identityKey = identityKeys[0] ?? "id";
-    const parameter = resource?.parameters?.[0]?.name || text(physical.identityParameter) || identityKey;
+    const parameter = resource?.parameters?.[0]?.name || text(physical.identityParameter) || primaryIdentity;
+    const identityParameters = { ...object(physical.identityParameters), [primaryIdentity]: parameter };
     setPhysical(
       openApiPhysical(physical, {
         path: nextPath,
         operationId: resource?.operationId || resource?.id || "",
         identityParameter: parameter,
+        identityParameters,
       }, metricMode),
     );
   }
@@ -202,9 +209,12 @@ export function MappingEditor({
       const propertyPointers = { ...propertyBindings };
       if (identityField || grain[semantic] !== undefined) {
         grainPointers[semantic] = value;
+        const identityPointers = { ...object(physical.identityPointers) };
+        if (identityField) identityPointers[semantic] = value;
         setPhysical(
           openApiPhysical(physical, {
-            identityPointer: identityField ? value : physical.identityPointer,
+            identityPointer: identityField && semantic === primaryIdentity ? value : physical.identityPointer,
+            identityPointers,
             grainPointers,
           }, metricMode),
         );
@@ -216,9 +226,12 @@ export function MappingEditor({
       return;
     }
     if (identityField || grain[semantic] !== undefined) {
+      const identityColumns = { ...object(physical.identityColumns) };
+      if (identityField) identityColumns[semantic] = value;
       setPhysical(
         postgresPhysical(physical, {
-          identityColumn: identityField ? value : physical.identityColumn,
+          identityColumn: identityField && semantic === primaryIdentity ? value : physical.identityColumn,
+          identityColumns,
           grainColumns: { ...grain, [semantic]: value },
         }, metricMode),
       );
@@ -239,9 +252,15 @@ export function MappingEditor({
 
   function pickRow(index: number, row: Record<string, string | null>) {
     setPickedRow(index);
-    const identityCol = text(physical.identityColumn) || columns[0]?.name;
-    const value = identityCol ? row[identityCol] : null;
-    if (value) setIdentity(String(value));
+    const nextBindings: Record<string, string> = { ...bindings };
+    for (const key of identityKeys) {
+      const column = text(grain[key]) || text(object(physical.identityColumns)[key]);
+      const value = column ? row[column] : null;
+      if (value == null) continue;
+      if (key === primaryIdentity) setIdentity(String(value));
+      else nextBindings[key] = String(value);
+    }
+    setBindings(nextBindings);
   }
 
   function setFilter(previousKey: string, nextKey: string, value: string) {
@@ -400,13 +419,20 @@ export function MappingEditor({
           )}
           {!compact && api ? (
             <label className="form-field">
-              <span>身份参数</span>
+              <span>主身份参数</span>
               <select
-                aria-label="身份参数"
+                aria-label="主身份参数"
                 value={text(physical.identityParameter)}
-                onChange={(event) =>
-                  setPhysical(openApiPhysical(physical, { identityParameter: event.target.value }, metricMode))
-                }
+                onChange={(event) => {
+                  const identityParameters = {
+                    ...object(physical.identityParameters),
+                    [primaryIdentity]: event.target.value,
+                  };
+                  setPhysical(openApiPhysical(physical, {
+                    identityParameter: event.target.value,
+                    identityParameters,
+                  }, metricMode));
+                }}
               >
                 {(parameters.length ? parameters : identityKeys.map((item) => ({ name: item }))).map((item) => (
                   <option key={item.name} value={item.name}>{item.name}</option>
@@ -464,7 +490,7 @@ export function MappingEditor({
           </label>
           {grainDims.map((semantic) => {
             const identityField = identityKeys.includes(semantic);
-            const value = text(grain[semantic]) || (identityField ? text(physical.identityColumn) : "");
+            const value = text(grain[semantic]) || (identityField ? text(object(physical.identityColumns)[semantic]) || text(physical.identityColumn) : "");
             return (
               <div className="mapping-pair-row" key={semantic}>
                 <span>
@@ -579,8 +605,8 @@ export function MappingEditor({
         </p>
       ) : null}
       <label className="form-field">
-        <span>试读业务键</span>
-        <input value={identity} placeholder="例如 PO-001" onChange={(event) => setIdentity(event.target.value)} />
+        <span>试读 {primaryIdentity}</span>
+        <input value={identity} placeholder="输入主业务键" onChange={(event) => setIdentity(event.target.value)} />
       </label>
       {extraBindings.map((dim) => (
         <label className="form-field" key={dim}>
@@ -634,10 +660,15 @@ export function bindObjectColumn(
     if (identityField || grain[semantic] !== undefined) {
       const grainPointers = { ...grain, [semantic]: column };
       if (!column) delete grainPointers[semantic];
+      const identityPointers = { ...object(physical.identityPointers) };
+      if (identityField) {
+        if (column) identityPointers[semantic] = column;
+        else delete identityPointers[semantic];
+      }
       return {
         ...mapping,
         physical: openApiPhysical(physical, {
-          identityPointer: identityField ? column : physical.identityPointer,
+          identityPointers,
           grainPointers,
         }, false),
       };
@@ -652,10 +683,15 @@ export function bindObjectColumn(
   if (identityField || grain[semantic] !== undefined) {
     const grainColumns = { ...grain, [semantic]: column };
     if (!column) delete grainColumns[semantic];
+    const identityColumns = { ...object(physical.identityColumns) };
+    if (identityField) {
+      if (column) identityColumns[semantic] = column;
+      else delete identityColumns[semantic];
+    }
     return {
       ...mapping,
       physical: postgresPhysical(physical, {
-        identityColumn: identityField ? column : physical.identityColumn,
+        identityColumns,
         grainColumns,
       }, false),
     };
@@ -682,6 +718,7 @@ function postgresPhysical(
     table: patch.table !== undefined ? patch.table : physical.table,
     tenantColumn: patch.tenantColumn !== undefined ? patch.tenantColumn : (physical.tenantColumn ?? "tenant_id"),
     identityColumn: patch.identityColumn !== undefined ? patch.identityColumn : physical.identityColumn,
+    identityColumns: patch.identityColumns !== undefined ? patch.identityColumns : object(physical.identityColumns),
     grainColumns: patch.grainColumns !== undefined ? patch.grainColumns : object(physical.grainColumns),
   };
   const schema = patch.schema !== undefined ? patch.schema : physical.schema;
@@ -708,6 +745,8 @@ function openApiPhysical(
     operationId: patch.operationId !== undefined ? patch.operationId : physical.operationId,
     identityParameter: patch.identityParameter !== undefined ? patch.identityParameter : physical.identityParameter,
     identityPointer: patch.identityPointer !== undefined ? patch.identityPointer : physical.identityPointer,
+    identityParameters: patch.identityParameters !== undefined ? patch.identityParameters : object(physical.identityParameters),
+    identityPointers: patch.identityPointers !== undefined ? patch.identityPointers : object(physical.identityPointers),
     grainPointers: patch.grainPointers !== undefined ? patch.grainPointers : object(physical.grainPointers),
   };
   const propertyPointers = patch.propertyPointers !== undefined ? patch.propertyPointers : object(physical.propertyPointers);
@@ -723,17 +762,16 @@ function requiredPreviewBindings(
   metricMode: boolean,
   identityKeys: string[],
 ): string[] {
-  if (!metricMode) return [];
-  if (physical.valueColumn == null && physical.valuePointer == null) return [];
+  const required = identityKeys.slice(1);
+  if (!metricMode) return required;
+  if (physical.valueColumn == null && physical.valuePointer == null) return required;
   const locked = new Set(Object.keys(object(physical.filters)));
-  const identityCol = text(physical.identityColumn);
   const grain = object(physical.grainColumns);
-  const required: string[] = [];
   for (const [semantic, column] of Object.entries(grain)) {
-    if (identityKeys.includes(semantic) || String(column) === identityCol || locked.has(semantic) || locked.has(String(column))) {
+    if (identityKeys.includes(semantic) || locked.has(semantic) || locked.has(String(column))) {
       continue;
     }
-    required.push(semantic);
+    if (!required.includes(semantic)) required.push(semantic);
   }
   return required;
 }
@@ -764,7 +802,7 @@ export function makeMappingDocument(
   provider: string,
   documents: DraftDocument[],
 ): DraftDocument {
-  const identityKey = String(array(objectType.identityKeys)[0] ?? "id");
+  const identityKeys = array(objectType.identityKeys).map(String).filter(Boolean);
   const existing = documents.filter((item) => item.kind === "Mapping" && item.target === objectType.id);
   return {
     apiVersion: "semaloom/v0.1",
@@ -778,7 +816,8 @@ export function makeMappingDocument(
     provider,
     expectedCardinality: "ONE",
     completeness: existing.length ? "PARTIAL" : "AUTHORITATIVE",
-    physical: emptyMappingPhysical(provider, identityKey),
+    capabilities: defaultMappingCapabilities(provider),
+    physical: emptyMappingPhysical(provider, identityKeys),
   };
 }
 
@@ -789,7 +828,7 @@ export function makeMetricMappingDocument(
   provider: string,
   documents: DraftDocument[],
 ): DraftDocument {
-  const identityKey = String(array(objectType.identityKeys)[0] ?? "id");
+  const identityKeys = array(objectType.identityKeys).map(String).filter(Boolean);
   const grain = array(metric.grain).map(String);
   const perspective = text(metric.perspective);
   return {
@@ -804,7 +843,8 @@ export function makeMetricMappingDocument(
     provider,
     expectedCardinality: "ONE",
     completeness: "AUTHORITATIVE",
+    capabilities: defaultMappingCapabilities(provider),
     ...(perspective ? { perspective } : {}),
-    physical: emptyMetricPhysical(provider, identityKey, grain),
+    physical: emptyMetricPhysical(provider, identityKeys, grain),
   };
 }
