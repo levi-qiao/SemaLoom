@@ -43,7 +43,7 @@ jobs:
       - run: uv sync --frozen --all-groups
       - name: Create isolated fixture databases
         run: |
-          for database in semaloom_tax semaloom_orders semaloom_suppliers semaloom_meta; do
+          for database in semaloom_tax semaloom_orders semaloom_suppliers semaloom_meta semaloom_g4_tax semaloom_g4_orders semaloom_g4_suppliers semaloom_g4_meta; do
             createdb --host 127.0.0.1 --username semaloom "$database"
           done
       - run: uv run ruff format --check .

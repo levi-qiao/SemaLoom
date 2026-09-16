@@ -58,11 +58,15 @@ def _enforce_g4_databases() -> None:
     for key, database in G4_DATABASES.items():
         current = os.environ.get(key, "")
         if current and database not in current:
-            pytest.fail(
-                f"G4 tests refuse non-isolated database {key}={current}; "
-                f"expected host-local {database}"
-            )
-        if not current:
+            base_db = database.replace("semaloom_g4_", "semaloom_")
+            if base_db in current:
+                os.environ[key] = current.replace(base_db, database)
+            else:
+                pytest.fail(
+                    f"G4 tests refuse non-isolated database {key}={current}; "
+                    f"expected host-local {database}"
+                )
+        elif not current:
             os.environ[key] = f"postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/{database}"
     os.environ.setdefault("SEMALOOM_PROFILE", "local-dev")
     urls = configured_urls()

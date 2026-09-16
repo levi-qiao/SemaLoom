@@ -8,6 +8,28 @@ const textWidth = (text: string) => [...text].reduce((width, char) => width + (/
 export const entitySize = (label: string) => ({ width: 200, height: Math.max(64, Math.ceil(textWidth(label) * 4 / 3 / 168) * 22 + 24) });
 export const relationLabel = (edge: Edge) => `${edge.label} · ${cardinalityMark(edge.cardinality)}`;
 
+export function ensureOrthogonal(points: ElkPoint[]): ElkPoint[] {
+  if (points.length < 2) return points;
+  const result: ElkPoint[] = [{ x: Math.round(points[0].x), y: Math.round(points[0].y) }];
+  for (let i = 1; i < points.length; i++) {
+    const prev = result[result.length - 1];
+    let currX = Math.round(points[i].x);
+    let currY = Math.round(points[i].y);
+    if (Math.abs(currX - prev.x) <= 2) {
+      currX = prev.x;
+    } else if (Math.abs(currY - prev.y) <= 2) {
+      currY = prev.y;
+    }
+    if (prev.x !== currX && prev.y !== currY) {
+      const midX = Math.round((prev.x + currX) / 2);
+      result.push({ x: midX, y: prev.y });
+      result.push({ x: midX, y: currY });
+    }
+    result.push({ x: currX, y: currY });
+  }
+  return result;
+}
+
 export async function layoutGraph(nodes: Node[], edges: Edge[], direction: "RIGHT" | "DOWN" = "RIGHT") {
   const { default: ELK } = await import("elkjs/lib/elk.bundled.js");
   const elk = new ELK();
@@ -39,12 +61,13 @@ export async function layoutGraph(nodes: Node[], edges: Edge[], direction: "RIGH
     const section = edge.sections?.[0];
     const sourcePos = positions.get(edge.sources[0]) ?? { x: 0, y: 0 };
     const targetPos = positions.get(edge.targets[0]) ?? { x: 240, y: 0 };
-    const points = section
+    const rawPoints = section
       ? [section.startPoint, ...(section.bendPoints ?? []), section.endPoint]
       : [
           { x: sourcePos.x + 200, y: sourcePos.y + 32 },
           { x: targetPos.x, y: targetPos.y + 32 },
         ];
+    const points = ensureOrthogonal(rawPoints);
     const label = edge.labels?.[0];
     const labelX = (label?.x !== undefined) ? label.x : (points[0].x + points[points.length - 1].x) / 2 - 30;
     const labelY = (label?.y !== undefined) ? label.y : (points[0].y + points[points.length - 1].y) / 2 - 15;

@@ -49,7 +49,7 @@ type Props = {
   onRelationFilter: (value: string) => void;
 };
 
-import { entitySize, layoutGraph, relationLabel, type Route } from "./graphLayout";
+import { entitySize, ensureOrthogonal, layoutGraph, relationLabel, type Route } from "./graphLayout";
 
 type EntityData = { label: string };
 type Placed = FlowNode<EntityData>;
@@ -151,8 +151,12 @@ function FlowBoard({
     const color = active ? "#285f7d" : "#768692";
     const sourcePos = layout?.positions.get(edge.source) ?? { x: 0, y: 0 };
     const targetPos = layout?.positions.get(edge.target) ?? { x: 240, y: 0 };
+    const fallbackPoints = ensureOrthogonal([
+      { x: sourcePos.x + 200, y: sourcePos.y + 32 },
+      { x: targetPos.x, y: targetPos.y + 32 },
+    ]);
     const route = layout?.routes.get(edge.id) ?? {
-      points: [{ x: sourcePos.x + 200, y: sourcePos.y + 32 }, { x: targetPos.x, y: targetPos.y + 32 }],
+      points: fallbackPoints,
       label: { x: (sourcePos.x + targetPos.x) / 2, y: (sourcePos.y + targetPos.y) / 2 },
       width: 60,
       height: 24,
@@ -279,9 +283,14 @@ function RoutedEdge({ id, source, target, markerEnd, style, label, data }: EdgeP
   const a = sourceNode.internals?.positionAbsolute ?? originA;
   const b = targetNode.internals?.positionAbsolute ?? originB;
   const moved = a.x !== originA.x || a.y !== originA.y || b.x !== originB.x || b.y !== originB.y;
-  let path = (route.points && route.points.length >= 2)
-    ? route.points.map((point, index) => `${index ? "L" : "M"} ${point.x},${point.y}`).join(" ")
-    : `M ${originA.x + 200},${originA.y + 32} L ${originB.x},${originB.y + 32}`;
+  const rawPoints = (route.points && route.points.length >= 2)
+    ? route.points
+    : [
+        { x: originA.x + 200, y: originA.y + 32 },
+        { x: originB.x, y: originB.y + 32 },
+      ];
+  const points = ensureOrthogonal(rawPoints);
+  let path = points.map((point, index) => `${index ? "L" : "M"} ${point.x},${point.y}`).join(" ");
   let x = (route.label?.x ?? 0) + (route.width ?? 60) / 2, y = (route.label?.y ?? 0) + (route.height ?? 24) / 2;
   if (moved || !route.points || route.points.length < 2) {
     // React Flow previews manual moves; ELK remains the sole automatic layout owner.
