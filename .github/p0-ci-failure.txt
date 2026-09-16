@@ -1,0 +1,504 @@
+stage=backend-tests
+run=35163675213
+commit=ab5c05886e52c2903fd87420e36b709b8beffb7c
+
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/fastapi/applications.py:1163: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.13/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.13/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/routing.py:670: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:2734: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:1780: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:2789: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:1800: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:1279: in handle
+    await app(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:158: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:144: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/fastapi/routing.py:706: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.13/site-packages/fastapi/routing.py:354: in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/starlette/concurrency.py:34: in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/anyio/to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/http.py:240: in semantic_prepare
+    result = prepare(request.app.state.services.query_active(actor.tenant), body, actor)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/runtime/analysis.py:103: in prepare
+    return _prepare(service, query, actor)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/runtime/analysis.py:333: in _prepare
+    digest = _backend(service, "prepare_analysis")(service.bundle, query, actor.tenant)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/adapters/postgres.py:276: in prepare_analysis
+    return prepare_analysis(bundle, query, tenant, self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/adapters/analysis.py:1439: in prepare_analysis
+    compiled = _compile(context, single, tenant)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/adapters/analysis.py:402: in _compile
+    identity_col = require_ident(
+src/semaloom/adapters/postgres.py:27: in require_ident
+    raise ValueError(f"illegal identifier for {field}")
+E   ValueError: illegal identifier for identityColumn
+___ test_studio_session_can_read_published_data_with_csrf_and_current_roles ____
+tests/test_semantic_session.py:9: in test_studio_session_can_read_published_data_with_csrf_and_current_roles
+    with TestClient(create_app(load_fixtures=True)) as client:
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+__ test_source_profiles_are_tenant_scoped_versioned_and_never_accept_secrets ___
+tests/test_studio_control_plane.py:17: in test_source_profiles_are_tenant_scoped_versioned_and_never_accept_secrets
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+____________ test_source_online_validation_uses_environment_binding ____________
+tests/test_studio_control_plane.py:104: in test_source_online_validation_uses_environment_binding
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+____________ test_validation_approval_publish_and_edit_invalidation ____________
+tests/test_studio_control_plane.py:127: in test_validation_approval_publish_and_edit_invalidation
+    services = build_services(load_data=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+_______________ test_registry_refuses_unknown_release_activation _______________
+tests/test_studio_control_plane.py:211: in test_registry_refuses_unknown_release_activation
+    services = build_services(load_data=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+_________ test_studio_session_csrf_origin_capabilities_and_revocation __________
+tests/test_studio_control_plane.py:221: in test_studio_session_csrf_origin_capabilities_and_revocation
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+_______________ test_studio_mapping_preview_reads_draft_mapping ________________
+tests/test_studio_control_plane.py:304: in test_studio_mapping_preview_reads_draft_mapping
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+__________________ test_source_schema_lists_connected_tables ___________________
+tests/test_studio_control_plane.py:359: in test_source_schema_lists_connected_tables
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+____________________ test_source_rows_are_clickable_preview ____________________
+tests/test_studio_control_plane.py:377: in test_source_rows_are_clickable_preview
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+____ test_legacy_workspace_is_archived_and_migrated_to_canonical_documents _____
+tests/test_studio_control_plane.py:434: in test_legacy_workspace_is_archived_and_migrated_to_canonical_documents
+    services = build_services(load_data=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+________ test_metric_document_save_reload_impacts_and_revision_conflict ________
+tests/test_studio_control_plane.py:466: in test_metric_document_save_reload_impacts_and_revision_conflict
+    client, headers = _studio_client()
+                      ^^^^^^^^^^^^^^^^
+tests/test_studio_control_plane.py:456: in _studio_client
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+_______ test_published_query_and_claim_evidence_for_tax_and_procurement ________
+tests/test_studio_control_plane.py:555: in test_published_query_and_claim_evidence_for_tax_and_procurement
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+__________ test_http_self_approve_rejected_and_viewer_cannot_validate __________
+tests/test_studio_control_plane.py:626: in test_http_self_approve_rejected_and_viewer_cannot_validate
+    client, headers = _studio_client()
+                      ^^^^^^^^^^^^^^^^
+tests/test_studio_control_plane.py:456: in _studio_client
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+________________________ test_second_domain_gold_paths _________________________
+tests/test_t07_studio.py:20: in test_second_domain_gold_paths
+    services = build_services(load_data=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+________________ test_policy_period_switch_and_straddle_reject _________________
+tests/test_t07_studio.py:71: in test_policy_period_switch_and_straddle_reject
+    services = build_services(load_data=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+__________________ test_studio_graph_and_inspector_and_draft ___________________
+tests/test_t07_studio.py:134: in test_studio_graph_and_inspector_and_draft
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+________________ test_studio_static_is_html_and_api_404_is_not _________________
+tests/test_t07_studio.py:239: in test_studio_static_is_html_and_api_404_is_not
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/factory.py:91: in create_app
+    app.state.services = build_services(load_data=load_fixtures)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:89: in build_services
+    bundle = compile_examples()
+             ^^^^^^^^^^^^^^^^^^
+src/semaloom/app/bootstrap.py:82: in compile_examples
+    raise RuntimeError([item.model_dump() for item in result.diagnostics])
+E   RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /home/runner/work/SemaLoom/SemaLoom/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.13/site-packages/starlette/testclient.py:53
+  /home/runner/work/SemaLoom/SemaLoom/.venv/lib/python3.13/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_active_release_http.py::test_tenant_activation_changes_public_query_claim_and_studio - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_analysis_quality_gold.py::test_cross_tenant_same_key_is_excluded_from_mean - ValueError: illegal identifier for identityColumn
+FAILED tests/test_analysis_quality_gold.py::test_mixed_years_do_not_blend - ValueError: illegal identifier for identityColumn
+FAILED tests/test_analysis_quality_gold.py::test_single_member_share_is_one_hundred - ValueError: illegal identifier for identityColumn
+FAILED tests/test_analysis_quality_gold.py::test_empty_and_all_missing_are_not_zero - ValueError: illegal identifier for identityColumn
+FAILED tests/test_analysis_quality_gold.py::test_declared_versus_audit_perspective - ValueError: illegal identifier for identityColumn
+FAILED tests/test_analysis_quality_gold.py::test_derived_profit_difference_matches_hand_decimal - ValueError: illegal identifier for identityColumn
+FAILED tests/test_analysis_quality_gold.py::test_fifty_members_succeed_fifty_one_refuses_truncated_total - ValueError: illegal identifier for identityColumn
+FAILED tests/test_analysis_quality_gold.py::test_http_analyze_matches_independent_sql - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_business_analysis.py::test_conflicting_identity_aliases_are_rejected_before_query_or_claim - assert None is not None
+ +  where None = <semaloom.compiler.api.CompileResult object at 0x7f051d7504b0>.bundle
+FAILED tests/test_chat_choices.py::test_complete_named_metric_year_uses_tax_year_field - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_source_error_includes_release_digest - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_two_round_compute_uses_engine_numbers - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_two_round_submit_keeps_metric_and_year - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_http_choice_restore_roundtrip - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_direct_turn_skips_model_for_named_metric - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_named_metric_answers_with_assumed_year - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_unsolicited_groupby_is_stripped - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_other_free_text_continues_original_question - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_choices.py::test_prepare_turn_groups_by_linked_company_name - ValueError: illegal identifier for identityColumn
+FAILED tests/test_chat_discovery.py::test_definition_evidence_can_finish_a_catalog_question - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_chat_discovery.py::test_link_and_metric_discovery_exposes_collection_join_boundary - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_chat_discovery.py::test_catalog_pages_are_complete_release_pinned_and_business_only - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_chat_discovery.py::test_catalog_requires_discovery_authority_and_typed_bounded_paging - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_chat_discovery.py::test_explanations_cannot_replace_requested_computations - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_chat_discovery.py::test_explanations_require_real_definition_evidence - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_compile.py::test_real_packs_compile_with_stable_digest - AssertionError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabili...aLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+assert False
+ +  where False = <semaloom.compiler.api.CompileResult object at 0x7f051c4ecf30>.ok
+FAILED tests/test_compile.py::test_integration_binding_ownership_is_validated - assert (False)
+ +  where False = <semaloom.compiler.api.CompileResult object at 0x7f051cf69630>.ok
+FAILED tests/test_compile.py::test_field_reorder_does_not_change_digest - assert (False)
+ +  where False = <semaloom.compiler.api.CompileResult object at 0x7f051d7504b0>.ok
+FAILED tests/test_compile.py::test_catalog_snapshot_does_not_forge_online_pass - assert False
+ +  where False = <semaloom.compiler.api.CompileResult object at 0x7f051c670bb0>.ok
+FAILED tests/test_compile.py::test_duplicate_id_is_rejected - assert False
+ +  where False = any(<generator object test_duplicate_id_is_rejected.<locals>.<genexpr> at 0x7f051cfc9be0>)
+FAILED tests/test_compile.py::test_dangling_ref_is_rejected - assert False
+ +  where False = any(<generator object test_dangling_ref_is_rejected.<locals>.<genexpr> at 0x7f051cfca4d0>)
+FAILED tests/test_compile.py::test_rule_cycle_is_rejected - assert False
+ +  where False = any(<generator object test_rule_cycle_is_rejected.<locals>.<genexpr> at 0x7f051cfca8e0>)
+FAILED tests/test_compile.py::test_object_link_cycle_is_allowed - AssertionError: [{'code': 'INVALID_DEFINITION', 'path': '<document:12>:capabilities', 'message': 'Field required', 'severity': 'error'}]
+assert False
+ +  where False = <semaloom.compiler.api.CompileResult object at 0x7f051cf6aa50>.ok
+FAILED tests/test_compile.py::test_missing_link_identity_is_rejected - assert False
+ +  where False = any(<generator object test_missing_link_identity_is_rejected.<locals>.<genexpr> at 0x7f051bf9f850>)
+FAILED tests/test_compile.py::test_missing_unit_is_rejected - assert False
+ +  where False = any(<generator object test_missing_unit_is_rejected.<locals>.<genexpr> at 0x7f051bf9dcb0>)
+FAILED tests/test_compile.py::test_undeclared_context_dimension_is_rejected - assert False
+ +  where False = any(<generator object test_undeclared_context_dimension_is_rejected.<locals>.<genexpr> at 0x7f051cfa12f0>)
+FAILED tests/test_compile.py::test_incomplete_grain_is_rejected - assert False
+ +  where False = any(<generator object test_incomplete_grain_is_rejected.<locals>.<genexpr> at 0x7f051cfa0c70>)
+FAILED tests/test_compile.py::test_ambiguous_mapping_is_rejected - assert False
+ +  where False = any(<generator object test_ambiguous_mapping_is_rejected.<locals>.<genexpr> at 0x7f051c687ed0>)
+FAILED tests/test_compile.py::test_compact_metric_inherits_mapping_and_unit - AssertionError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabili...aLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+assert False
+ +  where False = <semaloom.compiler.api.CompileResult object at 0x7f051c670440>.ok
+FAILED tests/test_compile.py::test_policy_overlap_is_rejected - assert False
+ +  where False = any(<generator object test_policy_overlap_is_rejected.<locals>.<genexpr> at 0x7f051c685d80>)
+FAILED tests/test_compile.py::test_undeclared_namespace_is_rejected - assert False
+ +  where False = any(<generator object test_undeclared_namespace_is_rejected.<locals>.<genexpr> at 0x7f051c684520>)
+FAILED tests/test_discovery.py::test_search_exposes_meaning_and_ambiguity_without_physical_bindings - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_discovery.py::test_discovery_denies_unprivileged_identity_and_bounds_search - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_discovery.py::test_discovery_http_pins_tenant_bundle_and_does_not_expose_unknown_ids - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_g4_gold_questions.py::test_version_switch_uses_query_active_and_does_not_mix - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_g4_gold_questions.py::test_mixed_postgres_and_api_object_with_local_stub - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_g4_gold_questions.py::test_compile_examples_digest_is_stable - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_link_collection_join.py::test_one_link_join_groups_by_company_name - ValueError: illegal identifier for identityColumn
+FAILED tests/test_link_collection_join.py::test_one_link_join_filter_by_company_name - ValueError: illegal identifier for identityColumn
+FAILED tests/test_link_collection_join.py::test_unrelated_object_field_is_rejected - ValueError: illegal identifier for identityColumn
+FAILED tests/test_link_collection_join.py::test_two_hop_company_from_return_line_is_rejected - ValueError: illegal identifier for identityColumn
+FAILED tests/test_openapi_provider.py::test_query_composes_postgres_and_api_properties_with_evidence - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_openapi_provider.py::test_api_object_failure_matrix - AssertionError: assert ('UNAVAILABLE...ALID_MAPPING') == ('MISSING', 'NO_ROW')
+  
+  At index 0 diff: 'UNAVAILABLE' != 'MISSING'
+  
+  Full diff:
+    (
+  -     'MISSING',
+  -     'NO_ROW',
+  +     'UNAVAILABLE',
+  +     'INVALID_MAPPING',
+    )
+FAILED tests/test_openapi_provider.py::test_api_null_property_and_exact_decimal - AssertionError: assert 'UNAVAILABLE' == 'PRESENT'
+  
+  - PRESENT
+  + UNAVAILABLE
+FAILED tests/test_openapi_provider.py::test_api_caller_filters_cannot_override_tenant_or_identity - TypeError: OpenApiReadProvider.fetch_metric() got an unexpected keyword argument 'extra_filters'
+FAILED tests/test_population.py::test_statistics_match_independent_database_oracle[mean-avg] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_statistics_match_independent_database_oracle[sum-sum] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_statistics_match_independent_database_oracle[min-min] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_statistics_match_independent_database_oracle[max-max] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_statistics_match_independent_database_oracle[count-count] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_comparison_denominator_is_explicit[shareOfTotal-100.02-300.03] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_comparison_denominator_is_explicit[percentAboveMean-.01-100.01] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_comparison_denominator_is_explicit[outperforms-2-2] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_missing_is_not_zero_and_exclusion_is_explicit - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_empty_period_and_duplicate_unit_are_not_averaged - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_population_aggregates_beyond_evidence_page - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_invalid_scope_and_undeclared_population_refused[changes1-INVALID_PROPERTIES] - AssertionError: Regex pattern did not match.
+  Expected regex: 'INVALID_PROPERTIES'
+  Actual message: 'illegal identifier for identityColumn'
+FAILED tests/test_population.py::test_invalid_scope_and_undeclared_population_refused[changes3-COMPARISON_SUBJECT_OUTSIDE_POPULATION] - AssertionError: Regex pattern did not match.
+  Expected regex: 'COMPARISON_SUBJECT_OUTSIDE_POPULATION'
+  Actual message: 'illegal identifier for identityColumn'
+FAILED tests/test_population.py::test_chat_tool_and_browser_lineage_separation - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_ties_negative_and_zero_denominators[values0-outperforms-higher-50-None] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_ties_negative_and_zero_denominators[values1-outperforms-lower-0-None] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_ties_negative_and_zero_denominators[values2-shareOfTotal-higher-None-ZERO_DENOMINATOR] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_ties_negative_and_zero_denominators[values3-shareOfTotal-higher-None-NEGATIVE_VALUES_NOT_A_SHARE] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_ties_negative_and_zero_denominators[values4-percentAboveMean-higher-None-NON_POSITIVE_MEAN] - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_http_population_and_chat_stream_use_same_engine - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_population.py::test_subject_filter_resolves_in_full_cohort_without_changing_denominator - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_statistical_chat_finishes_with_engine_narrative_and_metric_lineage - ValueError: illegal identifier for identityColumn
+FAILED tests/test_population.py::test_lower_is_better_narrative_matches_comparison_not_raw_value_order - ValueError: illegal identifier for identityColumn
+FAILED tests/test_provider_contract.py::test_object_provider_failure_is_not_reported_as_missing - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_provider_contract.py::test_runtime_rejects_ambiguous_object_mapping_before_source_access - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_provider_contract.py::test_runtime_rejects_unknown_object_property_before_source_access - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_q4_semantic_audit.py::test_warehouse_pack_runs_without_core_change - ValueError: illegal identifier for identityColumn
+FAILED tests/test_q4_semantic_audit.py::test_complete_warehouse_question_is_ready_matching_sql - ValueError: illegal identifier for identityColumn
+FAILED tests/test_q4_semantic_audit.py::test_vague_and_missing_year_need_input - ValueError: illegal identifier for identityColumn
+FAILED tests/test_q4_semantic_audit.py::test_row_average_differs_from_sum_and_matches_sql - ValueError: illegal identifier for identityColumn
+FAILED tests/test_q4_semantic_audit.py::test_share_of_total_denominator_is_full_population - ValueError: illegal identifier for identityColumn
+FAILED tests/test_q4_semantic_audit.py::test_missing_policy_reject_vs_exclude - ValueError: illegal identifier for identityColumn
+FAILED tests/test_q4_semantic_audit.py::test_two_round_keeps_metric_then_year - ValueError: illegal identifier for identityColumn
+FAILED tests/test_q4_semantic_audit.py::test_source_and_save_failure_do_not_invent_answers - ValueError: illegal identifier for identityColumn
+FAILED tests/test_runtime_pg.py::test_authorized_point_query_with_evidence - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_unauthorized_role_is_forbidden_not_missing - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_other_tenant_does_not_see_tenant_a_amount - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_sql_binding_is_rejected - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_two_database_link_composition - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_claim_true_false_unknown_and_error - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_release_activation_does_not_mix_in_flight_bundle - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_registry_rejects_bundle_mutated_after_compilation - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_action_plan_has_no_write_and_retry_is_one_effect - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_action_plan_is_tenant_bound_and_inputs_are_typed - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_concurrent_action_execute_claims_one_external_effect - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_expired_or_retargeted_execute_does_not_write - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_rest_rejects_invalid_token_and_sql - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_runtime_pg.py::test_object_query_and_compile_examples_stable - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_semantic_closure.py::test_all_metrics_and_groups_are_answered - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_closure.py::test_plan_cannot_change_values_or_release - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_closure.py::test_multiyear_does_not_create_false_duplicate_unit - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_closure.py::test_null_subject_is_unknown_not_absent - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_closure.py::test_same_name_subject_requires_choice - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_closure.py::test_save_failure_keeps_pending_choice_retryable - AssertionError: Regex pattern did not match.
+  Expected regex: 'storage offline'
+  Actual message: 'illegal identifier for identityColumn'
+FAILED tests/test_semantic_closure.py::test_grouped_average_orders_by_average_not_total - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_closure.py::test_renamed_business_year_needs_no_core_special_case - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_query.py::test_prepare_ready_and_needs_input - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_query.py::test_sum_matches_independent_sql_oracle - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_query.py::test_group_and_or_topn - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_query.py::test_share_does_not_shrink_denominator - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_query.py::test_thousands_of_rows_pushdown_caps_evidence_only - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_query.py::test_source_error_is_not_a_choice - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_query.py::test_unsupported_cross_table_metrics - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_query.py::test_procurement_config_only_second_domain - assert None is not None
+FAILED tests/test_semantic_query.py::test_http_prepare_execute_matches_oracle - ValueError: illegal identifier for identityColumn
+FAILED tests/test_semantic_session.py::test_studio_session_can_read_published_data_with_csrf_and_current_roles - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_source_profiles_are_tenant_scoped_versioned_and_never_accept_secrets - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_source_online_validation_uses_environment_binding - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_validation_approval_publish_and_edit_invalidation - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_registry_refuses_unknown_release_activation - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_studio_session_csrf_origin_capabilities_and_revocation - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_studio_mapping_preview_reads_draft_mapping - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_source_schema_lists_connected_tables - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_source_rows_are_clickable_preview - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_legacy_workspace_is_archived_and_migrated_to_canonical_documents - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_metric_document_save_reload_impacts_and_revision_conflict - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_published_query_and_claim_evidence_for_tax_and_procurement - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_studio_control_plane.py::test_http_self_approve_rejected_and_viewer_cannot_validate - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_t07_studio.py::test_second_domain_gold_paths - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_t07_studio.py::test_policy_period_switch_and_straddle_reject - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_t07_studio.py::test_studio_graph_and_inspector_and_draft - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+FAILED tests/test_t07_studio.py::test_studio_static_is_html_and_api_404_is_not - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_bind_join_collection.py::test_bind_join_groups_by_supplier_name - assert None is not None
+ERROR tests/test_bind_join_collection.py::test_bind_join_filters_by_supplier_name - assert None is not None
+ERROR tests/test_bind_join_collection.py::test_unknown_supplier_name_is_empty - assert None is not None
+ERROR tests/test_bind_join_collection.py::test_same_source_organization_join_still_sql - assert None is not None
+ERROR tests/test_bind_join_collection.py::test_discovery_marks_cross_source_one_link - assert None is not None
+ERROR tests/test_bind_join_collection.py::test_chat_groups_by_supplier_name - assert None is not None
+ERROR tests/test_chat.py::test_semantic_plugin_rejects_guessed_ids_and_forged_evidence - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_chat.py::test_store_actor_isolation_and_optimistic_history - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_chat.py::test_http_stream_history_and_no_key_exposure - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_chat.py::test_chat_rechecks_release_and_requires_csrf - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_chat.py::test_cancelling_stream_reaps_owned_node_process - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_chat.py::test_query_hook_executes_covered_claim_in_the_python_rule_engine - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_chat.py::test_save_failure_has_its_own_error_and_never_reports_success - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_chat.py::test_discovery_explanation_crosses_http_and_survives_history_reload - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_query_tax_and_procurement_metrics - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_query_procurement_object_status - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_ambiguous_perspective_is_not_guessed - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_conflicting_grain_is_not_guessed - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_claim_unknown_false_and_true_are_distinct - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_procurement_over_limit_is_false_not_unknown - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_missing_null_and_unavailable_are_distinct - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_success_evidence_has_mapping_without_sql - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_role_deny_is_forbidden_not_missing - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_other_tenant_does_not_see_tenant_a_values - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_action_plan_approve_execute_across_domains - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_reject_sql_url_and_caller_permissions - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_policy_period_switch_and_straddle - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_mcp_tools_list_rejects_physical_fields_and_is_not_transport - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_unauthenticated_invalid_token_and_forged_headers - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_unavailable_source_via_runtime_is_not_false_or_zero - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_agent_facing_describe_and_search_exist - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
+ERROR tests/test_g4_gold_questions.py::test_tax_taxpayer_object_properties_are_readable - RuntimeError: [{'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/tax/domain/actions.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}, {'code': 'INVALID_DEFINITION', 'path': '/home/runner/work/SemaLoom/SemaLoom/examples/procurement/domain/rules.yaml:capabilities', 'message': 'Field required', 'severity': 'error'}]
