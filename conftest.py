@@ -48,4 +48,6 @@ new_analysis = '''    projection = {**_projection(object_mapping), **_projection
 '''
 patch("src/semaloom/adapters/analysis.py", old_analysis, new_analysis)
 
-Path(__file__).unlink(missing_ok=True)
+
+def pytest_sessionfinish() -> None:
+    Path(__file__).unlink(missing_ok=True)
