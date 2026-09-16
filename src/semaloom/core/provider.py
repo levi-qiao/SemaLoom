@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from semaloom.core.model import MappingDef
 from semaloom.core.results import Observation
 
+IdentityScalar = str | int | bool
+IdentityValue = dict[str, IdentityScalar]
+
 
 class ObjectRead(BaseModel):
     """Normalized outcome of reading one business object from a source."""
@@ -31,7 +34,7 @@ class ReadProvider(Protocol):
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
+        identity_value: IdentityValue,
         extra_filters: dict[str, str] | None = None,
     ) -> Observation: ...
 
@@ -40,7 +43,7 @@ class ReadProvider(Protocol):
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
+        identity_value: IdentityValue,
     ) -> ObjectRead: ...
 
 
