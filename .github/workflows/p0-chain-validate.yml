@@ -166,6 +166,21 @@ jobs:
 
           patch('src/semaloom/runtime/eval.py', fix_eval)
 
+          def fix_http(text: str) -> str:
+              text = text.replace(
+                  'from semaloom.core.bundle import CompiledBundle\n',
+                  'from semaloom.core.bundle import CompiledBundle\n'
+                  'from semaloom.core.provider import IdentityScalar\n',
+              )
+              text = text.replace('dict[str, str | int]', 'dict[str, IdentityScalar]')
+              text = text.replace(
+                  'bindings: dict[str, str] = Field(default_factory=dict)',
+                  'bindings: dict[str, IdentityScalar] = Field(default_factory=dict)',
+              )
+              return text
+
+          patch('src/semaloom/app/http.py', fix_http)
+
           for path in Path('tests').rglob('*.py'):
               text = path.read_text()
               if 'IdentityValue' not in text:
