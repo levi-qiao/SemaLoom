@@ -78,33 +78,23 @@ class SemanticDiscovery:
         }
 
 
-def _capable_object_mapping(
-    bundle: CompiledBundle, object_type_id: str, capability: MappingCapability
-) -> Any:
-    matches = [
-        item
-        for item in bundle.mappings
-        if item.target == object_type_id and capability in item.capabilities
-    ]
-    if len(matches) != 1:
-        return None
-    return matches[0]
-
-
 def _object_has_capability(
     bundle: CompiledBundle, object_type_id: str, capability: MappingCapability
 ) -> bool:
-    return _capable_object_mapping(bundle, object_type_id, capability) is not None
+    return any(
+        item.target == object_type_id and capability in item.capabilities
+        for item in bundle.mappings
+    )
 
 
 def _link_collection_join(
     bundle: CompiledBundle, source: str, target: str, cardinality: str
 ) -> bool:
-    if cardinality != "ONE":
-        return False
-    source_mapping = _capable_object_mapping(bundle, source, "EQUI_JOIN")
-    target_mapping = _capable_object_mapping(bundle, target, "EQUI_JOIN")
-    return source_mapping is not None and target_mapping is not None
+    return (
+        cardinality == "ONE"
+        and _object_has_capability(bundle, source, "EQUI_JOIN")
+        and _object_has_capability(bundle, target, "EQUI_JOIN")
+    )
 
 
 def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle) -> dict[str, Any]:
