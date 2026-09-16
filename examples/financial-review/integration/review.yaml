@@ -16,6 +16,7 @@
   provider: postgres
   expectedCardinality: ONE
   completeness: PARTIAL
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: sample_financial_review
     identityColumn: id
