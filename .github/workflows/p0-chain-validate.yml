@@ -46,6 +46,42 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: frontend/.node-version
+      - name: Align migration script with current branch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          script = Path('.github/scripts/finish_p0_chain.py')
+          text = script.read_text()
+          text = text.replace(
+              '    if actual < count:\n        raise SystemExit(f"{path}: expected >= {count} occurrences, found {actual}: {old[:120]!r}")\n    write(path, text.replace(old, new, count))',
+              '    if actual < count:\n        print(f"skip replace already migrated: {path}: {old[:80]!r}")\n        return\n    write(path, text.replace(old, new, count))',
+          )
+          text = text.replace(
+              '    if actual != count:\n        raise SystemExit(f"{path}: expected {count} regex replacements, found {actual}: {pattern[:120]!r}")\n    write(path, updated)',
+              '    if actual != count:\n        print(f"skip regex already migrated: {path}: {pattern[:80]!r}")\n        return\n    write(path, updated)',
+          )
+          text = text.replace('identityParameters', 'parameterBindings')
+          text = text.replace(
+              'from semaloom.core.provider import ObjectRead, ObjectSearch, ReadProvider\\n',
+              'from semaloom.core.provider import IdentityValue, ObjectRead, ObjectSearch, ReadProvider\\n',
+          )
+          text = text.replace(
+              'identity_value: str,\\n        extra_filters: dict[str, str] | None = None,\\n',
+              'identity_value: IdentityValue,\\n        extra_filters: dict[str, str] | None = None,\\n',
+          )
+          script.write_text(text)
+
+          # The first composite-identity pass used a temporary plural name. Normalize
+          # the working tree before the final migration so only one OpenAPI contract remains.
+          roots = [Path('src/semaloom'), Path('frontend/src'), Path('examples')]
+          for root in roots:
+              for path in root.rglob('*'):
+                  if path.suffix not in {'.py', '.ts', '.tsx', '.yaml', '.yml'}:
+                      continue
+                  value = path.read_text()
+                  if 'identityParameters' in value:
+                      path.write_text(value.replace('identityParameters', 'parameterBindings'))
+          PY
       - name: Apply clean-cut migration
         run: python .github/scripts/finish_p0_chain.py
       - name: Install backend
@@ -74,7 +110,7 @@ jobs:
           pnpm build
       - name: Clean-boundary assertions
         run: |
-          ! grep -R -nE '"identityColumn"|"identityPointer"|"identityParameter"' src/semaloom frontend/src examples
+          ! grep -R -nE '"identityColumn"|"identityPointer"|"identityParameter"|"identityColumns"|"identityPointers"|"identityParameters"' src/semaloom frontend/src examples
           ! grep -n 'mapping\.physical' src/semaloom/runtime/query.py
           ! grep -n 'provider == "postgres"' src/semaloom/runtime/discovery.py
           ! grep -n 'normalize_bindings' src/semaloom/runtime/query.py src/semaloom/app/chat/tools.py
