@@ -278,7 +278,7 @@ export function PropertyMappingSheet({
   return (
     <div className="entity-sheet mapping-card">
       <div className="entity-sheet-main">
-        <p className="mapping-hint">一个实体可以接多张表和多个接口。先点来源卡片，再在右侧点列名绑到当前属性。合计、平均在提问时选择。</p>
+        <p className="mapping-hint">一行属性对应一个表字段或接口字段。一个实体可以接多张表和多个接口。先点来源卡片，再在右侧点列名绑到当前属性。合计、平均在提问时选择。</p>
         <div className="source-tabs" aria-label="实体来源">
           {mappings.map((mapping) => (
             <button

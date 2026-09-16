@@ -268,15 +268,15 @@ header {
 
 .context-title {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   min-width: 0;
-  max-width: 50%;
+  flex: 1 1 auto;
 }
 
 .context-title h1, .context-title strong {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.01em;
@@ -290,7 +290,7 @@ header {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 340px;
+  max-width: 680px;
 }
 
 .header-actions {
@@ -725,7 +725,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-weight: 600;
 }
 
-/* Entity Sheet Layouts */
+/* Entity Sheet Layouts ("横平竖直" Responsive Grids) */
 .entity-sheet {
   display: grid;
   grid-template-columns: 1fr;
@@ -735,8 +735,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .entity-workspace .entity-sheet {
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
   min-height: 24rem;
+}
+
+.entity-workspace .entity-sheet.mapping-card {
+  grid-template-columns: minmax(0, 1.35fr) minmax(410px, 44%);
 }
 
 .entity-sheet-main {
@@ -750,6 +754,62 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   min-width: 0;
   position: sticky;
   top: 0;
+}
+
+/* 2-Column Responsive Form Grid */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  align-items: start;
+  width: 100%;
+}
+
+.form-grid > .form-field {
+  margin-top: 0;
+}
+
+.form-grid > .form-field.full,
+.form-grid > .form-field:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+/* Bind Card for Rules, Relations, and Actions */
+.bind-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: #ffffff;
+  box-shadow: var(--shadow-xs);
+  margin-bottom: 14px;
+  transition: all 140ms ease;
+}
+
+.bind-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.bind-card > strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.bind-card > small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.bind-card .form-field {
+  margin-top: 6px;
 }
 
 .form-field {
@@ -791,8 +851,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sheet-help {
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
-  padding: 16px;
+  padding: 16px 18px;
   background: #ffffff;
+  border-left: 3px solid var(--accent);
   box-shadow: var(--shadow-xs);
 }
 
@@ -812,10 +873,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .mapping-hint {
-  margin: 8px 0 0;
+  margin: 6px 0 10px;
   color: var(--text-tertiary);
   font-size: 12px;
   line-height: 1.5;
+  background: var(--surface-subtle);
+  border-radius: var(--control-radius);
+  padding: 8px 12px;
 }
 
 .notice {
@@ -859,8 +923,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  align-items: stretch;
-  margin-bottom: 12px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.source-tabs .sheet-action {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
 }
 
 .source-tab {
@@ -871,7 +941,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   min-width: 11rem;
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
-  padding: 10px 14px;
+  padding: 8px 14px;
   background: #ffffff;
   color: inherit;
   text-align: left;
@@ -902,6 +972,55 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-size: 11px;
 }
 
+/* Multi-Table Join Configuration Banner */
+.join-banner {
+  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+  border-radius: var(--card-radius);
+  padding: 14px 16px;
+  margin: 14px 0;
+}
+
+.join-banner > p {
+  margin: 0 0 10px;
+  color: var(--accent-strong);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.join-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.join-row {
+  display: grid;
+  grid-template-columns: 140px repeat(auto-fit, minmax(200px, 1fr));
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  padding: 8px 12px;
+  box-shadow: var(--shadow-xs);
+}
+
+.join-row strong {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.join-row .form-field {
+  margin-top: 0;
+  font-size: 11px;
+}
+
+.join-row .form-field select {
+  height: 28px;
+  font-size: 12px;
+}
+
 .source-record-list {
   min-width: 0;
   width: 100%;
@@ -916,7 +1035,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .source-record-head,
 .source-record-row {
   display: grid;
-  grid-template-columns: minmax(6.5rem, 1fr) minmax(6.5rem, 1fr) 7.5rem 5.5rem minmax(7.5rem, 1.2fr) 2rem;
+  grid-template-columns: minmax(5.5rem, 1fr) minmax(6rem, 1fr) 7.5rem 4.5rem minmax(0, 1.2fr) 1.5rem;
   gap: var(--space-2);
   align-items: center;
   padding: 8px 12px;
@@ -924,7 +1043,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .source-record-list.is-multi .source-record-head,
 .source-record-list.is-multi .source-record-row {
-  grid-template-columns: minmax(6rem, 1fr) minmax(6rem, 1fr) 7rem 5.5rem minmax(6rem, 1fr) minmax(6rem, 1fr) 2rem;
+  grid-template-columns: minmax(5rem, 1fr) minmax(5.5rem, 1fr) 7.5rem 4.5rem minmax(0, 1fr) minmax(0, 1fr) 1.5rem;
 }
 
 .check-field {
@@ -989,11 +1108,22 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .type-unit.has-unit {
-  grid-template-columns: minmax(0, 1fr) 3.5rem;
+  grid-template-columns: minmax(0, 1fr) 3.2rem;
 }
 
 .type-unit select, .type-unit input {
   height: 30px;
+}
+
+.type-unit select {
+  padding: 0 16px 0 6px;
+  font-size: 11.5px;
+}
+
+.type-unit input {
+  padding: 0 4px;
+  font-size: 11px;
+  text-align: center;
 }
 
 .icon-button {
@@ -1136,34 +1266,46 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .source-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 12px;
   padding: var(--space-4) var(--page-pad) 0;
 }
 
-.source-toolbar input {
+.source-create {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-create input {
   height: var(--control-h);
   border: 1px solid var(--border-strong);
   border-radius: var(--control-radius);
-  padding: 0 10px;
+  padding: 0 12px;
   background: #ffffff;
   color: var(--text);
   font-size: 12px;
-  width: 180px;
+  width: 220px;
+}
+
+.source-create input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 .source-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
   padding: var(--page-pad);
 }
 
 .source-card {
   border: 1px solid var(--border);
-  border-radius: var(--card-radius);
-  padding: 18px;
+  border-radius: 10px;
+  padding: 20px;
   background: #ffffff;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   cursor: pointer;
   transition: all 160ms cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
@@ -1171,7 +1313,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .source-card:hover {
-  border-color: #94a3b8;
+  border-color: #cbd5e1;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
@@ -1429,9 +1571,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .release-candidate, .release-history {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   border: 1px solid var(--border);
-  border-radius: var(--card-radius);
+  border-radius: 10px;
   background: #ffffff;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
@@ -1441,25 +1583,30 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 24px;
+  padding: 20px 24px;
   border-bottom: 1px solid var(--border);
   background: #ffffff;
 }
 
 .candidate-head h2, .history-head h2 {
-  margin: 2px 0 4px;
-  font-size: 18px;
+  margin: 2px 0 6px;
+  font-size: 19px;
   font-weight: 700;
   color: var(--text);
+  letter-spacing: -0.01em;
 }
 
 .candidate-head code {
   color: var(--text-tertiary);
-  font: 11px var(--mono);
-  max-width: 500px;
+  font: 11px/1.4 var(--mono);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  display: inline-block;
+  max-width: 540px;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: block;
 }
 
 .status-lanes {
@@ -1469,14 +1616,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: 0;
   list-style: none;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-subtle);
+  background: #f8fafc;
 }
 
 .status-lanes li {
-  padding: 12px 24px;
-  font-size: 12.5px;
+  padding: 13px 24px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .status-lanes li + li {
@@ -1485,16 +1635,24 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .digest-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px 24px;
-  padding: 20px 24px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  padding: 18px 24px;
   border-bottom: 1px solid var(--border);
+  background: #ffffff;
+}
+
+.digest-grid > div {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  padding: 12px 14px;
 }
 
 .digest-grid span {
   display: block;
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1612,28 +1770,48 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .chat-empty .cluster {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 12px;
+  max-width: 640px;
+  margin: 0 auto;
 }
 
 .chat-empty button {
-  border: 1px solid var(--border-strong);
-  border-radius: 20px;
-  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  padding: 12px 16px;
   background: #ffffff;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
   box-shadow: var(--shadow-xs);
   transition: all 140ms ease;
+  line-height: 1.5;
+  cursor: pointer;
 }
 
 .chat-empty button:hover {
   border-color: var(--accent);
   color: var(--accent-strong);
   background: var(--accent-subtle);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-error {
+  margin: 0 0 10px;
+  padding: 10px 16px;
+  border-radius: var(--card-radius);
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #b45309;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: var(--shadow-xs);
 }
 
 .chat-turn {
@@ -1806,11 +1984,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .graph-toolbar {
-  height: 48px;
-  min-height: 48px;
+  height: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
   background: #ffffff;
@@ -1819,7 +1997,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .graph-filter select {
-  height: 30px;
+  height: 28px;
   border: 1px solid var(--border-strong);
   border-radius: var(--control-radius);
   padding: 0 8px;
@@ -1829,7 +2007,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .graph-toolbar > .secondary {
-  height: 30px;
+  height: 28px;
   padding: 0 10px;
   font-size: 12px;
 }
@@ -1862,7 +2040,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .flow-node:hover {
   border-color: var(--accent);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
 
@@ -1870,6 +2047,27 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border-color: var(--accent);
   background: var(--accent-subtle);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+.graph-flow .react-flow__handle {
+  width: 14px;
+  height: 14px;
+  z-index: 20;
+  background: #ffffff;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  pointer-events: auto;
+}
+.graph-flow .react-flow__handle-top { top: -8px; }
+.graph-flow .react-flow__handle-right { right: -8px; }
+.graph-flow .react-flow__handle-bottom { bottom: -8px; }
+.graph-flow .react-flow__handle-left { left: -8px; }
+.graph-flow .react-flow__node:hover .react-flow__handle,
+.graph-flow .flow-node.selected .react-flow__handle,
+.graph-flow .react-flow__handle-connecting,
+.graph-flow .react-flow__handle-valid {
+  opacity: 1;
+  background: var(--accent);
 }
 
 .edge-label {
@@ -1900,34 +2098,47 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   margin: 10px 14px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px;
+  gap: 6px;
+  padding: 4px 6px;
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: var(--shadow-md);
-  backdrop-filter: blur(8px);
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
 }
 
 .canvas-tools button {
   height: 28px;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0 10px;
-  background: transparent;
+  background: #ffffff;
   color: var(--text);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  transition: all 120ms ease;
 }
 
-.canvas-tools button:hover {
+.canvas-tools button:hover:not(:disabled) {
   background: var(--surface-subtle);
+  border-color: #94a3b8;
+}
+
+.canvas-tools button:first-child {
+  background: var(--accent-subtle);
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+  font-weight: 600;
+}
+
+.canvas-tools button:first-child:hover:not(:disabled) {
+  background: #dbeafe;
 }
 
 .canvas-tools button[aria-pressed="true"] {
-  background: var(--accent-subtle);
-  color: var(--accent-strong);
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent-strong);
   font-weight: 600;
 }
 

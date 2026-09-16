@@ -284,8 +284,9 @@ function RoutedEdge({ id, source, target, markerEnd, style, label, data }: EdgeP
 }
 
 function containsPoint(node: Placed, point: { x: number; y: number }) {
-  return point.x >= node.position.x && point.x <= node.position.x + (node.width ?? 200)
-    && point.y >= node.position.y && point.y <= node.position.y + (node.height ?? 64);
+  const pad = 16;
+  return point.x >= node.position.x - pad && point.x <= node.position.x + (node.width ?? 200) + pad
+    && point.y >= node.position.y - pad && point.y <= node.position.y + (node.height ?? 64) + pad;
 }
 
 function eventPoint(event: MouseEvent | TouchEvent) {
