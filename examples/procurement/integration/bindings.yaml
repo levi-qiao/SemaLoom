@@ -38,6 +38,7 @@
   objectType: procurement.Order
   expectedCardinality: ONE
   completeness: PARTIAL
+  capabilities: [POINT_READ]
   physical:
     operationId: getOrderRisk
     method: GET
@@ -59,6 +60,7 @@
   objectType: procurement.Order
   expectedCardinality: ONE
   completeness: AUTHORITATIVE
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: proc_order
     identityColumn: order_id
@@ -81,6 +83,7 @@
   objectType: procurement.Organization
   expectedCardinality: ONE
   completeness: AUTHORITATIVE
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: proc_organization
     identityColumn: organization_id
@@ -100,6 +103,7 @@
   objectType: procurement.Supplier
   expectedCardinality: ONE
   completeness: AUTHORITATIVE
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: proc_supplier
     identityColumn: supplier_id
