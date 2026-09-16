@@ -16,9 +16,9 @@ SemaLoom 已按业务本体方式建模：ObjectType/Property/Identity/Link 表�
 
 ## 自然语言如何准确落到执行
 
-`用户问题 → pi 调用 prepare_semantic_query → 确定年份/口径/统计单位/筛选范围 → 同一 SemanticQuery prepare/execute → 服务器事实和来源表格 → 引擎结果说明（集合统计）`。REST `analyze_population` 只翻译到该链。
+`用户问题 → pi 调用 prepare_semantic_query → 确定年份/口径/统计单位/筛选范围 → 同一 SemanticQuery prepare/execute → 服务器事实和来源表格 → 引擎结果说明（集合统计）`。REST `POST /v0.1/analyze`（原 `analyze_population`）为**已废弃**兼容翻译，新集成勿用。
 
-模型不提交 SQL。对于已经能表达的语义查询，SQL 是 adapter 的执行实现；尚不能表达的问题应澄清或报未支持，不通过自由 text-to-SQL 绕开租户、粒度与口径。新增常见分析算子应该扩展同一受控请求及执行器，而非给每个自然语言问题写专用接口。
+模型不提交 SQL。对于已经能表达的语义查询，SQL 是 adapter 的执行实现；尚不能表达的问题应澄清或报未支持，不通过自由 text-to-SQL 绕开租户、粒度与口径。**已声明 ONE 同源 Link 可用于按关联属性分组/筛选**；一对多、跨源或多跳请求应得到明确 UNSUPPORTED，而不是静默改写。新增常见分析算子应该扩展同一受控请求及执行器，而非给每个自然语言问题写专用接口。
 
 | 问法 | 必须确定的含义 | 当前执行 |
 |---|---|---|
@@ -30,7 +30,7 @@ SemaLoom 已按业务本体方式建模：ObjectType/Property/Identity/Link 表�
 
 Metric 必须显式声明 `population`，包括统计单位属性、年度属性和范围说明。本轮 financial-review 的 ReviewCase 指标声明按 companyId/taxYear 统计；重复企业年度直接失败，不随便取第一条，也不按报告份数平均。数据仍是选定的本地样本；即使读取完整，也不代表全国/全行业/全部正式申报。
 
-当前限制：精确相等的属性筛选、单一可搜索对象 Mapping、单一统计单位/年度、最多 50 个完整成员、10 秒调度预算。超过 50 个返回 `POPULATION_TOO_LARGE_REFINE_FILTERS`，不计算截断样本总数；来源单次超时仍由 adapter 控制。多次取数明确标记为非全局快照。暂不支持任意 group-by、加权平均、滚动窗口、跨年度复合粒度或无界 SQL 下推。来源错误/重复 grain/单位错误不作为可排除的缺失；NULL/MISSING 只有显式 `missingPolicy=exclude` 才排除，并公布数量。
+当前限制（以 [主责收口](semantic-query-closure.md) 为准）：同源同事实表上的类型化过滤与聚合、已声明 ONE 同源 Link 的关联属性分组/筛选、分组预算（单请求最多 8 指标 / 8 分组键 / 1000 结果分组）、证据明细每指标最多 50 行分页。一对多展开、跨库 SQL JOIN、窗口函数、任意用户 SQL、复合身份、多指标联合排序/比较未支持并返回明确能力错误。来源单次超时仍由 adapter 控制。多次取数明确标记为非全局快照（同请求同源分析共用只读快照除外）。来源错误/重复 grain/单位错误不作为可排除的缺失；NULL/MISSING 只有显式 `missingPolicy=exclude` 才排除，并公布数量。
 
 `complete` 仅指筛选对象枚举完整。结果可能因为缺失或空集合而没有数值；不能把 complete 解读为数据已复核。比例为零分母、负数总额占比、非正均值等情况返回具体原因。Decimal 运算精度 28 位，页面保留结果字符串，不经 JS 浮点重新计算。
 

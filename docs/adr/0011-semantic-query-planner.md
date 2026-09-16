@@ -32,7 +32,9 @@
 
 ## 首版能力与拒绝
 
-同源 PostgreSQL 支持：EQ/NE/LT/LE/GT/GE/IN/BETWEEN 与 AND/OR/NOT；YEAR/MONTH 与业务维度分组；SUM/MIN/MAX/COUNT/AVG（AVG 遵守缺失政策）；ORDER/LIMIT；Top N；SHARE_OF_TOTAL、RELATIVE_TO_MEAN、STRICT_PEER；已声明且基数合法的同源 Link。50 只限制证据分页。
+**Q0 冻结目标，不是已交付清单。** 计划中的同源 PostgreSQL 算子为：EQ/NE/LT/LE/GT/GE/IN/BETWEEN 与 AND/OR/NOT；YEAR/MONTH 与业务维度分组；SUM/MIN/MAX/COUNT/AVG（AVG 遵守缺失政策）；ORDER/LIMIT；Top N；SHARE_OF_TOTAL、RELATIVE_TO_MEAN、STRICT_PEER；以及已声明且基数合法的同源 Link **集合 JOIN**。50 只限制证据分页。
+
+实际已交付：同源同事实表集合分析，以及已声明 FORWARD ONE、同一 PostgreSQL 来源的 Link 集合 LEFT JOIN（按关联对象属性分组/筛选）。一对多、跨源 SQL JOIN、多跳与多指标联合排序/比较仍返回明确 `UNSUPPORTED`。以 [主责收口](../semantic-query-closure.md) 与下文「主责复验修订」为准。
 
 明确 `UNSUPPORTED`：窗口 LAG/LEAD/NTILE/自定义 frame、递归 CTE、跨源 SQL、raw SQL、UDF、用 DISTINCT 金额去重、把 NULL/缺失 COALESCE 成 0、float 金额、无界多对多。`SOURCE_ERROR` 可重试，不等于用户选择题。
 

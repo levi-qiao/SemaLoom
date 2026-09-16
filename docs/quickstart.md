@@ -252,10 +252,7 @@ Studio without a second deployment. Public runtime users who only install the wh
 ## Verify and clean up
 
 ```bash
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy
-uv run pytest tests/test_packaging.py tests/test_docs.py
+uv run pytest tests/test_packaging.py tests/test_docs.py tests/test_static.py
 uv build
 docker compose down   # only if you started Compose
 ```

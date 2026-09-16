@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from semaloom.core.model import (
     ActionBindingDef,
@@ -19,36 +19,30 @@ from semaloom.core.model import (
     PolicyDef,
     RuleDef,
 )
+from semaloom.core.wire import wire_config
 
 OnlineValidation = Literal["NOT_RUN", "PASSED", "FAILED"]
 
 
 class CompiledBundle(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        validate_by_name=True,
-    )
+    model_config = wire_config()
 
-    api_version: Literal["semaloom/v0.1"] = Field(alias="apiVersion")
-    format_version: str = Field(alias="formatVersion")
-    compiler_version: str = Field(alias="compilerVersion")
-    ir_version: str = Field(alias="irVersion")
+    api_version: Literal["semaloom/v0.1"]
+    format_version: str
+    compiler_version: str
+    ir_version: str
     digest: str
-    online_validation: OnlineValidation = Field(alias="onlineValidation")
+    online_validation: OnlineValidation
     packs: tuple[DomainPackDef, ...]
-    object_types: tuple[ObjectTypeDef, ...] = Field(alias="objectTypes")
+    object_types: tuple[ObjectTypeDef, ...]
     metrics: tuple[MetricDef, ...]
     links: tuple[LinkDef, ...]
     rules: tuple[RuleDef, ...]
     policies: tuple[PolicyDef, ...]
     actions: tuple[ActionDef, ...]
-    authorization_profiles: tuple[AuthorizationProfileDef, ...] = Field(
-        alias="authorizationProfiles"
-    )
-    integration_bindings: tuple[IntegrationBindingDef, ...] = Field(alias="integrationBindings")
+    authorization_profiles: tuple[AuthorizationProfileDef, ...]
+    integration_bindings: tuple[IntegrationBindingDef, ...]
     mappings: tuple[MappingDef, ...]
-    action_bindings: tuple[ActionBindingDef, ...] = Field(alias="actionBindings")
-    physical_digests: dict[str, str] = Field(alias="physicalDigests")
+    action_bindings: tuple[ActionBindingDef, ...]
+    physical_digests: dict[str, str]
     extras: dict[str, Any] = Field(default_factory=dict)

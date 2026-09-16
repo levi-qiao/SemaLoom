@@ -30,6 +30,7 @@ from semaloom.core.semantic_query import (
     TypedValue,
 )
 from semaloom.runtime.auth import RequestActor
+from semaloom.runtime.query import QueryService
 from tests.test_business_analysis import ACTOR, financial_query  # noqa: F401
 
 
@@ -357,3 +358,136 @@ def test_other_free_text_continues_original_question(population_query: Any) -> N
     )
     assert done.get("answerReady")
     assert done["result"]["values"][0]["value"] in done["text"]
+
+
+def test_capability_message_explains_link_boundary() -> None:
+    from semaloom.app.chat.summary import capability_message
+
+    text = capability_message("LINK_ANALYSIS_UNSUPPORTED")
+    assert "ONE" in text or "一对一" in text or "基数为 ONE" in text
+    assert "不支持" in text
+    assert capability_message(None)
+
+
+def _query_with_split_tax_return_table(service: Any) -> QueryService:
+    """Compiled IR where the object mapping table differs from the metric mapping table."""
+    mappings = []
+    for item in service.bundle.mappings:
+        if item.target == "finance.TaxReturn":
+            physical = dict(item.physical)
+            physical["table"] = "sample_taxpayer"
+            item = item.model_copy(update={"physical": physical})
+        mappings.append(item)
+    bundle = service.bundle.model_copy(update={"mappings": tuple(mappings)})
+    return QueryService(bundle, service.provider)
+
+
+def _link_unsupported_query() -> SemanticQuery:
+    return SemanticQuery(
+        api_version="semaloom/v0.1",
+        metrics=(MetricRef(id="finance.declaredRevenue", aggregation="SUM"),),
+        filters=FilterAtom(
+            field="taxYear",
+            op="EQ",
+            value=TypedValue(value_type="INTEGER", value=2024),
+        ),
+    )
+
+
+def test_prepare_turn_groups_by_linked_company_name(population_query: Any) -> None:
+    engine = population_query.provider._engines["sample_pg"]
+    _load_declaration(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS sample_taxpayer (
+                  tenant_id TEXT, id TEXT, name TEXT
+                )
+                """
+            )
+        )
+        conn.execute(text("DELETE FROM sample_taxpayer"))
+        conn.execute(
+            text(
+                """
+                INSERT INTO sample_taxpayer VALUES
+                ('tenant-a','C1','示例甲'),
+                ('tenant-a','C2','示例乙')
+                """
+            )
+        )
+    result = prepare_turn(population_query, ACTOR, "2024年按企业名称合计申报营业收入")
+    assert result.get("status") == "READY"
+    assert result.get("answerReady") is True
+    grains = {row.get("grain", {}).get("name") for row in result["result"]["values"]}
+    assert "示例甲" in grains and "示例乙" in grains
+    same = prepare_turn(population_query, ACTOR, "2024年申报营业收入合计")
+    assert same.get("errorCode") != "LINK_ANALYSIS_UNSUPPORTED"
+
+
+def test_prepare_turn_delivers_link_unsupported_as_engine_answer(population_query: Any) -> None:
+    from semaloom.app.chat.summary import capability_message
+
+    split = _query_with_split_tax_return_table(population_query)
+    result = prepare_turn(split, ACTOR, "按企业合计申报营业收入", _link_unsupported_query())
+    expected = capability_message("LINK_ANALYSIS_UNSUPPORTED")
+    assert result["status"] == "UNSUPPORTED"
+    assert result.get("answerReady") is True
+    assert result.get("kind") == "unsupported"
+    assert result.get("textOrigin") == "ENGINE"
+    assert result["text"] == expected
+    assert "不支持" in result["text"]
+    assert "没有数据" not in result["text"]
+    assert result["errorCode"] == "LINK_ANALYSIS_UNSUPPORTED"
+
+
+def test_submit_choice_delivers_link_unsupported_as_engine_answer(population_query: Any) -> None:
+    from semaloom.app.chat.summary import capability_message
+
+    engine = population_query.provider._engines["sample_pg"]
+    _load_declaration(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS sample_taxpayer (
+                  tenant_id TEXT, id TEXT, name TEXT, tax_year INTEGER
+                )
+                """
+            )
+        )
+        conn.execute(text("DELETE FROM sample_taxpayer"))
+        conn.execute(text("INSERT INTO sample_taxpayer VALUES ('tenant-a','C1','示例企业',2024)"))
+    split = _query_with_split_tax_return_table(population_query)
+    store = ChatStore(engine)
+    row = store.create(ACTOR, split.bundle.digest)
+    first = prepare_turn(split, ACTOR, "收入多少？")
+    assert first["status"] == "NEEDS_INPUT"
+    store.save_pending(ACTOR, row, first["question"], {"query": first["query"]}, "收入多少？")
+    metric_opt = next(
+        item["id"] for item in first["question"]["options"] if item["choice"]["kind"] == "METRIC"
+    )
+    done = submit_choice(
+        store,
+        split,
+        ACTOR,
+        row["id"],
+        ChoiceSubmit.model_validate(
+            {
+                "questionId": first["question"]["questionId"],
+                "revision": 1,
+                "optionIds": [metric_opt],
+            }
+        ),
+    )
+    expected = capability_message("LINK_ANALYSIS_UNSUPPORTED")
+    assert done.get("answerReady") is True
+    assert done["status"] == "UNSUPPORTED"
+    assert done.get("kind") == "unsupported"
+    assert done.get("textOrigin") == "ENGINE"
+    assert done["text"] == expected
+    assert "不支持" in done["text"]
+    assert "没有数据" not in done["text"]
+    assert done["errorCode"] == "LINK_ANALYSIS_UNSUPPORTED"
+    assert done["evidence"][0]["result"]["errorCode"] == "LINK_ANALYSIS_UNSUPPORTED"

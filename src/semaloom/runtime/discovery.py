@@ -19,7 +19,10 @@ class SemanticDiscovery:
         # An explicit business collection allowlist: never expose physical bindings,
         # connection settings or access policy documents through agent discovery.
         return [
-            doc.model_dump(mode="json", by_alias=True, exclude_none=True)
+            _with_analysis_capabilities(
+                doc.model_dump(mode="json", by_alias=True, exclude_none=True),
+                self.bundle,
+            )
             for collection in (
                 self.bundle.object_types,
                 self.bundle.metrics,
@@ -72,6 +75,60 @@ class SemanticDiscovery:
             "hasMore": len(matches) > limit,
             "releaseDigest": self.bundle.digest,
         }
+
+
+def _postgres_object_mapping(bundle: CompiledBundle, object_type_id: str) -> Any:
+    matches = [
+        item
+        for item in bundle.mappings
+        if item.target == object_type_id and item.provider == "postgres"
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _link_collection_join(
+    bundle: CompiledBundle, source: str, target: str, cardinality: str
+) -> bool:
+    if cardinality != "ONE":
+        return False
+    source_mapping = _postgres_object_mapping(bundle, source)
+    target_mapping = _postgres_object_mapping(bundle, target)
+    return source_mapping is not None and target_mapping is not None
+
+
+def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle) -> dict[str, Any]:
+    """Project the current collection-analysis boundary onto discovery documents."""
+    kind = document.get("kind")
+    if kind == "Link":
+        return {
+            **document,
+            "analysisCapabilities": {
+                "pointLookup": True,
+                "keyedFind": True,
+                "collectionJoin": _link_collection_join(
+                    bundle,
+                    str(document.get("source") or ""),
+                    str(document.get("target") or ""),
+                    str(document.get("cardinality") or ""),
+                ),
+            },
+        }
+    if kind == "Metric":
+        object_type = str(document.get("objectType") or "")
+        return {
+            **document,
+            "analysisCapabilities": {
+                "sameTableCollection": document.get("population") is not None,
+                "collectionJoin": any(
+                    _link_collection_join(bundle, link.source, link.target, link.cardinality)
+                    for link in bundle.links
+                    if link.source == object_type
+                ),
+            },
+        }
+    return document
 
 
 def _normalize(value: str) -> str:

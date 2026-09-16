@@ -10,7 +10,7 @@ from typing import Any
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.diagnostics import Diagnostic
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import ReadProvider
+from semaloom.core.provider import ObjectSearch, ReadProvider
 from semaloom.core.results import (
     EvidenceEnvelope,
     MetricSelect,
@@ -281,6 +281,8 @@ class QueryService:
             properties=tuple(sorted(primary_fields)),
             limit=request.limit,
         )
+        if not isinstance(page, ObjectSearch):
+            raise ValueError("SEARCH_NOT_SUPPORTED")
         unmapped = fields - _mapped_object_fields(mapping)
         if unmapped and hasattr(self.provider, "fetch_object"):
             for prop in unmapped:

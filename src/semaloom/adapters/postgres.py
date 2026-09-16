@@ -291,7 +291,11 @@ class PostgresReadProvider:
             with _read_transaction(self._engine(source, tenant)) as conn:
                 conn.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
                 return execute_analysis(
-                    bundle, plan, tenant, _AnalysisConnection(conn, source, tenant)
+                    bundle,
+                    plan,
+                    tenant,
+                    _AnalysisConnection(conn, source, tenant),
+                    bind_provider=self,
                 )
         except (SQLAlchemyError, KeyError) as exc:
             raise AnalysisError("PROVIDER_UNAVAILABLE") from exc

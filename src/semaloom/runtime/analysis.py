@@ -9,9 +9,11 @@ from semaloom.core.model import MetricDef
 from semaloom.core.results import PopulationRequest
 from semaloom.core.semantic_query import (
     UNSUPPORTED_OPERATORS,
+    AggregationOp,
     ChoiceOption,
     ChoiceQuestion,
     ComparisonExpr,
+    ComparisonOp,
     FilterAtom,
     FilterGroup,
     MetricRef,
@@ -32,8 +34,14 @@ from semaloom.core.semantic_query import (
 from semaloom.runtime.auth import RequestActor, authorize_query
 from semaloom.runtime.query import QueryService
 
-_POP_AGG = {"mean": "AVG", "sum": "SUM", "min": "MIN", "max": "MAX", "count": "COUNT"}
-_CMP = {
+_POP_AGG: dict[str, AggregationOp] = {
+    "mean": "AVG",
+    "sum": "SUM",
+    "min": "MIN",
+    "max": "MAX",
+    "count": "COUNT",
+}
+_CMP: dict[str, ComparisonOp] = {
     "shareOfTotal": "SHARE_OF_TOTAL",
     "percentAboveMean": "RELATIVE_TO_MEAN",
     "outperforms": "STRICT_PEER",
@@ -100,6 +108,7 @@ def prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) ->
             "MULTI_METRIC_ORDER_COMPARISON_UNSUPPORTED",
             "LINK_ANALYSIS_UNSUPPORTED",
             "CROSS_SOURCE_SQL",
+            "BUDGET_EXCEEDED",
         }:
             return PrepareResult(
                 status="UNSUPPORTED",

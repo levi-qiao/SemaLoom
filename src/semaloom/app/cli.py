@@ -113,8 +113,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 2
 
 
-def _parse_bindings(raw: list[str]) -> dict[str, str]:
-    bindings: dict[str, str] = {}
+def _parse_bindings(raw: list[str]) -> dict[str, str | int]:
+    bindings: dict[str, str | int] = {}
     for item in raw:
         key, separator, value = item.partition("=")
         if not separator or not key or not value:

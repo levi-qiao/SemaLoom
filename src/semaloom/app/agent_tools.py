@@ -11,10 +11,12 @@ def read_tools(claim_schema: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             "name": "analyze_population",
-            "description": "Compute annual statistics for a declared Metric.population. "
-            "Use mean/sum/min/max/count; comparisons: shareOfTotal, percentAboveMean, outperforms. "
-            "Clarify ambiguous advantage wording; never calculate from a truncated search page. "
-            "Missing exclusion requires consent; limit 50 objects, otherwise refine filters.",
+            "deprecated": True,
+            "description": "DEPRECATED. Use prepare_semantic_query / SemanticQuery instead. "
+            "Legacy annual statistics facade for Metric.population; translates to the same "
+            "SemanticQuery chain. Do not register for new Chat or Agent integrations. "
+            "Evidence detail pages are capped at 50 rows per metric; that is not a population "
+            "size limit.",
             "method": "POST",
             "path": "/v0.1/analyze",
             "inputSchema": PopulationRequest.model_json_schema(by_alias=True),

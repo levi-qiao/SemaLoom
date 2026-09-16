@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Self, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.results import (
@@ -17,6 +17,7 @@ from semaloom.core.results import (
     QueryRequest,
 )
 from semaloom.core.semantic_query import PlanRef, SemanticQuery
+from semaloom.core.wire import wire_config
 from semaloom.runtime.analysis import AnalysisError, execute, prepare
 from semaloom.runtime.auth import RequestActor, authorize_query
 from semaloom.runtime.discovery import SemanticDiscovery
@@ -99,12 +100,12 @@ FORBIDDEN_KEYS = frozenset({"sql", "url", "permissions", "table", "column", "joi
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = wire_config(frozen=False)
 
 
 class PeriodBody(StrictModel):
-    period_from: str = Field(alias="periodFrom")
-    period_to: str = Field(alias="periodTo")
+    period_from: str
+    period_to: str
 
     @model_validator(mode="after")
     def valid_period(self) -> Self:
@@ -118,19 +119,19 @@ class QueryBody(PeriodBody):
 
 
 class ClaimBody(PeriodBody):
-    claim_id: str = Field(alias="claimId")
+    claim_id: str
     bindings: dict[str, str | int]
     dimensions: dict[str, str] = Field(default_factory=dict)
 
 
 class ActionPlanBody(StrictModel):
-    action_id: str = Field(alias="actionId")
+    action_id: str
     target: dict[str, str]
     parameters: dict[str, str]
 
 
 class ActionIdBody(StrictModel):
-    plan_id: str = Field(alias="planId")
+    plan_id: str
     parameters: dict[str, str] | None = None
 
 
@@ -261,15 +262,26 @@ def semantic_execute(
 def population_analysis(
     body: PopulationRequest, request: Request, authorization: str | None = Header(default=None)
 ) -> dict[str, Any]:
+    """Deprecated: translates onto SemanticQuery. Prefer /v0.1/semantic-query/*."""
     actor = actor_from_read_request(request, authorization)
     try:
-        return analyze_population(
+        result = analyze_population(
             request.app.state.services.query_active(actor.tenant), body, actor
         )
     except PermissionError as exc:
         raise HTTPException(403, "FORBIDDEN") from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    if isinstance(result, dict):
+        result = {
+            **result,
+            "deprecated": True,
+            "deprecation": (
+                "POST /v0.1/analyze is deprecated; use SemanticQuery prepare/execute "
+                "or Chat prepare_semantic_query."
+            ),
+        }
+    return result
 
 
 @router.post("/objects/search")
@@ -420,21 +432,21 @@ def action_status(
 
 
 class DraftBody(StrictModel):
-    expected_revision: int = Field(alias="expectedRevision")
+    expected_revision: int
     documents: list[dict[str, Any]]
 
 
 class SourceProfileBody(StrictModel):
-    expected_revision: int = Field(alias="expectedRevision")
+    expected_revision: int
     label: str
     provider: str
-    binding_ref: str = Field(alias="bindingRef")
-    secret_ref: str | None = Field(default=None, alias="secretRef")
+    binding_ref: str
+    secret_ref: str | None = None
     settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class PublishBody(StrictModel):
-    expected_environment_revision: int = Field(alias="expectedEnvironmentRevision")
+    expected_environment_revision: int
 
 
 class DemoSessionBody(StrictModel):
@@ -443,18 +455,20 @@ class DemoSessionBody(StrictModel):
 
 class SourceRowsBody(StrictModel):
     table: str = Field(min_length=1, max_length=64)
-    schema_name: str | None = Field(default=None, alias="schema", max_length=64)
+    schema_name: str | None = Field(
+        default=None, validation_alias="schema", serialization_alias="schema", max_length=64
+    )
     limit: int = Field(default=20, ge=1, le=50)
 
 
 class SampleBody(StrictModel):
-    object_id: str | None = Field(default=None, alias="objectId")
-    mapping_id: str | None = Field(default=None, alias="mappingId")
-    metric_id: str | None = Field(default=None, alias="metricId")
+    object_id: str | None = None
+    mapping_id: str | None = None
+    metric_id: str | None = None
     identity: str
     properties: list[str] = Field(default_factory=list)
     bindings: dict[str, str] = Field(default_factory=dict)
-    draft_id: str | None = Field(default=None, alias="draftId")
+    draft_id: str | None = None
 
 
 @router.post("/studio/session/demo")
@@ -572,15 +586,16 @@ def studio_sample(
         if payload is None:
             raise HTTPException(status_code=404, detail="NOT_FOUND")
         return payload
-    object_type = next((item for item in bundle.object_types if item.id == body.object_id), None)
-    if object_type is None:
+    object_id = body.object_id
+    object_type = next((item for item in bundle.object_types if item.id == object_id), None)
+    if object_id is None or object_type is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
     envelope = QueryService(bundle, request.app.state.services.provider).execute(
         QueryRequest(
             api_version="semaloom/v0.1",
             select=(
                 ObjectSelect(
-                    object_type=body.object_id,
+                    object_type=object_id,
                     identity={object_type.identity_keys[0]: body.identity},
                     properties=tuple(body.properties),
                 ),

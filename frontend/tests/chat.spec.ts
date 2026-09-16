@@ -62,6 +62,43 @@ test('choice cards submit on click and other accepts inline text', async ({page}
   expect(submitted?.otherText).toBe('申报营业收入 2024年合计');
 });
 
+test('choice submit delivers engine unsupported text instead of a generic error banner', async ({page}) => {
+  const digest = 'a'.repeat(64);
+  const cid = 'd'.repeat(32);
+  const question = {
+    questionId: 'q-link', revision: 1, slot: 'metric',
+    prompt: '你说的指标是哪种口径？', reason: '本体中该业务词对应多个指标',
+    options: [
+      {id: 'opt_a', label: '申报营业收入', explanation: '申报表中的营业收入', choice: {kind: 'METRIC', id: 'finance.declaredRevenue'}},
+      {id: 'opt_abort_unclear', label: '都不符合 / 暂不清楚', explanation: '停止', choice: {kind: 'ABORT', id: 'unclear'}},
+    ],
+  };
+  const engineText = '当前集合分析只支持同一事实表内的统计。本体中的业务关系（Link）可用于对象点查和按业务键查找关联对象，但不能在本轮直接做跨表集合 JOIN。';
+  await page.route('**/v0.1/chat/status', route => route.fulfill({json: {enabled: true, ready: true, model: 'offline-test'}}));
+  await page.route('**/v0.1/chat/turns', route => route.fulfill({
+    contentType: 'application/x-ndjson',
+    body: [{type: 'start', conversationId: cid, releaseDigest: digest}, {type: 'choice', question, originalQuestion: '按企业合计申报营业收入'}, {type: 'done'}].map(x => JSON.stringify(x)).join('\n') + '\n',
+  }));
+  await page.route('**/v0.1/chat/choices', async route => {
+    await route.fulfill({json: {
+      status: 'UNSUPPORTED', answerReady: true, kind: 'unsupported', textOrigin: 'ENGINE',
+      text: engineText, errorCode: 'LINK_ANALYSIS_UNSUPPORTED', releaseDigest: digest,
+      evidence: [{id: 'e1', tool: 'prepare_semantic_query', result: {status: 'UNSUPPORTED', errorCode: 'LINK_ANALYSIS_UNSUPPORTED'}}],
+    }});
+  });
+  await page.goto('/studio/?view=chat');
+  await page.getByLabel('业务问题').fill('按企业合计申报营业收入');
+  await page.getByRole('button', {name: '发送', exact: true}).click();
+  await expect(page.getByRole('form', {name: '业务选择'})).toBeVisible();
+  await page.getByRole('button', {name: '申报营业收入'}).click();
+  await expect(page.getByText(engineText)).toBeVisible();
+  await expect(page.getByText('引擎结果说明', {exact: true})).toBeVisible();
+  await expect(page.getByText('当前无法确定结果，请核对条件或稍后重试。')).toHaveCount(0);
+  await expect(page.locator('.chat-error')).toHaveCount(0);
+  const shot = process.env.SEMALOOM_UNSUPPORTED_SHOT;
+  if (shot) await page.screenshot({path: shot, fullPage: true});
+});
+
 test('unconfigured chat gives a recoverable state and cannot send', async ({page})=>{
   await page.route('**/v0.1/chat/status',route=>route.fulfill({json:{enabled:false,ready:false}}));
   await page.goto('/studio/?view=chat');

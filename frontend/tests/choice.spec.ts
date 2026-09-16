@@ -74,7 +74,7 @@ test("choice cards against isolated Python Chat: three rounds, tables, refresh r
 
   await expect(page.locator(".chat-evidence table").first()).toBeVisible({ timeout: 45_000 });
   await expect(page.getByText("引擎结果说明")).toBeVisible();
-  await expect(page.getByText(/置信度/)).toBeVisible();
+  await expect(page.getByText(/置信度/).first()).toBeVisible();
   await page.getByText("引擎结果说明").scrollIntoViewIfNeeded();
   await expect(page.locator(".chat-evidence pre")).toHaveCount(0);
   await shot("05-result-tables.png");

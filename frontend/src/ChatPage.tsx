@@ -148,13 +148,10 @@ export function ChatPage({ session }: { session: StudioSession }) {
         setPicked(""); setOtherText("");
         return;
       }
-      if (result.status === "SOURCE_ERROR" || result.status === "UNSUPPORTED") {
-        setError(result.errorMessage ?? result.errorCode ?? "当前无法确定结果，请核对条件或稍后重试。");
-        return;
-      }
       if (result.answerReady) {
         const answer = {
-          kind: "answer", textOrigin: result.textOrigin ?? "ENGINE",
+          kind: result.status === "UNSUPPORTED" ? "unsupported" : (result.kind ?? "answer"),
+          textOrigin: result.textOrigin ?? "ENGINE",
           text: result.text ?? "已按发布口径完成计算。",
           releaseDigest: result.plan?.releaseDigest ?? result.releaseDigest ?? "",
           evidence: result.evidence ?? [{ id: "e1", tool: "prepare_semantic_query", result: result.population ?? result.result ?? result }],
@@ -168,6 +165,10 @@ export function ChatPage({ session }: { session: StudioSession }) {
           return [...previous, { question: pending.originalQuestion, answer }];
         });
         setPending(null); setPicked(""); setOtherText("");
+        return;
+      }
+      if (result.status === "SOURCE_ERROR" || result.status === "UNSUPPORTED") {
+        setError(result.errorMessage ?? result.errorCode ?? "当前无法确定结果，请核对条件或稍后重试。");
       }
     } catch (cause) {
       setError(messages[errorDetail(cause)] ?? errorDetail(cause));

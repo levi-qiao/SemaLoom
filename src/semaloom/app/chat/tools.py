@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from semaloom.app.agent_tools import read_tools
 from semaloom.app.chat.intent import TurnIntent
@@ -20,6 +20,7 @@ from semaloom.core.results import (
     QueryRequest,
 )
 from semaloom.core.semantic_query import SemanticQuery
+from semaloom.core.wire import wire_config
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.discovery import SemanticDiscovery
 from semaloom.runtime.eval import EvaluationError, evaluate_claim_with_evidence
@@ -27,10 +28,10 @@ from semaloom.runtime.query import QueryService
 
 
 class Answer(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = wire_config(frozen=False)
     kind: Literal["answer", "explanation", "clarification", "unsupported"]
     text: str = Field(min_length=1, max_length=6000)
-    evidence_ids: list[str] = Field(alias="evidenceIds", max_length=12)
+    evidence_ids: list[str] = Field(max_length=12)
 
 
 class SemanticTools:
@@ -85,7 +86,11 @@ class SemanticTools:
                 "name": "list_semantics",
                 "description": "Browse the current authorized ontology: objects, metrics, links "
                 "and rules. Use for open questions about what can be asked. Follow nextOffset "
-                "for more. Definitions describe configured meanings, NOT actual available rows.",
+                "for more. Definitions describe configured meanings, NOT actual available rows. "
+                "Link and Metric documents include analysisCapabilities: collectionJoin is true "
+                "only for declared ONE links on the same PostgreSQL source (group/filter by the "
+                "related object's attributes). Otherwise Links are for point lookup and keyed "
+                "find.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -257,15 +262,26 @@ class SemanticTools:
                 query = query_from_intent(self.intent, self.query.bundle)
             payload = prepare_turn(self.query, self.actor, message, query)
             if payload.get("answerReady"):
+                kind = "unsupported" if payload.get("status") == "UNSUPPORTED" else "answer"
                 self.answer = {
-                    "kind": "answer",
+                    "kind": kind,
                     "textOrigin": "ENGINE",
-                    "text": payload.get("text") or "已按发布口径完成计算。",
+                    "text": payload.get("text")
+                    or (
+                        "当前分析能力暂不支持该请求。"
+                        if kind == "unsupported"
+                        else "已按发布口径完成计算。"
+                    ),
                     "evidence": [
                         {
                             "id": "e1",
                             "tool": "prepare_semantic_query",
-                            "result": payload.get("result") or {},
+                            "result": payload.get("result")
+                            or {
+                                "status": payload.get("status"),
+                                "errorCode": payload.get("errorCode"),
+                                "capability": payload.get("capability"),
+                            },
                         }
                     ],
                     "releaseDigest": self.query.bundle.digest,

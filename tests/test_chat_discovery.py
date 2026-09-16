@@ -24,6 +24,34 @@ def test_definition_evidence_can_finish_a_catalog_question() -> None:
     assert tools.answer["textOrigin"] == "AI"
 
 
+def test_link_and_metric_discovery_exposes_collection_join_boundary() -> None:
+    tools = SemanticTools(QueryService(compile_examples(), None), ACTOR)
+    link = tools.call("describe_semantic", {"semanticId": "tax.filingTaxpayer"})
+    assert link["kind"] == "Link"
+    assert link["analysisCapabilities"] == {
+        "pointLookup": True,
+        "keyedFind": True,
+        "collectionJoin": False,
+    }
+    assert "physical" not in link and "sourceId" not in link
+    metric = tools.call("describe_semantic", {"semanticId": "tax.reportedIncome"})
+    assert metric["kind"] == "Metric"
+    assert metric["analysisCapabilities"]["collectionJoin"] is False
+    assert "sameTableCollection" in metric["analysisCapabilities"]
+    page = tools.call("list_semantics", {"limit": 50})
+    kinds = {item["kind"] for item in page["definitions"]}
+    assert "Link" in kinds and "Metric" in kinds
+    assert not {"Mapping", "Source"} & kinds
+    for item in page["definitions"]:
+        if item["kind"] in {"Link", "Metric"}:
+            assert "collectionJoin" in item["analysisCapabilities"]
+            assert item["analysisCapabilities"]["collectionJoin"] in {True, False}
+        else:
+            assert "analysisCapabilities" not in item
+    listed = next(item for item in page["definitions"] if item["id"] == "tax.filingTaxpayer")
+    assert listed["analysisCapabilities"]["pointLookup"] is True
+
+
 def test_catalog_pages_are_complete_release_pinned_and_business_only() -> None:
     tools = SemanticTools(QueryService(compile_examples(), None), ACTOR)
     found = []
