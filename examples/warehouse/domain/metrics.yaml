@@ -1,0 +1,11 @@
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: warehouse.onHandQty
+  version: "1.0.0"
+  label: 在库数量
+  objectType: warehouse.Sku
+  property: onHandQty
+  population:
+    unitProperty: skuId
+    yearProperty: stockYear
+    description: 合成仓库样本按 SKU 年度统计，不代表全部库存地点。

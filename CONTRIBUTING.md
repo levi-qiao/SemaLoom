@@ -2,6 +2,8 @@
 
 从 issue 或 [PLAN](docs/PLAN.md) 选择一个依赖已满足的任务，阅读 [AGENTS.md](AGENTS.md) 指向的规范。当前仓库是 pre-alpha；提交应区分已验证行为、设计目标和未知项，不把合成原型报告为生产 gate 已通过。
 
+公开文档不要把 local-dev demo token 写成生产身份、把 `GET /v0.1/mcp/tools` 写成 MCP SDK、把多 `identityKeys` 写成已实现的复合身份查询、把 typed Rule 扩展写成任意代码执行，或把 in-process `DraftStore` 写成企业写入恢复。Studio 的结构化 Rule 编辑器和 A64–A69 联合 gate 尚未关闭。能力边界见 [capabilities](docs/capabilities.md)。
+
 ## Implementation conventions
 
 - 后端使用 Python + FastAPI，单个 `pyproject.toml`、`src/semaloom/` 包与 `uv.lock`。已验证组合：Python 3.13（`.python-version` 与 `requires-python = ">=3.13"`）、Ruff、mypy、pytest。不并行维护第二套类型检查器。
@@ -13,19 +15,31 @@
 - 测试围绕外部接口和可观察行为。数据库语义使用 PostgreSQL 集成测试，不以 SQLite 替代验收；OpenAPI 使用可控制失败与重放的模拟服务。
 - 自动化检查：`uv sync --frozen` 后执行 `uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy`、`uv run pytest`。覆盖契约正反例、包 import 方向及集成行为；CI 见 `.github/workflows/ci.yml`。
 - 接入 adapter 与 Action 恢复任务随同一个应用进程启动和停止，部署入口统一；不要求额外 worker、队列或查询服务。依赖放在项目环境，遵循实际 manifest/lockfile，禁止 home-level 项目依赖目录。
+- 本地 PostgreSQL 使用 Compose（`docker compose up -d --wait`）或等价的 Homebrew `postgresql@16`（`127.0.0.1:5432`，角色 `semaloom`，库 `semaloom_{tax,orders,suppliers,meta}`）。禁止对 `semaloom_samples` / `semaloom_sample_meta` 或远端库运行会清空 fixture 的测试。公共 quickstart 只使用合成数据。
 
 ## Studio frontend
 
 T09 按 [DESIGN](docs/DESIGN.md) 创建 `frontend/`，采用 React/TypeScript/Vite 与 pnpm；固定经过验证的 Node/包管理器版本和 lockfile。基础组件按需引入，记录来源许可，视觉 token 集中维护。生成契约类型，界面不复制 Python 规则执行语义。
 
-前端构建产物打包进 Python wheel，由同一 FastAPI 应用提供；已构建发行物安装和运行无需 Node。验证 SPA 深链接与 API 路由、键盘/对比度、草稿并发、权限及发布流程。本地可信会话和合成 OpenAPI 只证明控制面与适配器闭环；生产身份、真实企业 API 和容量仍单独标注，不以合成界面代替验收。
+前端构建产物打包进 Python wheel（`src/semaloom/app/static/`），由同一 FastAPI 应用提供；未启用 Chat 的已构建发行物安装和运行无需 Node。验证 SPA 深链接与 API 路由。本地可信会话和合成 OpenAPI 只证明控制面与适配器闭环；生产身份、真实企业 API、Rule 结构化编辑器和容量仍单独标注，不以合成界面代替验收。
 
 ## Review and completion
 
 变更描述说明业务触发条件、结果、对应验收 ID、验证结果和已知限制。语义变更同时更新规范、Schema、fixture 和兼容性说明。文档 Schema 校验通过不等于 Runtime 验收通过。
 
-发布物由经审查的源码构建，生成内容摘要和可追踪依赖。V0.x 允许经过记录的破坏性变更，仍须显式升级 apiVersion/迁移策略，不静默重解释历史 release。
+发布物由经审查的源码构建，生成内容摘要和可追踪依赖。发行名是 `semaloom`，语义契约 `v0.1`，`apiVersion` 为 `semaloom/v0.1`。V0.x 允许经过记录的破坏性变更，仍须显式升级 apiVersion/迁移策略，不静默重解释历史 release。本仓库当前 **不授权** 推送、PyPI 发布、签名或部署；发布身份与渠道由维护者另行提供。
 
-项目采用 [Apache-2.0](LICENSE)。包元数据和发行物必须包含 LICENSE；第三方代码保留原始许可及必要声明。项目目前不要求 CLA 或 DCO。
+依赖与许可跟随实际构建，不伪造 SBOM 或签名：
+
+- 项目许可 [Apache-2.0](LICENSE)；Studio 打包的 React 资产见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- 运行时依赖以 `pyproject.toml` 声明、`uv.lock` 锁定为准。重建后检查：`uv export --frozen --no-dev --no-hashes`，以及 wheel 内 `*.dist-info/METADATA` 的 `Requires-Dist`。
+- 包元数据和发行物必须包含 LICENSE。sdist 不含 `.agents/`、`runtime.env` 或私有样本说明；公共合成示例在 `examples/tax` 与 `examples/procurement`。
+- 目前没有签名 SBOM、SLSA 证明或包签名。不要把 lockfile 当作发布证明。
+
+项目目前不要求 CLA 或 DCO。维护者见 [.github/CODEOWNERS](.github/CODEOWNERS)。社区规范见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
 
 本地入口和 PostgreSQL fixture 见 [quickstart](docs/quickstart.md)。安全问题使用 [私密报告流程](SECURITY.md)，普通支持范围见 [SUPPORT.md](SUPPORT.md)。
+
+## Optional pi harness
+
+[Chat Harness](docs/chat-harness.md) 使用项目内 harness/package.json 与 pnpm-lock.yaml，Node >=22.19。运行 corepack pnpm --dir harness install --frozen-lockfile --ignore-scripts，然后 corepack pnpm --dir harness test。仅模型循环运行在可选子进程，禁止在插件复制业务规则或把真实 API key 加入测试。

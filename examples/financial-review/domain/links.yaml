@@ -1,0 +1,96 @@
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Link
+  id: finance.returnCompany
+  label: 申报主体
+  source: finance.TaxReturn
+  target: finance.Company
+  identity:
+    source: companyId
+    target: companyId
+  cardinality: ONE
+  traversal: FORWARD
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Link
+  id: finance.reportCompany
+  label: 报告主体
+  source: finance.AuditReport
+  target: finance.Company
+  identity:
+    source: companyId
+    target: companyId
+  cardinality: ONE
+  traversal: FORWARD
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Link
+  id: finance.reportReturn
+  label: 样本配对
+  source: finance.AuditReport
+  target: finance.TaxReturn
+  identity:
+    source: returnId
+    target: returnId
+  cardinality: ONE
+  traversal: FORWARD
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Link
+  id: finance.factorReport
+  label: 来自报告
+  source: finance.AuditFactor
+  target: finance.AuditReport
+  identity:
+    source: reportId
+    target: reportId
+  cardinality: ONE
+  traversal: FORWARD
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Link
+  id: finance.lineReturn
+  label: 属于申报
+  source: finance.ReturnLine
+  target: finance.TaxReturn
+  identity:
+    source: returnId
+    target: returnId
+  cardinality: ONE
+  traversal: FORWARD
+- apiVersion: semaloom/v0.1
+  kind: Link
+  id: finance.caseCompany
+  version: 1.0.0
+  label: 分析主体
+  source: finance.ReviewCase
+  target: finance.Company
+  identity:
+    source: companyId
+    target: companyId
+  cardinality: ONE
+  traversal: FORWARD
+- apiVersion: semaloom/v0.1
+  kind: Link
+  id: finance.caseReturn
+  version: 1.0.0
+  label: 分析所用申报
+  source: finance.ReviewCase
+  target: finance.TaxReturn
+  identity:
+    source: returnId
+    target: returnId
+  cardinality: ONE
+  traversal: FORWARD
+- apiVersion: semaloom/v0.1
+  kind: Link
+  id: finance.caseReport
+  version: 1.0.0
+  label: 分析所用报告
+  source: finance.ReviewCase
+  target: finance.AuditReport
+  identity:
+    source: reportId
+    target: reportId
+  cardinality: ONE
+  traversal: FORWARD

@@ -24,6 +24,7 @@ class _Doc(BaseModel):
     id: str
     version: str
     label: str | None = None
+    description: str | None = None
 
 
 class PropertyDef(_Doc):
@@ -41,21 +42,45 @@ class EmbeddedProperty(BaseModel):
     value_type: ValueType = Field(alias="valueType")
     required: bool = False
     label: str | None = None
+    unit: str | None = None
+    aggregation: Aggregation | None = None
+    aliases: tuple[str, ...] = ()
+
+
+class ObjectPeriod(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, frozen=True)
+    from_property: str = Field(alias="fromProperty")
+    to_property: str = Field(alias="toProperty")
+
+
+class PopulationSpec(BaseModel):
+    """Approved population grain: one object per statistical unit and year."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, frozen=True)
+    unit_property: str = Field(alias="unitProperty")
+    year_property: str = Field(alias="yearProperty")
+    description: str = Field(min_length=1)
 
 
 class ObjectTypeDef(_Doc):
     kind: Literal["ObjectType"] = "ObjectType"
     identity_keys: tuple[str, ...] = Field(alias="identityKeys")
     properties: tuple[EmbeddedProperty, ...]
+    period: ObjectPeriod | None = None
+    population: PopulationSpec | None = None
 
 
 class MetricDef(_Doc):
     kind: Literal["Metric"] = "Metric"
     object_type: str = Field(alias="objectType")
-    value_type: Literal["DECIMAL", "INTEGER"] = Field(alias="valueType")
-    unit: str
-    grain: tuple[str, ...]
+    property: str | None = None
+    select: dict[str, str] = Field(default_factory=dict)
+    value_type: Literal["DECIMAL", "INTEGER"] | None = Field(default=None, alias="valueType")
+    unit: str | None = None
+    grain: tuple[str, ...] = ()
     aggregation: Aggregation = "NONE"
+    population: PopulationSpec | None = None
+    aliases: tuple[str, ...] = Field(default=(), max_length=30)
     perspective: str | None = None
     derived_from: tuple[str, ...] = Field(default=(), alias="derivedFrom")
 

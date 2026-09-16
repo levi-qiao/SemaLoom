@@ -1,0 +1,101 @@
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: ObjectType
+  id: finance.ReviewCase
+  label: 年度财务分析样本
+  description: 按企业和年度选择的申报及审计样本，ID 固定到具体报告。数值采用上游归一化人民币元契约，未逐份核对原始报告。pairingPolicy
+    为最新样本选择，uniquePair=false 时不能称为唯一正式版本。sourceReviewStatus 是真实源状态，与 mock 流转无关。先按
+    companyName/taxYear 搜索实例，再查询指标/判断；结论必须说明样本选择和抽取状态。
+  identityKeys:
+  - caseId
+  properties:
+  - id: caseId
+    valueType: STRING
+    label: 分析样本编号
+    required: true
+  - id: companyId
+    valueType: STRING
+    label: 企业编号
+  - id: companyName
+    valueType: STRING
+    label: 企业名称
+  - id: taxYear
+    valueType: INTEGER
+    label: 会计年度
+  - id: reportId
+    valueType: STRING
+    label: 审计报告编号
+  - id: returnId
+    valueType: STRING
+    label: 申报编号
+  - id: periodStart
+    valueType: DATE
+    label: 期间起
+  - id: periodTo
+    valueType: DATE
+    label: 期间止（不含）
+  - id: uniquePair
+    valueType: BOOLEAN
+    label: 该年度是否仅有一份申报和报告
+  - id: pairingPolicy
+    valueType: STRING
+    label: 样本选择规则
+  - id: unitBasis
+    valueType: STRING
+    label: 金额单位依据
+  - id: sourceReviewStatus
+    valueType: STRING
+    label: 来源真实复核状态
+  - id: audit_profitStatus
+    valueType: STRING
+    label: audit_profit抽取状态
+  - id: net_profitStatus
+    valueType: STRING
+    label: net_profit抽取状态
+  - id: tax_expenseStatus
+    valueType: STRING
+    label: tax_expense抽取状态
+  - id: assetsStatus
+    valueType: STRING
+    label: assets抽取状态
+  - id: liabilitiesStatus
+    valueType: STRING
+    label: liabilities抽取状态
+  - id: equityStatus
+    valueType: STRING
+    label: equity抽取状态
+  - id: declared_profit
+    valueType: DECIMAL
+    unit: CNY
+    label: 选定申报利润总额
+  - id: audit_profit
+    valueType: DECIMAL
+    unit: CNY
+    label: 抽取审计利润总额
+  - id: net_profit
+    valueType: DECIMAL
+    unit: CNY
+    label: 抽取审计净利润
+  - id: tax_expense
+    valueType: DECIMAL
+    unit: CNY
+    label: 抽取审计所得税费用
+  - id: assets
+    valueType: DECIMAL
+    unit: CNY
+    label: 抽取审计资产总计
+  - id: liabilities
+    valueType: DECIMAL
+    unit: CNY
+    label: 抽取审计负债合计
+  - id: equity
+    valueType: DECIMAL
+    unit: CNY
+    label: 抽取审计所有者权益合计
+  period:
+    fromProperty: periodStart
+    toProperty: periodTo
+  population:
+    unitProperty: companyId
+    yearProperty: taxYear
+    description: 当前授权本地样本中每企业每年一份选定分析样本；不代表全行业、全部正式报告或已复核数据。重复企业年度拒绝汇总。

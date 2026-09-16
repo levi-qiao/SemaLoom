@@ -140,10 +140,12 @@ def test_studio_graph_and_inspector_and_draft() -> None:
     assert graph["meta"]["counts"]["sources"] == 5
     order = next(node for node in graph["nodes"] if node["id"] == "procurement.Order")
     assert order["sourceCount"] == 2
+    assert order["actionCount"] == 1
     inspector = studio_inspector(bundle, "procurement.Order")
     assert inspector is not None
     assert any(item["id"] == "procurement.orderAmount" for item in inspector["metrics"])
     assert any(item["target"] == "procurement.Supplier" for item in inspector["relations"])
+    assert any(item["id"] == "procurement.CreatePurchaseDraft" for item in inspector["actions"])
     client = TestClient(create_app(load_services=True, load_fixtures=True))
     headers = {"Authorization": "Bearer tenant-a-modeler"}
     client.post("/v0.1/studio/session/demo", json={"persona": "modeler"})

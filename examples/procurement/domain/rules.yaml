@@ -2,6 +2,8 @@
   kind: Rule
   id: procurement.amountWithinLimit
   version: "1.0.0"
+  label: 金额未超授权
+  description: 判断采购订单金额是否不超过该组织的授权额度。成立后才允许创建采购草稿。结果为成立、不成立或数据不足无法判断。
   claim: procurement.amountWithinLimit
   applicability: [organizationId]
   inputs:

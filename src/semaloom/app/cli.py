@@ -89,7 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as exc:
             parser.error(str(exc))
         services = build_services(load_data=False)
-        envelope = services.query.execute(
+        envelope = services.query_active(args.tenant).execute(
             QueryRequest(
                 api_version="semaloom/v0.1",
                 select=(

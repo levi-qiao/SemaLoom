@@ -1,0 +1,216 @@
+{
+  "apiVersion": "semaloom/v0.1",
+  "kind": "SemanticQueryContractSample",
+  "id": "two-round-choice-then-compute",
+  "description": "Vague metric then missing year: two NEEDS_INPUT rounds, option-id submits, then READY. Abort and error shapes are included for the parser, not as a successful path.",
+  "initialQuery": {
+    "apiVersion": "semaloom/v0.1",
+    "metrics": [],
+    "groupBy": [],
+    "filters": null,
+    "missingPolicy": null,
+    "evidenceLimit": 50,
+    "decisions": []
+  },
+  "round1": {
+    "prepare": {
+      "status": "NEEDS_INPUT",
+      "question": {
+        "questionId": "q-metric-1",
+        "revision": 1,
+        "slot": "metric",
+        "prompt": "你说的收入是哪种口径？",
+        "reason": "本体中有多个收入相关指标，口径会改变结果。",
+        "multiSelect": false,
+        "options": [
+          {
+            "id": "opt_declared_revenue",
+            "label": "申报营业收入",
+            "explanation": "申报表中的营业收入",
+            "choice": {"kind": "METRIC", "id": "finance.declaredRevenue"}
+          },
+          {
+            "id": "opt_taxable_income",
+            "label": "申报应纳税所得额",
+            "explanation": "计算所得税采用的所得额",
+            "choice": {"kind": "METRIC", "id": "finance.taxableIncome"}
+          },
+          {
+            "id": "opt_other_input",
+            "label": "其他",
+            "explanation": "用一句话补充年份、口径或对象，系统按原问题继续，不要求手打候选名称",
+            "choice": {"kind": "OTHER", "id": "free_text"}
+          },
+          {
+            "id": "opt_unclear",
+            "label": "都不符合 / 暂不清楚",
+            "explanation": "停止本次计算，不猜测口径",
+            "choice": {"kind": "ABORT", "id": "unclear"}
+          }
+        ]
+      }
+    },
+    "submit": {
+      "questionId": "q-metric-1",
+      "revision": 1,
+      "optionIds": ["opt_declared_revenue"]
+    }
+  },
+  "round2": {
+    "prepare": {
+      "status": "NEEDS_INPUT",
+      "question": {
+        "questionId": "q-year-1",
+        "revision": 1,
+        "slot": "year",
+        "prompt": "要计算哪一年？",
+        "reason": "该指标按年度统计，缺少年份无法确定集合。",
+        "multiSelect": false,
+        "options": [
+          {
+            "id": "opt_year_2024",
+            "label": "2024 年",
+            "explanation": "已发布样本中的 2024 申报年度",
+            "choice": {
+              "kind": "YEAR",
+              "id": "2024",
+              "field": "finance.TaxReturn.taxYear"
+            }
+          },
+          {
+            "id": "opt_year_2025",
+            "label": "2025 年",
+            "explanation": "已发布样本中的 2025 申报年度",
+            "choice": {
+              "kind": "YEAR",
+              "id": "2025",
+              "field": "finance.TaxReturn.taxYear"
+            }
+          },
+          {
+            "id": "opt_other_input",
+            "label": "其他",
+            "explanation": "用一句话补充年份、口径或对象，系统按原问题继续，不要求手打候选名称",
+            "choice": {"kind": "OTHER", "id": "free_text"}
+          },
+          {
+            "id": "opt_year_unclear",
+            "label": "都不符合 / 暂不清楚",
+            "explanation": "停止本次计算，不默认最近一年",
+            "choice": {"kind": "ABORT", "id": "unclear"}
+          }
+        ]
+      }
+    },
+    "submit": {
+      "questionId": "q-year-1",
+      "revision": 1,
+      "optionIds": ["opt_year_2024"]
+    }
+  },
+  "finalPrepare": {
+    "status": "READY",
+    "plan": {
+      "planId": "plan-two-round-1",
+      "releaseDigest": "rel-two-round-example",
+      "compiledDigest": "compiled-two-round-1",
+      "query": {
+        "apiVersion": "semaloom/v0.1",
+        "metrics": [{"id": "finance.declaredRevenue"}],
+        "filters": {
+          "kind": "AND",
+          "args": [
+            {
+              "kind": "PRED",
+              "field": "finance.TaxReturn.taxYear",
+              "op": "EQ",
+              "value": {"valueType": "INTEGER", "value": 2024}
+            }
+          ]
+        },
+        "missingPolicy": null,
+        "evidenceLimit": 50,
+        "decisions": [
+          {
+            "slot": "metric",
+            "optionId": "opt_declared_revenue",
+            "choice": {"kind": "METRIC", "id": "finance.declaredRevenue"},
+            "questionId": "q-metric-1",
+            "revision": 1
+          },
+          {
+            "slot": "year",
+            "optionId": "opt_year_2024",
+            "choice": {
+              "kind": "YEAR",
+              "id": "2024",
+              "field": "finance.TaxReturn.taxYear"
+            },
+            "questionId": "q-year-1",
+            "revision": 1
+          }
+        ]
+      }
+    }
+  },
+  "session": {
+    "conversationId": "conv-two-round-1",
+    "tenantId": "tenant-a",
+    "actorId": "analyst",
+    "releaseDigest": "rel-two-round-example",
+    "originalQuestion": "收入多少？",
+    "query": {
+      "apiVersion": "semaloom/v0.1",
+      "metrics": [{"id": "finance.declaredRevenue"}],
+      "filters": {
+        "kind": "AND",
+        "args": [
+          {
+            "kind": "PRED",
+            "field": "finance.TaxReturn.taxYear",
+            "op": "EQ",
+            "value": {"valueType": "INTEGER", "value": 2024}
+          }
+        ]
+      },
+      "evidenceLimit": 50,
+      "decisions": [
+        {
+          "slot": "metric",
+          "optionId": "opt_declared_revenue",
+          "choice": {"kind": "METRIC", "id": "finance.declaredRevenue"},
+          "questionId": "q-metric-1",
+          "revision": 1
+        },
+        {
+          "slot": "year",
+          "optionId": "opt_year_2024",
+          "choice": {
+            "kind": "YEAR",
+            "id": "2024",
+            "field": "finance.TaxReturn.taxYear"
+          },
+          "questionId": "q-year-1",
+          "revision": 1
+        }
+      ]
+    },
+    "pendingQuestion": null,
+    "planId": "plan-two-round-1",
+    "resultId": null,
+    "questionRevision": 2
+  },
+  "unsupported": {
+    "status": "UNSUPPORTED",
+    "errorCode": "OPERATOR_NOT_SUPPORTED",
+    "errorMessage": "WINDOW_LAG is not in the same-source PostgreSQL v0.1 operator list.",
+    "retryable": false,
+    "capability": "WINDOW_LAG"
+  },
+  "sourceError": {
+    "status": "SOURCE_ERROR",
+    "errorCode": "PROVIDER_UNAVAILABLE",
+    "errorMessage": "The approved PostgreSQL source did not complete the read.",
+    "retryable": true
+  }
+}

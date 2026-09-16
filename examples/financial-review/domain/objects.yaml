@@ -1,0 +1,145 @@
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: ObjectType
+  id: finance.Company
+  label: 企业
+  identityKeys:
+  - companyId
+  properties:
+  - id: companyId
+    valueType: STRING
+    label: 企业编号
+    required: true
+  - id: name
+    valueType: STRING
+    label: 企业名称
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: ObjectType
+  id: finance.TaxReturn
+  label: 年度申报表
+  identityKeys:
+  - returnId
+  properties:
+  - id: returnId
+    valueType: STRING
+    label: 申报编号
+    required: true
+  - id: companyId
+    valueType: STRING
+    label: 企业编号
+  - id: taxYear
+    valueType: INTEGER
+    label: 年度
+  - id: periodStart
+    valueType: DATE
+    label: 期间起
+  - id: periodEnd
+    valueType: DATE
+    label: 期间止（含）
+  - id: revenue
+    valueType: DECIMAL
+    unit: CNY
+    label: 申报营业收入
+    aliases:
+    - 收入
+    - 营业收入
+  - id: totalProfit
+    valueType: DECIMAL
+    unit: CNY
+    label: 申报利润总额
+  - id: taxableIncome
+    valueType: DECIMAL
+    unit: CNY
+    label: 申报应纳税所得额
+    aliases:
+    - 应税所得
+  - id: incomeTax
+    valueType: DECIMAL
+    unit: CNY
+    label: 申报实际应纳所得税额
+  population:
+    unitProperty: companyId
+    yearProperty: taxYear
+    description: 当前授权年度申报样本按企业年度统计；同企业同年度多份申报拒绝汇总，不能把本地样本视为全行业。
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: ObjectType
+  id: finance.AuditReport
+  label: 审计报告
+  identityKeys:
+  - reportId
+  properties:
+  - id: reportId
+    valueType: STRING
+    label: 报告编号
+    required: true
+  - id: companyId
+    valueType: STRING
+    label: 企业编号
+  - id: taxYear
+    valueType: INTEGER
+    label: 会计年度
+  - id: returnId
+    valueType: STRING
+    label: 同企业年度的申报样本
+  - id: format
+    valueType: STRING
+    label: 原文格式
+  - id: reviewStatus
+    valueType: STRING
+    label: 模拟流转状态
+  description: 报告按文件和年度区分；reviewStatus 完全来自本地 mock，不是远程审计复核结果。
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: ObjectType
+  id: finance.AuditFactor
+  label: 审计抽取观测
+  identityKeys:
+  - factorId
+  properties:
+  - id: factorId
+    valueType: STRING
+    label: 观测编号
+    required: true
+  - id: reportId
+    valueType: STRING
+    label: 报告编号
+  - id: factorRef
+    valueType: STRING
+    label: 因子
+  - id: currentValue
+    valueType: STRING
+    label: 本期抽取值
+  - id: priorValue
+    valueType: STRING
+    label: 上期抽取值
+  - id: currentStatus
+    valueType: STRING
+    label: 本期抽取状态
+  - id: priorStatus
+    valueType: STRING
+    label: 上期抽取状态
+  description: 保留来源抽取状态，不将 extraction_failed、not_disclosed 或 not_evaluated 解释为零。
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: ObjectType
+  id: finance.ReturnLine
+  label: 申报收入明细行
+  identityKeys:
+  - lineId
+  properties:
+  - id: lineId
+    valueType: STRING
+    label: 行编号
+    required: true
+  - id: returnId
+    valueType: STRING
+    label: 申报编号
+  - id: lineNumber
+    valueType: STRING
+    label: 表内行次
+  - id: amount
+    valueType: DECIMAL
+    unit: CNY
+    label: 申报明细金额

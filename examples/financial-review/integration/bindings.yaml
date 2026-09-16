@@ -1,0 +1,147 @@
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: IntegrationBinding
+  id: finance.samples
+  provider: postgres
+  sourceId: sample_pg
+  mappings:
+  - finance.Company.pg
+  - finance.TaxReturn.pg
+  - finance.AuditReport.pg
+  - finance.AuditFactor.pg
+  - finance.ReturnLine.pg
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: IntegrationBinding
+  id: finance.mock
+  provider: openapi
+  sourceId: sample_api
+  mappings:
+  - finance.AuditReport.mock
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Mapping
+  id: finance.Company.pg
+  target: finance.Company
+  objectType: finance.Company
+  sourceId: sample_pg
+  provider: postgres
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    table: sample_taxpayer
+    tenantColumn: tenant_id
+    identityColumn: id
+    grainColumns:
+      companyId: id
+    propertyColumns:
+      name: name
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Mapping
+  id: finance.TaxReturn.pg
+  target: finance.TaxReturn
+  objectType: finance.TaxReturn
+  sourceId: sample_pg
+  provider: postgres
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    table: sample_declaration
+    tenantColumn: tenant_id
+    identityColumn: id
+    grainColumns:
+      returnId: id
+    propertyColumns:
+      companyId: taxpayer_id
+      taxYear: tax_year
+      periodStart: period_start
+      periodEnd: period_end
+      revenue: revenue
+      totalProfit: total_profit
+      taxableIncome: taxable_income
+      incomeTax: income_tax
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Mapping
+  id: finance.AuditReport.pg
+  target: finance.AuditReport
+  objectType: finance.AuditReport
+  sourceId: sample_pg
+  provider: postgres
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    table: sample_audit_report
+    tenantColumn: tenant_id
+    identityColumn: id
+    grainColumns:
+      reportId: id
+      companyId: taxpayer_id
+      returnId: declaration_id
+    propertyColumns:
+      taxYear: tax_year
+      format: source_format
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Mapping
+  id: finance.AuditFactor.pg
+  target: finance.AuditFactor
+  objectType: finance.AuditFactor
+  sourceId: sample_pg
+  provider: postgres
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    table: sample_audit_factor
+    tenantColumn: tenant_id
+    identityColumn: id
+    grainColumns:
+      factorId: id
+      reportId: report_id
+    propertyColumns:
+      factorRef: factor_ref
+      currentValue: value_current
+      priorValue: value_prior
+      currentStatus: value_status_current
+      priorStatus: value_status_prior
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Mapping
+  id: finance.ReturnLine.pg
+  target: finance.ReturnLine
+  objectType: finance.ReturnLine
+  sourceId: sample_pg
+  provider: postgres
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    table: sample_declaration_line
+    tenantColumn: tenant_id
+    identityColumn: id
+    grainColumns:
+      lineId: id
+    propertyColumns:
+      returnId: declaration_id
+      lineNumber: line_number
+      amount: amount
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Mapping
+  id: finance.AuditReport.mock
+  target: finance.AuditReport
+  objectType: finance.AuditReport
+  sourceId: sample_api
+  provider: openapi
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    operationId: getSampleAuditReview
+    method: GET
+    path: /mock/audit-review
+    identityParameter: reportId
+    identityPointer: /reportId
+    grainPointers:
+      reportId: /reportId
+    propertyPointers:
+      reviewStatus: /reviewStatus

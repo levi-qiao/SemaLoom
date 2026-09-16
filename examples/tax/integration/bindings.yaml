@@ -5,13 +5,8 @@
   provider: postgres
   sourceId: tax_pg
   mappings:
-    - tax.operatingRevenue.taxReturn
-    - tax.operatingRevenue.audit
-    - tax.otherRevenue.taxReturn
-    - tax.reportedIncome.pg
-    - tax.auditIncome.pg
-    - tax.vatPayable.pg
     - tax.Taxpayer.pg
+    - tax.Taxpayer.facts.pg
 
 - apiVersion: semaloom/v0.1
   kind: IntegrationBinding
@@ -21,153 +16,6 @@
   sourceId: tax_draft_api
   actionBindings:
     - tax.CreateTaxAdjustmentDraft.openapi
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: tax.operatingRevenue.taxReturn
-  version: "1.0.0"
-  target: tax.operatingRevenue
-  sourceId: tax_pg
-  provider: postgres
-  objectType: tax.Taxpayer
-  perspective: TAX_RETURN
-  expectedCardinality: ONE
-  completeness: AUTHORITATIVE
-  physical:
-    table: tax_metric
-    identityColumn: taxpayer_id
-    valueColumn: amount
-    grainColumns:
-      taxpayer: taxpayer_id
-      taxpayerId: taxpayer_id
-    propertyColumns:
-      name: name
-      jurisdiction: jurisdiction
-      taxYear: tax_year
-      perspective: perspective
-    filters:
-      metric: operatingRevenue
-      perspective: TAX_RETURN
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: tax.operatingRevenue.audit
-  version: "1.0.0"
-  target: tax.operatingRevenue
-  sourceId: tax_pg
-  provider: postgres
-  objectType: tax.Taxpayer
-  perspective: AUDIT_REPORT
-  expectedCardinality: ONE
-  completeness: AUTHORITATIVE
-  physical:
-    table: tax_metric
-    identityColumn: taxpayer_id
-    valueColumn: amount
-    grainColumns:
-      taxpayer: taxpayer_id
-      taxpayerId: taxpayer_id
-      taxYear: tax_year
-      perspective: perspective
-    filters:
-      metric: operatingRevenue
-      perspective: AUDIT_REPORT
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: tax.otherRevenue.taxReturn
-  version: "1.0.0"
-  target: tax.otherRevenue
-  sourceId: tax_pg
-  provider: postgres
-  objectType: tax.Taxpayer
-  perspective: TAX_RETURN
-  expectedCardinality: ONE
-  completeness: AUTHORITATIVE
-  physical:
-    table: tax_metric
-    identityColumn: taxpayer_id
-    valueColumn: amount
-    grainColumns:
-      taxpayer: taxpayer_id
-      taxpayerId: taxpayer_id
-      taxYear: tax_year
-      perspective: perspective
-    filters:
-      metric: otherRevenue
-      perspective: TAX_RETURN
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: tax.reportedIncome.pg
-  version: "1.0.0"
-  target: tax.reportedIncome
-  sourceId: tax_pg
-  provider: postgres
-  objectType: tax.Taxpayer
-  perspective: TAX_RETURN
-  expectedCardinality: ONE
-  completeness: AUTHORITATIVE
-  physical:
-    table: tax_metric
-    identityColumn: taxpayer_id
-    valueColumn: amount
-    grainColumns:
-      taxpayer: taxpayer_id
-      taxpayerId: taxpayer_id
-      taxYear: tax_year
-      perspective: perspective
-    filters:
-      metric: reportedIncome
-      perspective: TAX_RETURN
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: tax.auditIncome.pg
-  version: "1.0.0"
-  target: tax.auditIncome
-  sourceId: tax_pg
-  provider: postgres
-  objectType: tax.Taxpayer
-  perspective: AUDIT_REPORT
-  expectedCardinality: ONE
-  completeness: AUTHORITATIVE
-  physical:
-    table: tax_metric
-    identityColumn: taxpayer_id
-    valueColumn: amount
-    grainColumns:
-      taxpayer: taxpayer_id
-      taxpayerId: taxpayer_id
-      taxYear: tax_year
-      perspective: perspective
-    filters:
-      metric: auditIncome
-      perspective: AUDIT_REPORT
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: tax.vatPayable.pg
-  version: "1.0.0"
-  target: tax.vatPayable
-  sourceId: tax_pg
-  provider: postgres
-  objectType: tax.Taxpayer
-  perspective: TAX_RETURN
-  expectedCardinality: ONE
-  completeness: PARTIAL
-  physical:
-    table: tax_metric
-    identityColumn: taxpayer_id
-    valueColumn: amount
-    grainColumns:
-      taxpayer: taxpayer_id
-      taxpayerId: taxpayer_id
-      taxYear: tax_year
-      perspective: perspective
-    filters:
-      metric: vatPayable
-      perspective: TAX_RETURN
 
 - apiVersion: semaloom/v0.1
   kind: Mapping
@@ -182,9 +30,33 @@
   physical:
     table: tax_taxpayer
     identityColumn: taxpayer_id
+    propertyColumns:
+      name: name
+      jurisdiction: jurisdiction
     grainColumns:
       taxpayer: taxpayer_id
       taxpayerId: taxpayer_id
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: tax.Taxpayer.facts.pg
+  version: "1.0.0"
+  target: tax.Taxpayer
+  sourceId: tax_pg
+  provider: postgres
+  objectType: tax.Taxpayer
+  expectedCardinality: ONE
+  completeness: AUTHORITATIVE
+  physical:
+    table: tax_metric
+    identityColumn: taxpayer_id
+    grainColumns:
+      taxpayerId: taxpayer_id
+      taxYear: tax_year
+      perspective: perspective
+      measureCode: metric
+    propertyColumns:
+      amount: amount
 
 - apiVersion: semaloom/v0.1
   kind: ActionBinding

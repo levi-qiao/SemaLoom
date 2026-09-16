@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
+from starlette.types import Scope
 
 from semaloom.app.http import router
 from semaloom.identity import BuildIdentity, build_identity
@@ -32,8 +35,12 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
+        if getattr(app.state, "chat", None) is not None:
+            await app.state.chat.close()
         if load_services:
             app.state.services.close()
+        if sample_engine is not None:
+            sample_engine.dispose()
 
     app = FastAPI(
         title="SemaLoom",
@@ -43,6 +50,7 @@ def create_app(
     )
     app.state.identity = identity
     app.state.profile = identity.profile
+    sample_engine = None
 
     @app.get("/identity")
     def identity_endpoint() -> dict[str, str]:
@@ -50,6 +58,22 @@ def create_app(
         return current.to_dict()
 
     if identity.profile == "local-dev":
+        sample_url = os.getenv("SEMALOOM_SAMPLE_DATABASE_URL")
+        if sample_url:
+            from sqlalchemy.engine import make_url
+
+            from semaloom.adapters.postgres import engine_from_url
+            from semaloom.app.local_mock import sample_mock_router
+
+            parsed = make_url(sample_url)
+            if (
+                parsed.host not in {"localhost", "127.0.0.1", "::1"}
+                or parsed.database != "semaloom_samples"
+                or parsed.query
+            ):
+                raise ValueError("sample mock requires the local semaloom_samples database")
+            sample_engine = engine_from_url(sample_url)
+            app.include_router(sample_mock_router(sample_engine))
 
         @app.get("/health")
         def local_source_health() -> dict[str, str]:
@@ -66,9 +90,29 @@ def create_app(
 
         app.state.services = build_services(load_data=load_fixtures)
         app.include_router(router)
+        from semaloom.app.chat.http import router as chat_router
+
+        app.state.chat = None
+        if config_path := os.getenv("SEMALOOM_CHAT_CONFIG"):
+            from semaloom.app.chat.service import ChatService
+            from semaloom.app.chat.store import ChatStore
+
+            app.state.chat = ChatService(
+                ChatStore(app.state.services.studio_drafts.engine), Path(config_path).resolve()
+            )
+        app.include_router(chat_router)
         _mount_studio(app)
 
     return app
+
+
+class StudioStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        if response.headers.get("content-type", "").startswith("text/html"):
+            # Revalidate the entry point so a rebuilt UI cannot keep stale asset references.
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def _mount_studio(app: FastAPI) -> None:
@@ -76,4 +120,4 @@ def _mount_studio(app: FastAPI) -> None:
     dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
     root = packaged if (packaged / "index.html").is_file() else dist
     if root.is_dir():
-        app.mount("/studio", StaticFiles(directory=root, html=True), name="studio")
+        app.mount("/studio", StudioStaticFiles(directory=root, html=True), name="studio")

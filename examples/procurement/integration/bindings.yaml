@@ -6,10 +6,7 @@
   sourceId: orders_pg
   mappings:
     - procurement.Order.orders
-    - procurement.orderAmount.orders
-    - procurement.orderQuantity.orders
     - procurement.Organization.orders
-    - procurement.approvalLimit.orders
 
 - apiVersion: semaloom/v0.1
   kind: IntegrationBinding
@@ -67,48 +64,12 @@
     identityColumn: order_id
     grainColumns:
       orderId: order_id
-      supplierId: supplier_id
-      organizationId: organization_id
     propertyColumns:
       status: status
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: procurement.orderAmount.orders
-  version: "1.0.0"
-  target: procurement.orderAmount
-  sourceId: orders_pg
-  provider: postgres
-  objectType: procurement.Order
-  expectedCardinality: ONE
-  completeness: AUTHORITATIVE
-  physical:
-    table: proc_order
-    identityColumn: order_id
-    grainColumns:
-      orderId: order_id
       supplierId: supplier_id
       organizationId: organization_id
-    valueColumn: amount
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: procurement.orderQuantity.orders
-  version: "1.0.0"
-  target: procurement.orderQuantity
-  sourceId: orders_pg
-  provider: postgres
-  objectType: procurement.Order
-  expectedCardinality: ONE
-  completeness: AUTHORITATIVE
-  physical:
-    table: proc_order
-    identityColumn: order_id
-    grainColumns:
-      orderId: order_id
-      supplierId: supplier_id
-      organizationId: organization_id
-    valueColumn: quantity
+      amount: amount
+      quantity: quantity
 
 - apiVersion: semaloom/v0.1
   kind: Mapping
@@ -127,23 +88,7 @@
       organizationId: organization_id
     propertyColumns:
       name: name
-
-- apiVersion: semaloom/v0.1
-  kind: Mapping
-  id: procurement.approvalLimit.orders
-  version: "1.0.0"
-  target: procurement.approvalLimit
-  sourceId: orders_pg
-  provider: postgres
-  objectType: procurement.Organization
-  expectedCardinality: ONE
-  completeness: AUTHORITATIVE
-  physical:
-    table: proc_organization
-    identityColumn: organization_id
-    grainColumns:
-      organizationId: organization_id
-    valueColumn: approval_limit
+      approvalLimit: approval_limit
 
 - apiVersion: semaloom/v0.1
   kind: Mapping

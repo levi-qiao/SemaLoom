@@ -20,22 +20,33 @@ to test reuse; neither domain is built into the core.
 
 - Deterministic compilation of two synthetic domain packs.
 - PostgreSQL metric and object reads with tenant filters and typed evidence.
-- In-process links across databases using declared business identities.
-- Exact-decimal rules with distinct TRUE, FALSE, UNKNOWN, and operational failure outcomes.
-- Immutable semantic candidate validation, independent approval and release activation, plus a controlled plan/approve/execute business action prototype.
-- Read-only OpenAPI mappings and disjoint PostgreSQL/API properties for the same entity, composed inside the Python process.
-- FastAPI endpoints and an embedded Studio for graph/inspection, structured versioned drafts, mapping/source administration, physical source trace, and review/publish history.
+- In-process links across databases using declared business identities (first identity key only).
+- Exact-decimal numeric rules with distinct TRUE, FALSE, UNKNOWN, and operational failure outcomes.
+- Immutable semantic candidate validation, independent approval and release activation, plus a
+  plan/approve/execute prototype that writes an in-process draft store.
+- Read-only OpenAPI mappings and disjoint PostgreSQL/API properties for the same entity, composed
+  inside the Python process.
+- FastAPI endpoints and an embedded Studio for graph/inspection, Metric editing, structured
+  versioned drafts, mapping/source administration, physical source trace, and review/publish
+  history on synthetic data.
 
-Production identity, arbitrary OpenAPI discovery, operational recovery, large-graph capacity, and real
-enterprise pilots remain open work. See [capabilities and limits](docs/capabilities.md) for the exact boundary.
+Not in this tree: production identity (local demo tokens only; other profiles refuse to start),
+MCP SDK transport (`GET /v0.1/mcp/tools` is a static name list), composite-key query, BOOLEAN /
+STRING / DATE rule execution, enterprise Action recovery, a finished structured Rule editor, and
+the joint Studio gate. See [capabilities and limits](docs/capabilities.md).
+
+For the implemented read-only business-analysis flow, HTTP tool schemas and AI host instructions,
+see [AI analysis](docs/ai-analysis.md).
 
 ## Quickstart
 
-Requires Python 3.13, [uv](https://docs.astral.sh/uv/), and Docker:
+Requires Python 3.13, [uv](https://docs.astral.sh/uv/), and PostgreSQL 16 on loopback. Docker
+Compose **or** Homebrew `postgresql@16` with role `semaloom` are equivalent isolated fixtures.
+Do not use private sample databases or a model key.
 
 ```bash
 uv sync --frozen
-docker compose up -d --wait
+docker compose up -d --wait   # skip when Homebrew PostgreSQL already has the four synthetic DBs
 uv run semaloom load-fixtures
 uv run semaloom compile examples/tax examples/procurement
 uv run semaloom query \
@@ -45,11 +56,12 @@ uv run semaloom query \
   --binding perspective=TAX_RETURN \
   --period-from 2024-01-01 \
   --period-to 2025-01-01
-uv run semaloom serve
+uv run semaloom serve --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/studio/`. The local profile uses documented synthetic credentials and
-must not be exposed as production authentication. Full setup and cleanup steps are in the
+Open `http://127.0.0.1:8000/studio/?view=objects&entity=tax.Taxpayer`. Expected query value is the
+synthetic decimal `110.1000`. Demo bearer `tenant-a-analyst` is local-dev only. Five example
+classes (Query, Evidence, policy period switch, missing/UNKNOWN, draft Action) are in the
 [quickstart](docs/quickstart.md).
 
 ## Architecture and contribution
@@ -63,3 +75,7 @@ must not be exposed as production authentication. Full setup and cleanup steps a
 
 Apache-2.0 licensed. See [LICENSE](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md),
 [Code of Conduct](CODE_OF_CONDUCT.md), and [Support](SUPPORT.md).
+
+Optional Studio Chat, pi harness setup and provider integration: [Chat Harness](docs/chat-harness.md).
+
+对象集合统计、可读证据和全链路验收：[分析质量与测试任务](docs/analysis-quality.md)。

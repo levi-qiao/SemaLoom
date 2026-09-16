@@ -42,3 +42,14 @@ class ReadProvider(Protocol):
         tenant: str,
         identity_value: str,
     ) -> ObjectRead: ...
+
+
+class ObjectSearch(BaseModel):
+    """A bounded page of source objects; has_more is never a completeness claim."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: Literal["PRESENT", "UNAVAILABLE"]
+    rows: tuple[dict[str, Any], ...] = ()
+    has_more: bool = False
+    reason: str | None = None
+    observed_at: str = ""

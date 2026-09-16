@@ -1,4 +1,4 @@
-"""A49 T00: built artifacts include LICENSE and install as the shipped package."""
+"""A49 T00/T08A: built artifacts include LICENSE, Studio static, and no private dumps."""
 
 from __future__ import annotations
 
@@ -13,9 +13,33 @@ import pytest
 
 from semaloom.identity import build_identity
 
+PRIVATE_FILENAMES = frozenset(
+    {
+        "runtime.env",
+        "pseudonym.key",
+        "remote.env",
+    }
+)
+PRIVATE_NAME_FRAGMENTS = (
+    "sample_taxpayer",
+    "sample_declaration",
+)
+OMITTED_FROM_SDIST = (
+    "docs/local-business-samples.md",
+    "ops/data/import_remote_dev.py",
+)
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _archive_names(sdist: Path, wheel: Path) -> tuple[list[str], list[str]]:
+    with tarfile.open(sdist, "r:gz") as archive:
+        sdist_names = archive.getnames()
+    with zipfile.ZipFile(wheel) as archive:
+        wheel_names = archive.namelist()
+    return sdist_names, wheel_names
 
 
 @pytest.fixture(scope="module")
@@ -54,6 +78,14 @@ def test_sdist_contains_linked_contributor_instructions(
     assert any(name.endswith("docs/DESIGN.md") for name in names), names
 
 
+def test_sdist_contains_public_synthetic_examples(built_artifacts: tuple[Path, Path]) -> None:
+    sdist, _wheel = built_artifacts
+    with tarfile.open(sdist, "r:gz") as archive:
+        names = archive.getnames()
+    assert any(name.endswith("examples/tax/domain/pack.yaml") for name in names), names
+    assert any(name.endswith("examples/procurement/domain/pack.yaml") for name in names), names
+
+
 def test_wheel_contains_license(built_artifacts: tuple[Path, Path]) -> None:
     _sdist, wheel = built_artifacts
     with zipfile.ZipFile(wheel) as archive:
@@ -65,6 +97,7 @@ def test_wheel_contains_built_studio_assets(built_artifacts: tuple[Path, Path]) 
     _sdist, wheel = built_artifacts
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
+        html = archive.read("semaloom/app/static/index.html").decode("utf-8")
     assert "semaloom/app/static/index.html" in names
     assert any(
         name.startswith("semaloom/app/static/assets/") and name.endswith(".js") for name in names
@@ -72,6 +105,32 @@ def test_wheel_contains_built_studio_assets(built_artifacts: tuple[Path, Path]) 
     assert any(
         name.startswith("semaloom/app/static/assets/") and name.endswith(".css") for name in names
     )
+    assert "SemaLoom Studio" in html
+    assert "/studio/assets/" in html
+    assert ".js" in html
+    assert ".css" in html
+
+
+def test_artifacts_exclude_private_agent_state_and_dumps(
+    built_artifacts: tuple[Path, Path],
+) -> None:
+    sdist, wheel = built_artifacts
+    sdist_names, wheel_names = _archive_names(sdist, wheel)
+    for label, names in (("sdist", sdist_names), ("wheel", wheel_names)):
+        assert not any(".agents" in Path(name).parts for name in names), (label, names)
+        assert not any(Path(name).name in PRIVATE_FILENAMES for name in names), (label, names)
+        lowered = "\n".join(names).lower()
+        for fragment in PRIVATE_NAME_FRAGMENTS:
+            assert fragment not in lowered, (label, fragment)
+        assert ".agents/" not in "\n".join(names)
+
+
+def test_sdist_omits_private_sample_instructions(built_artifacts: tuple[Path, Path]) -> None:
+    sdist, _wheel = built_artifacts
+    with tarfile.open(sdist, "r:gz") as archive:
+        names = archive.getnames()
+    for suffix in OMITTED_FROM_SDIST:
+        assert not any(name.endswith(suffix) for name in names), names
 
 
 def test_wheel_installs_and_prints_identity(

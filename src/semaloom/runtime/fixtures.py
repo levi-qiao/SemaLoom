@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from semaloom.adapters.postgres import engine_from_url
+from semaloom.runtime.source_registry import SourceProfileService
 
 LOCAL_URLS = {
     "tax_pg": "postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_tax",
@@ -40,6 +41,9 @@ def load_synthetic(urls: dict[str, str] | None = None) -> None:
     _load_suppliers(pool["suppliers_pg"])
     _load_meta(pool["meta"])
     ensure_control_schema(pool["meta"])
+    profiles = SourceProfileService(pool["meta"])
+    for tenant in ("tenant-a", "tenant-b"):
+        profiles.ensure_defaults(tenant, "local-dev")
 
 
 def ensure_control_schema(engine: Engine) -> None:

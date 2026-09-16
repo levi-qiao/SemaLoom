@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.model import MappingDef
+from semaloom.core.provider import ReadProvider
 
 
 def _namespace(semantic_id: str) -> str:
@@ -68,7 +70,8 @@ def _field_bindings(mapping: MappingDef) -> list[dict[str, str]]:
     return sorted(fields, key=lambda item: (item["role"], item["semanticField"]))
 
 
-def mapping_summary(mapping: MappingDef) -> dict[str, Any]:
+def mapping_summary(mapping: MappingDef, metric_ids: set[str] | None = None) -> dict[str, Any]:
+    targets = metric_ids or set()
     return {
         "id": mapping.id,
         "label": mapping.label or mapping.id,
@@ -82,6 +85,9 @@ def mapping_summary(mapping: MappingDef) -> dict[str, Any]:
         "completeness": mapping.completeness,
         "expectedCardinality": mapping.expected_cardinality,
         "perspective": mapping.perspective,
+        "targetKind": "metric" if mapping.target in targets else "object",
+        "identityField": _identity_field(mapping),
+        "requiredBindings": _required_preview_bindings(mapping),
     }
 
 
@@ -99,6 +105,7 @@ def studio_graph(bundle: CompiledBundle) -> dict[str, Any]:
             for rule in bundle.rules
             if any(spec.metric in metric_ids or spec.object_type == item.id for spec in rule.inputs)
         ]
+        actions = [action for action in bundle.actions if action.target_object == item.id]
         nodes.append(
             {
                 "id": item.id,
@@ -108,6 +115,7 @@ def studio_graph(bundle: CompiledBundle) -> dict[str, Any]:
                 "properties": [prop.id for prop in item.properties],
                 "metricCount": len(metric_ids),
                 "ruleCount": len(rules),
+                "actionCount": len(actions),
                 "mappingCount": len(mappings),
                 "sourceCount": len({mapping.source_id for mapping in mappings}),
             }
@@ -138,6 +146,7 @@ def studio_graph(bundle: CompiledBundle) -> dict[str, Any]:
                 "mappings": len(bundle.mappings),
                 "sources": len({item.source_id for item in bundle.integration_bindings}),
                 "rules": len(bundle.rules),
+                "actions": len(bundle.actions),
             },
         },
         "nodes": nodes,
@@ -151,11 +160,20 @@ def studio_inspector(bundle: CompiledBundle, object_id: str) -> dict[str, Any] |
         return None
     object_mappings = [item for item in bundle.mappings if item.object_type == object_id]
     metrics = [item for item in bundle.metrics if item.object_type == object_id]
-    metric_ids = {item.id for item in metrics}
+    object_metric_ids = {item.id for item in metrics}
+    metric_ids = {item.id for item in bundle.metrics}
+    actions = [item for item in bundle.actions if item.target_object == object_id]
+    bindings_by_action = {
+        item.id: [binding for binding in bundle.action_bindings if binding.action == item.id]
+        for item in actions
+    }
     rules = [
         item
         for item in bundle.rules
-        if any(spec.metric in metric_ids or spec.object_type == object_id for spec in item.inputs)
+        if any(
+            spec.metric in object_metric_ids or spec.object_type == object_id
+            for spec in item.inputs
+        )
     ]
     object_labels = {
         item.id: item.label or item.id.rpartition(".")[2] for item in bundle.object_types
@@ -201,7 +219,7 @@ def studio_inspector(bundle: CompiledBundle, object_id: str) -> dict[str, Any] |
             }
             for item in metrics
         ],
-        "mappings": [mapping_summary(item) for item in object_mappings],
+        "mappings": [mapping_summary(item, metric_ids) for item in object_mappings],
         "rules": [
             {
                 "id": item.id,
@@ -210,15 +228,147 @@ def studio_inspector(bundle: CompiledBundle, object_id: str) -> dict[str, Any] |
             }
             for item in rules
         ],
+        "actions": [
+            {
+                "id": item.id,
+                "label": item.label or item.id.rpartition(".")[2],
+                "effect": item.effect,
+                "preconditions": list(item.preconditions),
+                "parameters": [
+                    {
+                        "name": param.name,
+                        "valueType": param.value_type,
+                        "required": param.required,
+                    }
+                    for param in item.parameters
+                ],
+                "bindings": [
+                    {
+                        "id": binding.id,
+                        "sourceId": binding.source_id,
+                        "provider": binding.provider,
+                    }
+                    for binding in bindings_by_action[item.id]
+                ],
+            }
+            for item in actions
+        ],
         "relations": relations,
     }
 
 
 def studio_mappings(bundle: CompiledBundle) -> dict[str, Any]:
+    metric_ids = {item.id for item in bundle.metrics}
     return {
-        "mappings": [mapping_summary(item) for item in bundle.mappings],
+        "mappings": [mapping_summary(item, metric_ids) for item in bundle.mappings],
         "onlineValidation": bundle.online_validation,
     }
+
+
+def studio_mapping_preview(
+    bundle: CompiledBundle,
+    provider: ReadProvider,
+    *,
+    mapping_id: str,
+    tenant: str,
+    identity: str,
+    bindings: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    mapping = next((item for item in bundle.mappings if item.id == mapping_id), None)
+    if mapping is None:
+        return None
+    metric_ids = {item.id for item in bundle.metrics}
+    extra = _preview_extra_filters(mapping, bindings or {})
+    fields = _field_bindings(mapping)
+    if mapping.target in metric_ids:
+        observation = provider.fetch_metric(
+            mapping, tenant=tenant, identity_value=identity, extra_filters=extra or None
+        )
+        values = {mapping.target: observation.value} if observation.kind == "PRESENT" else {}
+        kind = observation.kind
+        reason = observation.reason
+        observed_at = observation.observed_at
+    else:
+        result = provider.fetch_object(mapping, tenant=tenant, identity_value=identity)
+        values = result.values if result.kind == "PRESENT" else {}
+        kind = result.kind
+        reason = result.reason
+        observed_at = result.observed_at
+    identity_field = _identity_field(mapping)
+    preview_values = {identity_field: identity, **(bindings or {}), **values}
+    return {
+        "preview": True,
+        "mappingId": mapping.id,
+        "target": mapping.target,
+        "objectType": mapping.object_type,
+        "sourceId": mapping.source_id,
+        "provider": mapping.provider,
+        "resource": _resource(mapping),
+        "identity": identity,
+        "kind": kind,
+        "reason": reason,
+        "observedAt": observed_at,
+        "fields": [
+            {
+                **field,
+                "value": _preview_value(preview_values.get(field["semanticField"])),
+            }
+            for field in fields
+        ],
+    }
+
+
+def _identity_field(mapping: MappingDef) -> str:
+    physical = mapping.physical
+    identity_col = physical.get("identityColumn")
+    grain = physical.get("grainColumns")
+    if not isinstance(grain, dict):
+        grain = physical.get("grainPointers")
+    if isinstance(grain, dict):
+        for semantic, physical_field in grain.items():
+            if identity_col is None or physical_field == identity_col:
+                return str(semantic)
+    parameter = physical.get("identityParameter")
+    return str(parameter) if isinstance(parameter, str) else "id"
+
+
+def _required_preview_bindings(mapping: MappingDef) -> list[str]:
+    physical = mapping.physical
+    if physical.get("valueColumn") is None and physical.get("valuePointer") is None:
+        return []
+    filters = physical.get("filters")
+    locked = set(filters) if isinstance(filters, dict) else set()
+    identity_col = physical.get("identityColumn")
+    grain = physical.get("grainColumns")
+    if not isinstance(grain, dict):
+        return []
+    required: list[str] = []
+    for semantic, column in grain.items():
+        if column == identity_col or semantic in locked or column in locked:
+            continue
+        required.append(str(semantic))
+    return required
+
+
+def _preview_extra_filters(mapping: MappingDef, bindings: dict[str, str]) -> dict[str, str]:
+    grain = mapping.physical.get("grainColumns")
+    if not isinstance(grain, dict):
+        return {}
+    identity_col = mapping.physical.get("identityColumn")
+    extra: dict[str, str] = {}
+    for semantic, column in grain.items():
+        if column == identity_col or semantic not in bindings:
+            continue
+        extra[str(column)] = bindings[semantic]
+    return extra
+
+
+def _preview_value(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    return str(value)
 
 
 def studio_sources(bundle: CompiledBundle) -> dict[str, Any]:

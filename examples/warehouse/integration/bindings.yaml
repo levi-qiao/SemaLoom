@@ -1,0 +1,28 @@
+- apiVersion: semaloom/v0.1
+  kind: IntegrationBinding
+  id: warehouse.postgres
+  version: "1.0.0"
+  provider: postgres
+  sourceId: warehouse_pg
+  mappings:
+    - warehouse.Sku.pg
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: warehouse.Sku.pg
+  version: "1.0.0"
+  target: warehouse.Sku
+  sourceId: warehouse_pg
+  provider: postgres
+  objectType: warehouse.Sku
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    table: warehouse_sku
+    tenantColumn: tenant_id
+    identityColumn: sku_id
+    grainColumns:
+      skuId: sku_id
+    propertyColumns:
+      category: category
+      stockYear: stock_year
+      onHandQty: on_hand

@@ -1,0 +1,159 @@
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Rule
+  id: finance.review.profitMatches
+  claim: finance.review.profitMatches
+  label: 选定申报与审计利润是否一致
+  description: 仅对选定样本的上游归一化数值做校验，绝对容差 0.01 元（演示校验配置，非法律标准）。TRUE 不等于真实性/合规认可；UNKNOWN
+    不等于不一致。
+  inputs:
+  - name: declared_profit
+    metric: finance.review.declared_profit
+    required: true
+  - name: audit_profit
+    metric: finance.review.audit_profit
+    required: true
+  expression:
+    op: and
+    args:
+    - op: le
+      args:
+      - &id001
+        op: sub
+        args:
+        - op: ref
+          name: declared_profit
+        - op: ref
+          name: audit_profit
+      - op: decimal
+        value: '0.01'
+    - op: ge
+      args:
+      - *id001
+      - op: decimal
+        value: '-0.01'
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Policy
+  id: finance.review.profitMatches.policy
+  rule: finance.review.profitMatches
+  dimensions: {}
+  interval:
+    effectiveFrom: '2024-01-01'
+    effectiveTo: '2026-01-01'
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Rule
+  id: finance.review.balanceBalances
+  claim: finance.review.balanceBalances
+  label: 抽取资产是否等于负债加权益
+  description: 仅对选定样本的上游归一化数值做校验，绝对容差 1 元（演示校验配置，非法律标准）。TRUE 不等于真实性/合规认可；UNKNOWN 不等于不一致。
+  inputs:
+  - name: assets
+    metric: finance.review.assets
+    required: true
+  - name: liabilities
+    metric: finance.review.liabilities
+    required: true
+  - name: equity
+    metric: finance.review.equity
+    required: true
+  expression:
+    op: and
+    args:
+    - op: le
+      args:
+      - &id002
+        op: sub
+        args:
+        - op: ref
+          name: assets
+        - op: add
+          args:
+          - op: ref
+            name: liabilities
+          - op: ref
+            name: equity
+      - op: decimal
+        value: '1'
+    - op: ge
+      args:
+      - *id002
+      - op: decimal
+        value: '-1'
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Policy
+  id: finance.review.balanceBalances.policy
+  rule: finance.review.balanceBalances
+  dimensions: {}
+  interval:
+    effectiveFrom: '2024-01-01'
+    effectiveTo: '2026-01-01'
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Rule
+  id: finance.review.netProfitBalances
+  claim: finance.review.netProfitBalances
+  label: 抽取净利润是否等于利润总额减所得税费用
+  description: 仅对选定样本的上游归一化数值做校验，绝对容差 1 元（演示校验配置，非法律标准）。TRUE 不等于真实性/合规认可；UNKNOWN 不等于不一致。
+  inputs:
+  - name: net_profit
+    metric: finance.review.net_profit
+    required: true
+  - name: audit_profit
+    metric: finance.review.audit_profit
+    required: true
+  - name: tax_expense
+    metric: finance.review.tax_expense
+    required: true
+  expression:
+    op: and
+    args:
+    - op: le
+      args:
+      - &id003
+        op: sub
+        args:
+        - op: ref
+          name: net_profit
+        - op: sub
+          args:
+          - op: ref
+            name: audit_profit
+          - op: ref
+            name: tax_expense
+      - op: decimal
+        value: '1'
+    - op: ge
+      args:
+      - *id003
+      - op: decimal
+        value: '-1'
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Policy
+  id: finance.review.netProfitBalances.policy
+  rule: finance.review.netProfitBalances
+  dimensions: {}
+  interval:
+    effectiveFrom: '2024-01-01'
+    effectiveTo: '2026-01-01'
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Rule
+  id: finance.review.profitDifference.rule
+  label: 选定样本利润差额计算
+  outputMetric: finance.review.profitDifference
+  inputs:
+  - name: declared
+    metric: finance.review.declared_profit
+  - name: audit
+    metric: finance.review.audit_profit
+  expression:
+    op: sub
+    args:
+    - op: ref
+      name: declared
+    - op: ref
+      name: audit

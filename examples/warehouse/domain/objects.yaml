@@ -1,0 +1,22 @@
+- apiVersion: semaloom/v0.1
+  kind: ObjectType
+  id: warehouse.Sku
+  version: "1.0.0"
+  label: 库存SKU
+  identityKeys: [skuId]
+  properties:
+    - id: skuId
+      label: SKU
+      valueType: STRING
+      required: true
+    - id: category
+      label: 类别
+      valueType: STRING
+    - id: stockYear
+      label: 年度
+      valueType: INTEGER
+    - id: onHandQty
+      label: 在库数量
+      valueType: DECIMAL
+      unit: EA
+      aggregation: SUM

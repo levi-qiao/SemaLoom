@@ -311,13 +311,33 @@ def test_incomplete_grain_is_rejected() -> None:
 
 def test_ambiguous_mapping_is_rejected() -> None:
     docs = _load(TAX)
-    existing = next(doc for doc in docs if doc.get("id") == "tax.reportedIncome.pg")
+    existing = next(doc for doc in docs if doc.get("id") == "tax.Taxpayer.facts.pg")
     clone = dict(existing)
-    clone["id"] = "tax.reportedIncome.pgAlt"
+    clone["id"] = "tax.Taxpayer.facts.pgAlt"
     docs.append(clone)
     result = compile_documents(docs)
     assert not result.ok
     assert any(item.code == "AMBIGUOUS_MAPPING" for item in result.diagnostics)
+
+
+def test_compact_metric_inherits_mapping_and_unit() -> None:
+    result = compile_paths([TAX, PROCUREMENT])
+    assert result.ok, [item.model_dump() for item in result.diagnostics]
+    assert result.bundle is not None
+    reported = next(item for item in result.bundle.metrics if item.id == "tax.reportedIncome")
+    assert reported.property == "amount"
+    assert reported.unit == "CNY"
+    assert reported.value_type == "DECIMAL"
+    assert reported.grain == ("taxpayerId", "taxYear")
+    mapping = next(item for item in result.bundle.mappings if item.id == "tax.reportedIncome.pg")
+    assert mapping.target == "tax.reportedIncome"
+    assert mapping.physical["valueColumn"] == "amount"
+    assert mapping.physical["filters"]["metric"] == "reportedIncome"
+    amount = next(item for item in result.bundle.metrics if item.id == "procurement.orderAmount")
+    assert amount.property == "amount"
+    assert amount.grain == ("orderId",)
+    assert any(item.id == "procurement.orderAmount.orders" for item in result.bundle.mappings)
+    assert "procurement.Order.amount" not in {item.id for item in result.bundle.metrics}
 
 
 def test_policy_overlap_is_rejected() -> None:

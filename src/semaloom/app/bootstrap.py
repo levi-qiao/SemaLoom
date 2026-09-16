@@ -67,6 +67,12 @@ class AppServices:
 
 
 def example_roots() -> list[Path]:
+    configured = os.getenv("SEMALOOM_PACK_PATHS")
+    if configured:
+        paths = [Path(item).expanduser().resolve() for item in configured.split(os.pathsep)]
+        if any(not path.is_dir() for path in paths):
+            raise ValueError("SEMALOOM_PACK_PATHS must contain existing pack directories")
+        return paths
     return [REPO / "examples" / "tax", REPO / "examples" / "procurement"]
 
 
@@ -84,8 +90,9 @@ def build_services(*, load_data: bool = True) -> AppServices:
     pool = engines()
     ensure_control_schema(pool["meta"])
     source_profiles = SourceProfileService(pool["meta"])
-    for tenant in ("tenant-a", "tenant-b"):
-        source_profiles.ensure_defaults(tenant, "local-dev")
+    if not os.getenv("SEMALOOM_PACK_PATHS"):
+        for tenant in ("tenant-a", "tenant-b"):
+            source_profiles.ensure_defaults(tenant, "local-dev")
     environment_bindings = {
         "env:SEMALOOM_TAX_DATABASE_URL": configured_urls()["tax_pg"],
         "env:SEMALOOM_ORDERS_DATABASE_URL": configured_urls()["orders_pg"],

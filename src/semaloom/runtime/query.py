@@ -14,11 +14,14 @@ from semaloom.core.provider import ReadProvider
 from semaloom.core.results import (
     EvidenceEnvelope,
     MetricSelect,
+    ObjectSearchRequest,
     ObjectSelect,
     Observation,
+    QueryContext,
     QueryRequest,
     SourceActivity,
 )
+from semaloom.core.values import scalar_value
 from semaloom.runtime.auth import RequestActor, authorize_query
 
 
@@ -48,6 +51,90 @@ class QueryService:
         diagnostics: list[Diagnostic] = []
         for item in request.select:
             if isinstance(item, MetricSelect):
+                try:
+                    item = item.model_copy(update={"bindings": self.normalize_bindings(item)})
+                except ValueError:
+                    observations.append(
+                        Observation(
+                            kind="UNAVAILABLE", target=item.metric, reason="INVALID_BINDINGS"
+                        )
+                    )
+                    diagnostics.append(
+                        Diagnostic(
+                            code="INVALID_BINDINGS",
+                            path=item.metric,
+                            message="conflicting identity aliases",
+                        )
+                    )
+                    continue
+                metric = next((m for m in self.bundle.metrics if m.id == item.metric), None)
+                if metric is not None:
+                    mapping_perspectives = {
+                        m.perspective for m in self.bundle.mappings if m.target == metric.id
+                    }
+                    needs_perspective = (
+                        "perspective" in metric.grain and not metric.perspective
+                    ) or len(mapping_perspectives - {None}) > 1
+                    if "perspective" not in item.bindings and needs_perspective:
+                        observations.append(
+                            Observation(
+                                kind="UNAVAILABLE", target=item.metric, reason="AMBIGUOUS_MAPPING"
+                            )
+                        )
+                        diagnostics.append(
+                            Diagnostic(
+                                code="AMBIGUOUS_MAPPING",
+                                path=item.metric,
+                                message="select a business perspective",
+                            )
+                        )
+                        continue
+                    required = set(metric.grain) - (
+                        {"perspective"} if metric.perspective else set()
+                    )
+                    allowed = set(metric.grain) | {"perspective"}
+                    if not required <= set(item.bindings) or set(item.bindings) - allowed:
+                        observations.append(
+                            Observation(
+                                kind="UNAVAILABLE", target=item.metric, reason="INVALID_BINDINGS"
+                            )
+                        )
+                        diagnostics.append(
+                            Diagnostic(
+                                code="INVALID_BINDINGS",
+                                path=item.metric,
+                                message="provide the declared grain and optional perspective",
+                            )
+                        )
+                        continue
+                    period_error, period_activities = self._check_metric_period(
+                        metric.object_type,
+                        item,
+                        request.context,
+                        actor.tenant,
+                        decision.decision_id,
+                    )
+                    activities.extend(period_activities)
+                    if period_error is not None:
+                        observations.append(period_error)
+                        diagnostics.append(
+                            Diagnostic(
+                                code=period_error.reason or "PERIOD_MISMATCH",
+                                path=item.metric,
+                                message="requested period must match the selected object's period",
+                            )
+                        )
+                        continue
+                if any(rule.output_metric == item.metric for rule in self.bundle.rules):
+                    from semaloom.runtime.eval import evaluate_derived_metric
+
+                    obs, derived_activities, derived_diagnostics = evaluate_derived_metric(
+                        self, actor, item, request.context
+                    )
+                    observations.append(obs)
+                    activities.extend(derived_activities)
+                    diagnostics.extend(derived_diagnostics)
+                    continue
                 obs, activity, error = self._metric(item, actor.tenant, decision.decision_id)
                 if activity is not None:
                     activities.append(activity)
@@ -78,6 +165,145 @@ class QueryService:
             status=status,
             extras={"decisionId": decision.decision_id, "tenant": actor.tenant},
         )
+
+    def normalize_bindings(self, item: MetricSelect) -> dict[str, str | int]:
+        """Accept legacy identity aliases only when approved mappings prove their meaning."""
+        bindings = dict(item.bindings)
+        metric = next((m for m in self.bundle.metrics if m.id == item.metric), None)
+        if metric is None:
+            return bindings
+        obj = next(o for o in self.bundle.object_types if o.id == metric.object_type)
+        if len(obj.identity_keys) != 1:
+            return bindings
+        canonical = obj.identity_keys[0]
+        for mapping in self.bundle.mappings:
+            if mapping.object_type != obj.id:
+                continue
+            for alias, column in _grain_columns(mapping).items():
+                if alias == canonical or column != mapping.physical.get("identityColumn"):
+                    continue
+                if alias in bindings and alias not in metric.grain:
+                    value = bindings[alias]
+                    if canonical in bindings and str(bindings[canonical]) != str(value):
+                        raise ValueError("conflicting identity aliases")
+                    bindings[canonical] = bindings.pop(alias)
+        return bindings
+
+    def _check_metric_period(
+        self,
+        object_id: str,
+        item: MetricSelect,
+        context: QueryContext,
+        tenant: str,
+        authorization_ref: str,
+    ) -> tuple[Observation | None, tuple[SourceActivity, ...]]:
+        obj = next(o for o in self.bundle.object_types if o.id == object_id)
+        if obj.period is None:
+            return None, ()
+        if not set(obj.identity_keys) <= set(item.bindings):
+            return Observation(
+                kind="UNAVAILABLE", target=item.metric, reason="INVALID_BINDINGS"
+            ), ()
+        observation, activities, _ = self._object(
+            ObjectSelect(
+                object_type=obj.id,
+                identity={key: str(item.bindings[key]) for key in obj.identity_keys},
+                properties=(obj.period.from_property, obj.period.to_property),
+            ),
+            tenant,
+            authorization_ref,
+        )
+        if observation.kind != "PRESENT":
+            return observation.model_copy(update={"target": item.metric}), activities
+        values = json.loads(observation.value or "{}")
+        if (
+            values.get(obj.period.from_property) != context.business_period["from"]
+            or values.get(obj.period.to_property) != context.business_period["to"]
+        ):
+            return Observation(
+                kind="UNAVAILABLE", target=item.metric, reason="PERIOD_MISMATCH"
+            ), activities
+        return None, activities
+
+    def find_objects(self, request: ObjectSearchRequest, actor: RequestActor) -> dict[str, Any]:
+        decision = authorize_query(actor, "query")
+        if not decision.allowed:
+            raise PermissionError("FORBIDDEN")
+        obj = next((o for o in self.bundle.object_types if o.id == request.object_type), None)
+        if obj is None or len(obj.identity_keys) != 1:
+            raise ValueError("UNKNOWN_OR_UNSUPPORTED_OBJECT")
+        definitions = {p.id: p for p in obj.properties}
+        fields = set(request.properties) | set(request.filters) | set(obj.identity_keys)
+        if fields - set(definitions) or len(fields) > 30:
+            raise ValueError("INVALID_PROPERTIES")
+        filters = {
+            k: scalar_value(str(v), definitions[k].value_type) for k, v in request.filters.items()
+        }
+        candidates = [
+            m
+            for m in self.bundle.mappings
+            if m.target == obj.id and fields <= _mapped_object_fields(m)
+        ]
+        if len(candidates) > 1:
+            measure_ids = {prop.id for prop in obj.properties if prop.unit}
+            identity = set(obj.identity_keys)
+            requested = fields - identity
+            if requested:
+                candidates = [
+                    item for item in candidates if requested <= _mapped_object_fields(item)
+                ]
+            else:
+                descriptive = [
+                    item
+                    for item in candidates
+                    if _descriptive_object_fields(item, measure_ids, identity)
+                ]
+                if descriptive:
+                    candidates = descriptive
+        if len(candidates) != 1:
+            raise ValueError("AMBIGUOUS_MAPPING" if candidates else "NO_MAPPING")
+        mapping = candidates[0]
+        search = getattr(self.provider, "search_objects", None)
+        if not callable(search):
+            raise ValueError("SEARCH_NOT_SUPPORTED")
+        page = search(
+            mapping,
+            tenant=actor.tenant,
+            filters=filters,
+            properties=tuple(sorted(fields)),
+            limit=request.limit,
+        )
+        records = []
+        seen: set[str] = set()
+        for row in page.rows:
+            key = str(row.get(obj.identity_keys[0]))
+            if key in seen or row.get(obj.identity_keys[0]) is None:
+                raise ValueError("CARDINALITY_VIOLATION")
+            seen.add(key)
+            records.append(
+                {
+                    "identity": {obj.identity_keys[0]: key},
+                    "properties": {k: None if row.get(k) is None else str(row[k]) for k in fields},
+                }
+            )
+        return {
+            "objectType": obj.id,
+            "objects": records,
+            "hasMore": page.has_more,
+            "requiresSelection": len(records) > 1 or page.has_more,
+            "status": "SUCCEEDED" if page.kind == "PRESENT" else "FAILED",
+            "reason": page.reason,
+            "releaseDigest": self.bundle.digest,
+            "sourceActivities": [
+                {
+                    "sourceId": mapping.source_id,
+                    "mappingId": mapping.id,
+                    "observedAt": page.observed_at,
+                    "authorizationRef": decision.decision_id,
+                    "queryDigest": _digest(request.model_dump()),
+                }
+            ],
+        }
 
     def follow_link(
         self,
@@ -260,7 +486,13 @@ class QueryService:
             extra_filters=extra or None,
         )
         observation = observation.model_copy(
-            update={"bindings": {str(k): v for k, v in item.bindings.items()}}
+            update={
+                "bindings": {str(k): v for k, v in item.bindings.items()},
+                "unit": metric_def.unit if metric_def is not None else observation.unit,
+                "value_type": (
+                    metric_def.value_type if metric_def is not None else observation.value_type
+                ),
+            }
         )
         activity = SourceActivity(
             activity_id=uuid.uuid4().hex,
@@ -270,7 +502,24 @@ class QueryService:
                 {"metric": item.metric, "bindings": item.bindings, "tenant": tenant}
             ),
             authorization_ref=authorization_ref,
+            observed_at=observation.observed_at,
+            source_version=observation.source_version,
         )
+        if observation.kind == "PRESENT" and metric_def is not None:
+            try:
+                scalar_value(observation.value or "", metric_def.value_type or "DECIMAL")
+            except ValueError:
+                return (
+                    observation.model_copy(
+                        update={"kind": "UNAVAILABLE", "value": None, "reason": "TYPE_MISMATCH"}
+                    ),
+                    activity,
+                    Diagnostic(
+                        code="TYPE_MISMATCH",
+                        path=item.metric,
+                        message="source value does not match the metric type",
+                    ),
+                )
         return observation, activity, None
 
     def _object(
@@ -304,7 +553,27 @@ class QueryService:
                     ),
                 ),
             )
-        requested = (set(item.properties) or allowed_properties) - set(object_type.identity_keys)
+        descriptive = {entry.id for entry in object_type.properties if not entry.unit}
+        requested = (set(item.properties) or descriptive) - set(object_type.identity_keys)
+        if len(object_type.identity_keys) != 1:
+            return (
+                Observation(
+                    kind="UNAVAILABLE",
+                    target=item.object_type,
+                    reason="COMPOSITE_IDENTITY_NOT_SUPPORTED",
+                ),
+                (),
+                (
+                    Diagnostic(
+                        code="COMPOSITE_IDENTITY_NOT_SUPPORTED",
+                        path=item.object_type,
+                        message="use a declared stable scalar identity",
+                    ),
+                ),
+            )
+        if not requested:
+            # Identity-only reads must establish that the object actually exists.
+            requested = set(object_type.identity_keys)
         assignments: dict[str, set[str]] = {}
         mappings: dict[str, MappingDef] = {}
         for property_id in requested:
@@ -413,7 +682,8 @@ class QueryService:
         candidates = [
             item
             for item in self.bundle.mappings
-            if item.target == target and (perspective is None or item.perspective == perspective)
+            if item.target == target
+            and (perspective is None or item.perspective is None or item.perspective == perspective)
         ]
         if len(candidates) == 1:
             return candidates[0], None
@@ -431,6 +701,17 @@ def _grain_columns(mapping: MappingDef) -> dict[str, str]:
     if not isinstance(raw, dict):
         return {}
     return {str(key): str(value) for key, value in raw.items()}
+
+
+def _descriptive_object_fields(
+    mapping: MappingDef, measure_ids: set[str], identity: set[str]
+) -> set[str]:
+    fields: set[str] = set()
+    for key in ("propertyColumns", "propertyPointers"):
+        raw = mapping.physical.get(key)
+        if isinstance(raw, dict):
+            fields.update(str(item) for item in raw)
+    return fields - measure_ids - identity
 
 
 def _mapped_object_fields(mapping: MappingDef) -> set[str]:

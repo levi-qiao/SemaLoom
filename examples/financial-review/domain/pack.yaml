@@ -1,0 +1,8 @@
+apiVersion: semaloom/v0.1
+version: 1.0.0
+kind: DomainPack
+id: finance
+contractVersion: v0.1
+namespace: finance
+label: 财务申报与审计样本（非税务判断）
+dependencies: []

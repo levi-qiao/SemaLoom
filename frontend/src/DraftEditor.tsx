@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { LOCAL_ID, array, identityPropertyId, makeObjectType, object, text } from "./doc";
+import { cardinalityHint, cardinalityLabel } from "./labels";
+import { useRowKeys } from "./rowKeys";
 
 export type DraftDocument = Record<string, unknown> & {
   apiVersion: string;
@@ -8,22 +12,33 @@ export type DraftDocument = Record<string, unknown> & {
   label?: string;
 };
 
-const editableKinds = ["ObjectType", "Link", "Rule", "Mapping", "IntegrationBinding"];
+export type DefinitionKind = "ObjectType" | "Link" | "Rule" | "Action";
 
 type Props = {
+  kind: DefinitionKind;
   documents: DraftDocument[];
   search: string;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
   onChange: (documents: DraftDocument[]) => void;
-  onImport: (documents: DraftDocument[]) => void;
   onError: (message: string | null) => void;
   onCheckDelete: (semanticId: string) => Promise<{ id: string; kind: string }[]>;
 };
 
+const kindLabels: Record<DefinitionKind, string> = {
+  ObjectType: "实体",
+  Link: "关系",
+  Rule: "规则",
+  Action: "操作",
+};
+
 export function DraftEditor({
+  kind,
   documents,
   search,
+  selectedId,
+  onSelect,
   onChange,
-  onImport,
   onError,
   onCheckDelete,
 }: Props) {
@@ -31,21 +46,27 @@ export function DraftEditor({
     () =>
       documents.filter(
         (item) =>
-          editableKinds.includes(item.kind) &&
-          `${item.kind} ${item.id} ${item.label ?? ""}`.toLowerCase().includes(search.toLowerCase()),
+          item.kind === kind &&
+          `${item.id} ${item.label ?? ""}`.toLowerCase().includes(search.toLowerCase()),
       ),
-    [documents, search],
+    [documents, search, kind],
   );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [newKind, setNewKind] = useState("ObjectType");
-  const [newId, setNewId] = useState("");
-  const importRef = useRef<HTMLInputElement>(null);
-
+  const namespaces = useMemo(
+    () => [...new Set(documents.filter((item) => item.kind === "ObjectType").map((item) => item.id.split(".")[0] ?? "").filter(Boolean))],
+    [documents],
+  );
+  const [newNamespace, setNewNamespace] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!newNamespace && namespaces[0]) setNewNamespace(namespaces[0]);
+  }, [namespaces, newNamespace]);
   useEffect(() => {
     if (!definitions.some((item) => item.id === selectedId)) {
-      setSelectedId(definitions[0]?.id ?? null);
+      onSelect(definitions[0]?.id ?? null);
     }
-  }, [definitions, selectedId]);
+  }, [definitions, selectedId, onSelect]);
 
   const selected = documents.find((item) => item.id === selectedId) ?? null;
 
@@ -55,19 +76,23 @@ export function DraftEditor({
   }
 
   function createDefinition() {
-    const id = newId.trim();
-    if (!/^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
-      onError("Semantic ID 应为 namespace.Name");
+    const local = newName.trim();
+    const display = newLabel.trim();
+    if (!newNamespace || (kind === "ObjectType" ? !display : false) || !LOCAL_ID.test(local)) {
+      setFormError(kind === "ObjectType" ? "请填写显示名称和英文语义 ID" : "请选择领域并填写英文名称");
       return;
     }
+    const id = `${newNamespace}.${local}`;
     if (documents.some((item) => item.id === id)) {
-      onError("Semantic ID 已存在");
+      setFormError("该语义 ID 已存在");
       return;
     }
-    const document = makeDocument(newKind, id, documents);
+    const document = kind === "ObjectType" ? makeObjectType(newNamespace, local, display) : makeDocument(kind, id, documents, display || local);
     onChange([...documents, document]);
-    setSelectedId(id);
-    setNewId("");
+    onSelect(id);
+    setNewName("");
+    setNewLabel("");
+    setFormError(null);
     onError(null);
   }
 
@@ -79,55 +104,28 @@ export function DraftEditor({
       return;
     }
     onChange(documents.filter((item) => item.id !== selected.id));
-    setSelectedId(null);
+    onSelect(null);
     onError(null);
-  }
-
-  function exportDraft() {
-    const blob = new Blob([JSON.stringify(documents, null, 2)], { type: "application/json" });
-    const href = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = href;
-    anchor.download = "semaloom-draft.json";
-    anchor.click();
-    URL.revokeObjectURL(href);
-  }
-
-  async function importDraft(file: File | undefined) {
-    if (!file) return;
-    try {
-      const parsed: unknown = JSON.parse(await file.text());
-      if (!Array.isArray(parsed) || !parsed.every(isDraftDocument)) throw new Error();
-      onImport(parsed);
-      onError(null);
-    } catch {
-      onError("导入文件必须是 SemaLoom 定义数组");
-    } finally {
-      if (importRef.current) importRef.current.value = "";
-    }
   }
 
   return (
     <div className="draft-editor">
-      <section className="definition-browser" aria-label="草稿定义">
+      <section className="definition-browser" aria-label={`${kindLabels[kind]}列表`}>
         <div className="draft-tools">
-          <select aria-label="定义类型" value={newKind} onChange={(event) => setNewKind(event.target.value)}>
-            {editableKinds.map((kind) => <option key={kind}>{kind}</option>)}
+          <select aria-label="领域" value={newNamespace} onChange={(event) => setNewNamespace(event.target.value)}>
+            {namespaces.map((item) => <option key={item}>{item}</option>)}
           </select>
-          <input aria-label="新定义 Semantic ID" value={newId} onChange={(event) => setNewId(event.target.value)} placeholder="namespace.Name" />
-          <button className="secondary" onClick={createDefinition}>新建</button>
-        </div>
-        <div className="draft-file-actions">
-          <button className="text-button" onClick={() => importRef.current?.click()}>导入 JSON</button>
-          <button className="text-button" onClick={exportDraft}>导出 JSON</button>
-          <input ref={importRef} className="sr-only" type="file" accept="application/json,.json" onChange={(event) => void importDraft(event.target.files?.[0])} />
+          {kind === "ObjectType" ? <input aria-label="显示名称" value={newLabel} onChange={(event) => setNewLabel(event.target.value)} placeholder="显示名称，例如 仓库" /> : null}
+          <input aria-label={`新${kindLabels[kind]}名称`} value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={kind === "ObjectType" ? "英文语义 ID，例如 Warehouse" : "名称，例如 Site"} />
+          <button className="secondary" onClick={createDefinition}>新建{kindLabels[kind]}</button>
+          {formError ? <p className="field-error" role="alert">{formError}</p> : null}
         </div>
         <ul className="definition-browser-list">
           {definitions.map((item) => (
             <li key={`${item.kind}:${item.id}`}>
-              <button className={selectedId === item.id ? "active" : ""} onClick={() => setSelectedId(item.id)}>
+              <button className={selectedId === item.id ? "active" : ""} onClick={() => onSelect(item.id)}>
                 <span>{item.label || item.id.split(".").at(-1)}</span>
-                <code>{item.kind} · {item.id}</code>
+                <code>{item.id}</code>
               </button>
             </li>
           ))}
@@ -143,34 +141,51 @@ export function DraftEditor({
             <CommonFields document={selected} onChange={replace} />
             {selected.kind === "ObjectType" ? <ObjectFields document={selected} onChange={replace} /> : null}
             {selected.kind === "Link" ? <LinkFields document={selected} objects={documents.filter((item) => item.kind === "ObjectType")} onChange={replace} /> : null}
-            {selected.kind === "Rule" ? <RuleFields document={selected} onChange={replace} /> : null}
-            {selected.kind === "Mapping" ? <MappingFields document={selected} documents={documents} onChange={replace} /> : null}
-            {selected.kind === "IntegrationBinding" ? <IntegrationFields document={selected} onChange={replace} /> : null}
+            {selected.kind === "Rule" ? <RuleFields document={selected} documents={documents} onChange={replace} /> : null}
+            {selected.kind === "Action" ? <ActionFields document={selected} objects={documents.filter((item) => item.kind === "ObjectType")} onChange={replace} /> : null}
           </>
-        ) : <div className="inspector-empty"><h2>选择一个定义</h2><p>编辑内容后使用右上角“保存草稿”运行完整 Compiler 校验。</p></div>}
+        ) : <div className="inspector-empty"><h2>选择一个{kindLabels[kind]}</h2><p>左侧新建或点选后编辑，再用右上角保存。</p></div>}
       </section>
     </div>
   );
 }
 
 function CommonFields({ document, onChange }: { document: DraftDocument; onChange: (next: DraftDocument) => void }) {
-  return <div className="form-grid"><Field label="显示名称"><input value={text(document.label)} onChange={(event) => onChange({ ...document, label: event.target.value })} /></Field><Field label="版本"><input value={text(document.version)} onChange={(event) => onChange({ ...document, version: event.target.value })} /></Field></div>;
+  return <Field label="显示名称"><input aria-label="显示名称" value={text(document.label)} onChange={(event) => onChange({ ...document, label: event.target.value })} /></Field>;
 }
 
 function ObjectFields({ document, onChange }: { document: DraftDocument; onChange: (next: DraftDocument) => void }) {
   const properties = array(document.properties) as Record<string, unknown>[];
+  const rowKeys = useRowKeys(properties.length, document.id);
   function update(index: number, patch: Record<string, unknown>) {
-    onChange({ ...document, properties: properties.map((item, position) => position === index ? { ...item, ...patch } : item) });
+    const previousId = text(properties[index].id);
+    const nextProperties = properties.map((item, position) => position === index ? { ...item, ...patch } : item);
+    const identityKeys = array(document.identityKeys).map(String);
+    let nextKeys = identityKeys;
+    const nextId = patch.id;
+    if (typeof nextId === "string" && nextId !== previousId) {
+      nextKeys = identityKeys.map((item) => (item === previousId ? nextId : item));
+    }
+    onChange({ ...document, properties: nextProperties, identityKeys: nextKeys.length ? nextKeys : identityKeys });
   }
-  return <><Field label="业务键（逗号分隔）"><input value={array(document.identityKeys).join(", ")} onChange={(event) => onChange({ ...document, identityKeys: csv(event.target.value) })} /></Field><div className="field-array"><div className="field-array-head"><h3>属性</h3><button className="secondary" onClick={() => onChange({ ...document, properties: [...properties, { id: "newProperty", valueType: "STRING", required: false }] })}>添加属性</button></div>{properties.map((property, index) => <div className="property-row" key={`${text(property.id)}:${index}`}><input aria-label="属性 ID" value={text(property.id)} onChange={(event) => update(index, { id: event.target.value })} /><input aria-label="属性名称" value={text(property.label)} placeholder="显示名称" onChange={(event) => update(index, { label: event.target.value })} /><select aria-label="属性类型" value={text(property.valueType)} onChange={(event) => update(index, { valueType: event.target.value })}>{["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME"].map((type) => <option key={type}>{type}</option>)}</select><label className="check-field"><input type="checkbox" checked={Boolean(property.required)} onChange={(event) => update(index, { required: event.target.checked })} />必需</label><button aria-label={`删除属性 ${text(property.id)}`} className="icon-button" onClick={() => onChange({ ...document, properties: properties.filter((_, position) => position !== index) })}>×</button></div>)}</div></>;
+  const identityKeys = array(document.identityKeys).map(String);
+  function toggleKey(propertyId: string, on: boolean) {
+    const next = on ? [...new Set([...identityKeys, propertyId])] : identityKeys.filter((item) => item !== propertyId);
+    onChange({ ...document, identityKeys: next.length ? next : [propertyId] });
+  }
+  return <><div className="field-array"><div className="field-array-head"><h3>属性</h3><button className="secondary" onClick={() => onChange({ ...document, properties: [...properties, { id: "newProperty", valueType: "STRING", required: false }] })}>添加属性</button></div>{properties.map((property, index) => <div className="property-row" key={rowKeys[index] ?? `property-${index}`}><input aria-label="属性 ID" value={text(property.id)} onChange={(event) => update(index, { id: event.target.value })} /><input aria-label="属性名称" value={text(property.label)} placeholder="显示名称" onChange={(event) => update(index, { label: event.target.value })} /><select aria-label="属性类型" value={text(property.valueType)} onChange={(event) => update(index, { valueType: event.target.value })}>{["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME"].map((type) => <option key={type}>{type}</option>)}</select><label className="check-field"><input type="checkbox" checked={identityKeys.includes(text(property.id))} onChange={(event) => toggleKey(text(property.id), event.target.checked)} />业务键</label><label className="check-field"><input type="checkbox" checked={Boolean(property.required)} onChange={(event) => update(index, { required: event.target.checked })} />必需</label><button aria-label={`删除属性 ${text(property.id)}`} className="icon-button" onClick={() => onChange({ ...document, properties: properties.filter((_, position) => position !== index) })}>×</button></div>)}</div></>;
 }
 
 function LinkFields({ document, objects, onChange }: { document: DraftDocument; objects: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
   const identity = object(document.identity);
-  return <><div className="form-grid"><Field label="起点实体"><select value={text(document.source)} onChange={(event) => onChange({ ...document, source: event.target.value })}>{objects.map(option)}</select></Field><Field label="终点实体"><select value={text(document.target)} onChange={(event) => onChange({ ...document, target: event.target.value })}>{objects.map(option)}</select></Field><Field label="基数"><select value={text(document.cardinality)} onChange={(event) => onChange({ ...document, cardinality: event.target.value })}><option>ONE</option><option>MANY</option></select></Field></div><div className="form-grid"><Field label="起点业务键"><input value={text(identity.source)} onChange={(event) => onChange({ ...document, identity: { ...identity, source: event.target.value } })} /></Field><Field label="终点业务键"><input value={text(identity.target)} onChange={(event) => onChange({ ...document, identity: { ...identity, target: event.target.value } })} /></Field></div></>;
+  const sourceProps = array(objects.find((item) => item.id === text(document.source))?.properties) as Record<string, unknown>[];
+  const targetProps = array(objects.find((item) => item.id === text(document.target))?.properties) as Record<string, unknown>[];
+  const sourceLabel = text(objects.find((item) => item.id === text(document.source))?.label) || text(document.source) || "源";
+  const targetLabel = text(objects.find((item) => item.id === text(document.target))?.label) || text(document.target) || "目标";
+  return <><div className="form-grid"><Field label="起点实体"><select aria-label="起点实体" value={text(document.source)} onChange={(event) => onChange({ ...document, source: event.target.value })}>{objects.map(option)}</select></Field><Field label="终点实体"><select aria-label="终点实体" value={text(document.target)} onChange={(event) => onChange({ ...document, target: event.target.value })}>{objects.map(option)}</select></Field><Field label="基数"><select aria-label="基数" value={text(document.cardinality) || "ONE"} onChange={(event) => onChange({ ...document, cardinality: event.target.value })}><option value="ONE">{cardinalityLabel("ONE")}</option><option value="MANY">{cardinalityLabel("MANY")}</option></select></Field></div><p className="mapping-hint">{cardinalityHint(sourceLabel, targetLabel, text(document.cardinality) || "ONE")}。这不是 1:1。</p><div className="form-grid"><Field label="起点业务键"><select aria-label="起点业务键" value={text(identity.source)} onChange={(event) => onChange({ ...document, identity: { ...identity, source: event.target.value } })}>{sourceProps.map((item) => <option key={text(item.id)}>{text(item.id)}</option>)}</select></Field><Field label="终点业务键"><select aria-label="终点业务键" value={text(identity.target)} onChange={(event) => onChange({ ...document, identity: { ...identity, target: event.target.value } })}>{targetProps.map((item) => <option key={text(item.id)}>{text(item.id)}</option>)}</select></Field></div></>;
 }
 
-function RuleFields({ document, onChange }: { document: DraftDocument; onChange: (next: DraftDocument) => void }) {
+function RuleFields({ document, documents, onChange }: { document: DraftDocument; documents: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
   const inputs = array(document.inputs) as Record<string, unknown>[];
   const expression = object(document.expression);
   const args = array(expression.args) as Record<string, unknown>[];
@@ -199,28 +214,39 @@ function RuleFields({ document, onChange }: { document: DraftDocument; onChange:
     updateExpression({ args: next });
   }
   const binary = ["eq", "ne", "lt", "le", "gt", "ge", "add", "sub", "mul", "div", "and", "or"];
-  return <><Field label="Claim ID"><input value={text(document.claim)} onChange={(event) => onChange({ ...document, claim: event.target.value || undefined })} /></Field><div className="field-array"><div className="field-array-head"><h3>规则输入</h3><button className="secondary" onClick={() => onChange({ ...document, inputs: [...inputs, { name: "input", metric: "", required: true }] })}>添加输入</button></div>{inputs.map((input, index) => { const sourceKind = input.metric ? "metric" : "property"; const source = sourceKind === "metric" ? text(input.metric) : `${text(input.objectType)}.${text(input.property)}`; return <div className="rule-input-row" key={`${text(input.name)}:${index}`}><input aria-label="输入名称" value={text(input.name)} onChange={(event) => updateInput(index, { name: event.target.value })} /><select aria-label="输入类型" value={sourceKind} onChange={(event) => setInputSource(index, event.target.value, source)}><option value="metric">指标</option><option value="property">实体属性</option></select><input aria-label="输入语义引用" value={source} onChange={(event) => setInputSource(index, sourceKind, event.target.value)} /><label className="check-field"><input type="checkbox" checked={input.required !== false} onChange={(event) => updateInput(index, { required: event.target.checked })} />必需</label><button className="icon-button" aria-label={`删除输入 ${text(input.name)}`} onClick={() => onChange({ ...document, inputs: inputs.filter((_, position) => position !== index) })}>×</button></div>; })}</div><div className="expression-builder"><h3>判断表达式</h3><div className="form-grid"><Field label="运算"><select value={text(expression.op)} onChange={(event) => updateExpression({ op: event.target.value, args: args.length >= 2 ? args : [{ op: "ref", name: inputNames[0] ?? "" }, { op: "ref", name: inputNames[1] ?? inputNames[0] ?? "" }] })}>{binary.map((op) => <option key={op}>{op}</option>)}</select></Field><Field label="左输入"><select value={text(args[0]?.name)} onChange={(event) => updateArg(0, event.target.value)}>{inputNames.map((name) => <option key={name}>{name}</option>)}</select></Field><Field label="右输入"><select value={text(args[1]?.name)} onChange={(event) => updateArg(1, event.target.value)}>{inputNames.map((name) => <option key={name}>{name}</option>)}</select></Field></div></div></>;
+  const metrics = documents.filter((item) => item.kind === "Metric");
+  const propertyRefs = documents.filter((item) => item.kind === "ObjectType").flatMap((item) =>
+    (array(item.properties) as Record<string, unknown>[]).map((property) => `${item.id}.${text(property.id)}`),
+  );
+  const firstMetric = metrics[0]?.id ?? "";
+  return <><div className="field-array"><div className="field-array-head"><h3>规则输入</h3><button className="secondary" onClick={() => onChange({ ...document, inputs: [...inputs, { name: "input", metric: firstMetric, required: true }] })}>添加输入</button></div>{inputs.map((input, index) => { const sourceKind = input.metric ? "metric" : "property"; const source = sourceKind === "metric" ? text(input.metric) : `${text(input.objectType)}.${text(input.property)}`; return <div className="rule-input-row" key={`${text(input.name)}:${index}`}><input aria-label="输入名称" value={text(input.name)} onChange={(event) => updateInput(index, { name: event.target.value })} /><select aria-label="输入类型" value={sourceKind} onChange={(event) => setInputSource(index, event.target.value, sourceKind === "metric" ? firstMetric : propertyRefs[0] ?? "")}><option value="metric">指标</option><option value="property">实体属性</option></select><select aria-label="输入语义引用" value={source} onChange={(event) => setInputSource(index, sourceKind, event.target.value)}>{sourceKind === "metric" ? metrics.map((item) => <option key={item.id} value={item.id}>{String(item.label || item.id)}</option>) : propertyRefs.map((item) => <option key={item}>{item}</option>)}</select><label className="check-field"><input type="checkbox" checked={input.required !== false} onChange={(event) => updateInput(index, { required: event.target.checked })} />必需</label><button className="icon-button" aria-label={`删除输入 ${text(input.name)}`} onClick={() => onChange({ ...document, inputs: inputs.filter((_, position) => position !== index) })}>×</button></div>; })}</div><div className="expression-builder"><h3>判断表达式</h3><div className="form-grid"><Field label="运算"><select value={text(expression.op)} onChange={(event) => updateExpression({ op: event.target.value, args: args.length >= 2 ? args : [{ op: "ref", name: inputNames[0] ?? "" }, { op: "ref", name: inputNames[1] ?? inputNames[0] ?? "" }] })}>{binary.map((op) => <option key={op}>{op}</option>)}</select></Field><Field label="左输入"><select value={text(args[0]?.name)} onChange={(event) => updateArg(0, event.target.value)}>{inputNames.map((name) => <option key={name}>{name}</option>)}</select></Field><Field label="右输入"><select value={text(args[1]?.name)} onChange={(event) => updateArg(1, event.target.value)}>{inputNames.map((name) => <option key={name}>{name}</option>)}</select></Field></div></div></>;
 }
 
-function MappingFields({ document, documents, onChange }: { document: DraftDocument; documents: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
-  const physical = object(document.physical);
-  const targets = documents.filter((item) => item.kind === "ObjectType" || item.kind === "Metric");
-  function setPhysical(field: string, value: unknown) {
-    onChange({ ...document, physical: { ...physical, [field]: value || undefined } });
+function ActionFields({ document, objects, onChange }: { document: DraftDocument; objects: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
+  const parameters = array(document.parameters) as Record<string, unknown>[];
+  function updateParam(index: number, patch: Record<string, unknown>) {
+    onChange({ ...document, parameters: parameters.map((item, position) => position === index ? { ...item, ...patch } : item) });
   }
-  return <><div className="form-grid"><Field label="业务目标"><select value={text(document.target)} onChange={(event) => onChange({ ...document, target: event.target.value })}>{targets.map(option)}</select></Field><Field label="所属实体"><select value={text(document.objectType)} onChange={(event) => onChange({ ...document, objectType: event.target.value })}>{documents.filter((item) => item.kind === "ObjectType").map(option)}</select></Field><Field label="来源 ID"><input value={text(document.sourceId)} onChange={(event) => onChange({ ...document, sourceId: event.target.value })} /></Field><Field label="协议"><select value={text(document.provider)} onChange={(event) => onChange({ ...document, provider: event.target.value, physical: event.target.value === "openapi" ? { method: "GET", path: "", identityParameter: "id", identityPointer: "/id", propertyPointers: {} } : { table: "", tenantColumn: "tenant_id", identityColumn: "", propertyColumns: {} } })}><option value="postgres">PostgreSQL</option><option value="openapi">OpenAPI</option></select></Field><Field label="完整性"><select value={text(document.completeness)} onChange={(event) => onChange({ ...document, completeness: event.target.value })}><option>AUTHORITATIVE</option><option>PARTIAL</option></select></Field><Field label="基数"><select value={text(document.expectedCardinality)} onChange={(event) => onChange({ ...document, expectedCardinality: event.target.value })}><option>ONE</option><option>MANY</option></select></Field></div>{document.provider === "openapi" ? <><div className="form-grid"><Field label="HTTP 方法"><select value={text(physical.method) || "GET"} onChange={(event) => setPhysical("method", event.target.value)}><option>GET</option></select></Field><Field label="路径"><input value={text(physical.path)} placeholder="/orders" onChange={(event) => setPhysical("path", event.target.value)} /></Field><Field label="Operation ID"><input value={text(physical.operationId)} onChange={(event) => setPhysical("operationId", event.target.value)} /></Field><Field label="业务键参数"><input value={text(physical.identityParameter)} placeholder="orderId" onChange={(event) => setPhysical("identityParameter", event.target.value)} /></Field><Field label="业务键响应指针"><input value={text(physical.identityPointer)} placeholder="/orderId" onChange={(event) => setPhysical("identityPointer", event.target.value)} /></Field><Field label="记录集合指针"><input value={text(physical.recordsPointer)} placeholder="可选，例如 /items" onChange={(event) => setPhysical("recordsPointer", event.target.value)} /></Field><Field label="下一页指针"><input value={text(physical.nextPointer)} placeholder="可选，例如 /next" onChange={(event) => setPhysical("nextPointer", event.target.value)} /></Field><Field label="指标值指针"><input value={text(physical.valuePointer)} placeholder="指标 Mapping 使用" onChange={(event) => setPhysical("valuePointer", event.target.value)} /></Field></div><MappingPairs label="业务键响应映射" values={object(physical.grainPointers)} physicalLabel="JSON Pointer" onChange={(value) => setPhysical("grainPointers", value)} /><MappingPairs label="属性响应映射" values={object(physical.propertyPointers)} physicalLabel="JSON Pointer" onChange={(value) => setPhysical("propertyPointers", value)} /></> : <><div className="form-grid"><Field label="Schema"><input value={text(physical.schema)} onChange={(event) => setPhysical("schema", event.target.value)} /></Field><Field label="表 / 视图"><input value={text(physical.table)} onChange={(event) => setPhysical("table", event.target.value)} /></Field><Field label="租户列"><input value={text(physical.tenantColumn)} placeholder="tenant_id" onChange={(event) => setPhysical("tenantColumn", event.target.value)} /></Field><Field label="业务键列"><input value={text(physical.identityColumn)} onChange={(event) => setPhysical("identityColumn", event.target.value)} /></Field><Field label="值列"><input value={text(physical.valueColumn)} placeholder="指标 Mapping 使用" onChange={(event) => setPhysical("valueColumn", event.target.value)} /></Field></div><MappingPairs label="业务键列映射" values={object(physical.grainColumns)} physicalLabel="数据库列" onChange={(value) => setPhysical("grainColumns", value)} /><MappingPairs label="属性列映射" values={object(physical.propertyColumns)} physicalLabel="数据库列" onChange={(value) => setPhysical("propertyColumns", value)} /></>}</>;
-}
-
-function MappingPairs({ label, values, physicalLabel, onChange }: { label: string; values: Record<string, unknown>; physicalLabel: string; onChange: (value: Record<string, string>) => void }) {
-  const entries = Object.entries(values).map(([semantic, physical]) => [semantic, text(physical)] as const);
-  function update(index: number, semantic: string, physical: string) {
-    onChange(Object.fromEntries(entries.map((entry, position) => position === index ? [semantic, physical] : entry).filter(([key]) => key)));
-  }
-  return <div className="field-array"><div className="field-array-head"><h3>{label}</h3><button className="secondary" onClick={() => onChange({ ...Object.fromEntries(entries), newField: "" })}>添加字段</button></div>{entries.map(([semantic, physical], index) => <div className="mapping-pair-row" key={`${semantic}:${index}`}><input aria-label="语义字段" value={semantic} placeholder="语义属性" onChange={(event) => update(index, event.target.value, physical)} /><span>→</span><input aria-label={physicalLabel} value={physical} placeholder={physicalLabel} onChange={(event) => update(index, semantic, event.target.value)} /><button className="icon-button" aria-label={`删除字段 ${semantic}`} onClick={() => onChange(Object.fromEntries(entries.filter((_, position) => position !== index)))}>×</button></div>)}</div>;
-}
-
-function IntegrationFields({ document, onChange }: { document: DraftDocument; onChange: (next: DraftDocument) => void }) {
-  return <div className="form-grid"><Field label="逻辑来源 ID"><input value={text(document.sourceId)} onChange={(event) => onChange({ ...document, sourceId: event.target.value })} /></Field><Field label="协议"><select value={text(document.provider)} onChange={(event) => onChange({ ...document, provider: event.target.value })}><option value="postgres">PostgreSQL</option><option value="openapi">OpenAPI</option></select></Field><Field label="Mapping IDs"><textarea rows={5} value={array(document.mappings).join("\n")} onChange={(event) => onChange({ ...document, mappings: lines(event.target.value) })} /></Field><Field label="Action Binding IDs"><textarea rows={5} value={array(document.actionBindings).join("\n")} onChange={(event) => onChange({ ...document, actionBindings: lines(event.target.value) })} /></Field></div>;
+  return (
+    <>
+      <div className="form-grid">
+        <Field label="目标实体"><select value={text(document.targetObject)} onChange={(event) => onChange({ ...document, targetObject: event.target.value })}>{objects.map(option)}</select></Field>
+      </div>
+      <Field label="效果说明"><textarea rows={3} value={text(document.effect)} onChange={(event) => onChange({ ...document, effect: event.target.value })} /></Field>
+      <Field label="前提 Claim / Rule（逗号分隔）"><input value={array(document.preconditions).join(", ")} onChange={(event) => onChange({ ...document, preconditions: csv(event.target.value) })} /></Field>
+      <div className="field-array">
+        <div className="field-array-head"><h3>参数</h3><button className="secondary" onClick={() => onChange({ ...document, parameters: [...parameters, { name: "param", valueType: "STRING", required: true }] })}>添加参数</button></div>
+        {parameters.map((parameter, index) => (
+          <div className="property-row" key={`${text(parameter.name)}:${index}`}>
+            <input aria-label="参数名称" value={text(parameter.name)} onChange={(event) => updateParam(index, { name: event.target.value })} />
+            <select aria-label="参数类型" value={text(parameter.valueType)} onChange={(event) => updateParam(index, { valueType: event.target.value })}>{["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME"].map((type) => <option key={type}>{type}</option>)}</select>
+            <label className="check-field"><input type="checkbox" checked={parameter.required !== false} onChange={(event) => updateParam(index, { required: event.target.checked })} />必需</label>
+            <button className="icon-button" aria-label={`删除参数 ${text(parameter.name)}`} onClick={() => onChange({ ...document, parameters: parameters.filter((_, position) => position !== index) })}>×</button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -231,24 +257,13 @@ function option(item: DraftDocument) {
   return <option key={item.id} value={item.id}>{item.label || item.id}</option>;
 }
 
-function makeDocument(kind: string, id: string, documents: DraftDocument[]): DraftDocument {
-  const base = { apiVersion: "semaloom/v0.1", kind, id, version: "1.0.0", label: id.split(".").at(-1) };
+function makeDocument(kind: string, id: string, documents: DraftDocument[], label: string): DraftDocument {
+  const base = { apiVersion: "semaloom/v0.1", kind, id, version: "1.0.0", label };
   const firstObject = documents.find((item) => item.kind === "ObjectType");
-  if (kind === "ObjectType") return { ...base, identityKeys: ["id"], properties: [{ id: "id", valueType: "STRING", required: true }] };
-  if (kind === "Link") return { ...base, source: firstObject?.id ?? "", target: firstObject?.id ?? "", identity: { source: "id", target: "id" }, cardinality: "ONE", traversal: "FORWARD" };
+  if (kind === "ObjectType") return makeObjectType(id.split(".")[0] ?? "procurement", id.split(".").slice(1).join("."), label);
+  if (kind === "Link") return { ...base, source: firstObject?.id ?? "", target: firstObject?.id ?? "", identity: { source: identityPropertyId(String(firstObject?.id.split(".").at(-1) ?? "id")), target: identityPropertyId(String(firstObject?.id.split(".").at(-1) ?? "id")) }, cardinality: "ONE", traversal: "FORWARD" };
   if (kind === "Rule") return { ...base, inputs: [], expression: { op: "bool", value: true } };
-  if (kind === "Mapping") return { ...base, target: firstObject?.id ?? "", objectType: firstObject?.id ?? "", sourceId: "", provider: "postgres", expectedCardinality: "ONE", completeness: "PARTIAL", physical: { table: "", tenantColumn: "tenant_id", identityColumn: "", grainColumns: {}, propertyColumns: {} } };
-  return { ...base, provider: "postgres", sourceId: "", mappings: [], actionBindings: [] };
+  return { ...base, targetObject: firstObject?.id ?? "", effect: "Describe the business effect", preconditions: [], parameters: [] };
 }
 
-function isDraftDocument(value: unknown): value is DraftDocument {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Record<string, unknown>;
-  return typeof item.apiVersion === "string" && typeof item.kind === "string" && typeof item.id === "string" && typeof item.version === "string";
-}
-
-function text(value: unknown): string { return typeof value === "string" ? value : ""; }
-function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
-function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function csv(value: string): string[] { return value.split(",").map((item) => item.trim()).filter(Boolean); }
-function lines(value: string): string[] { return value.split("\n").map((item) => item.trim()).filter(Boolean); }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -298,6 +300,113 @@ def test_studio_session_csrf_origin_capabilities_and_revocation() -> None:
     assert sample_forbidden.status_code == 403
 
 
+def test_studio_mapping_preview_reads_draft_mapping() -> None:
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+    client.post("/v0.1/studio/session/demo", json={"persona": "studio-admin"})
+    trusted = {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": client.cookies["semaloom_csrf"],
+    }
+    present = client.post(
+        "/v0.1/studio/sample",
+        headers=trusted,
+        json={
+            "mappingId": "procurement.Order.orders",
+            "identity": "PO-001",
+            "draftId": "default",
+        },
+    )
+    assert present.status_code == 200
+    payload = present.json()
+    assert payload["preview"] is True
+    assert payload["kind"] == "PRESENT"
+    values = {item["semanticField"]: item["value"] for item in payload["fields"]}
+    assert values["status"] == "OPEN"
+    assert values["orderId"] == "PO-001"
+
+    missing = client.post(
+        "/v0.1/studio/sample",
+        headers=trusted,
+        json={"mappingId": "procurement.Order.orders", "identity": "PO-MISSING"},
+    )
+    assert missing.status_code == 200
+    assert missing.json()["kind"] == "MISSING"
+
+    metric = client.post(
+        "/v0.1/studio/sample",
+        headers=trusted,
+        json={
+            "mappingId": "tax.reportedIncome.pg",
+            "identity": "TAXPAYER-A",
+            "bindings": {"taxYear": "2024"},
+        },
+    )
+    assert metric.status_code == 200
+    assert metric.json()["kind"] == "PRESENT"
+    amount = next(item["value"] for item in metric.json()["fields"] if item["role"] == "value")
+    assert amount is not None
+    assert Decimal(amount) == Decimal("110.10")
+
+    unknown = client.post(
+        "/v0.1/studio/sample",
+        headers=trusted,
+        json={"mappingId": "does.not.exist", "identity": "PO-001"},
+    )
+    assert unknown.status_code == 404
+
+
+def test_source_schema_lists_connected_tables() -> None:
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+    client.post("/v0.1/studio/session/demo", json={"persona": "studio-admin"})
+    schema = client.get("/v0.1/studio/source-profiles/orders_pg/schema")
+    assert schema.status_code == 200
+    names = {item["name"] for item in schema.json()["resources"]}
+    assert "proc_order" in names
+    columns = next(
+        item["columns"] for item in schema.json()["resources"] if item["name"] == "proc_order"
+    )
+    assert {item["name"] for item in columns} >= {"order_id", "status"}
+
+    viewer = TestClient(create_app(load_services=True, load_fixtures=True))
+    viewer.post("/v0.1/studio/session/demo", json={"persona": "viewer"})
+    denied = viewer.get("/v0.1/studio/source-profiles/orders_pg/schema")
+    assert denied.status_code == 403
+
+
+def test_source_rows_are_clickable_preview() -> None:
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+    client.post("/v0.1/studio/session/demo", json={"persona": "studio-admin"})
+    trusted = {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": client.cookies["semaloom_csrf"],
+    }
+    rows = client.post(
+        "/v0.1/studio/source-profiles/orders_pg/rows",
+        headers=trusted,
+        json={"table": "proc_order", "limit": 5},
+    )
+    assert rows.status_code == 200
+    payload = rows.json()
+    assert "order_id" in payload["columns"]
+    assert payload["rows"]
+    assert "order_id" in payload["rows"][0]
+    missing = client.post(
+        "/v0.1/studio/source-profiles/orders_pg/rows",
+        headers=trusted,
+        json={"table": "not_a_table"},
+    )
+    assert missing.status_code == 200
+    assert missing.json()["reason"] == "TABLE_NOT_IN_CATALOG"
+    viewer = TestClient(create_app(load_services=True, load_fixtures=True))
+    viewer.post("/v0.1/studio/session/demo", json={"persona": "viewer"})
+    denied = viewer.post(
+        "/v0.1/studio/source-profiles/orders_pg/rows",
+        headers={"Origin": "http://testserver", "X-CSRF-Token": viewer.cookies["semaloom_csrf"]},
+        json={"table": "proc_order"},
+    )
+    assert denied.status_code == 403
+
+
 def test_legacy_workspace_is_archived_and_migrated_to_canonical_documents() -> None:
     load_synthetic()
     engine = engines()["meta"]
@@ -341,3 +450,228 @@ def test_legacy_workspace_is_archived_and_migrated_to_canonical_documents() -> N
     finally:
         services.close()
         load_synthetic()
+
+
+def _studio_client() -> tuple[TestClient, dict[str, str]]:
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+    client.post("/v0.1/studio/session/demo", json={"persona": "studio-admin"})
+    headers = {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": client.cookies["semaloom_csrf"],
+    }
+    return client, headers
+
+
+def test_metric_document_save_reload_impacts_and_revision_conflict() -> None:
+    client, headers = _studio_client()
+    draft = client.get("/v0.1/studio/drafts/default").json()
+    metric = {
+        "apiVersion": "semaloom/v0.1",
+        "kind": "Metric",
+        "id": "tax.g2DraftMetric",
+        "version": "1.0.0",
+        "label": "G2 草稿指标",
+        "description": "仅用于草稿保存重载; 不是已发布查询目标。",
+        "objectType": "tax.Taxpayer",
+        "valueType": "DECIMAL",
+        "unit": "CNY",
+        "grain": ["taxpayerId", "taxYear"],
+        "aggregation": "NONE",
+        "perspective": "TAX_RETURN",
+    }
+    mapping = {
+        "apiVersion": "semaloom/v0.1",
+        "kind": "Mapping",
+        "id": "tax.g2DraftMetric.tax_pg",
+        "version": "1.0.0",
+        "label": "G2 草稿指标",
+        "target": "tax.g2DraftMetric",
+        "objectType": "tax.Taxpayer",
+        "sourceId": "tax_pg",
+        "provider": "postgres",
+        "perspective": "TAX_RETURN",
+        "expectedCardinality": "ONE",
+        "completeness": "AUTHORITATIVE",
+        "physical": {
+            "table": "tax_metric",
+            "identityColumn": "taxpayer_id",
+            "valueColumn": "amount",
+            "grainColumns": {
+                "taxpayerId": "taxpayer_id",
+                "taxYear": "tax_year",
+            },
+            "filters": {"metric": "g2DraftMetric", "perspective": "TAX_RETURN"},
+        },
+    }
+    documents = [dict(item) for item in draft["documents"]]
+    documents.append(metric)
+    documents.append(mapping)
+    for item in documents:
+        if item.get("kind") == "IntegrationBinding" and item.get("sourceId") == "tax_pg":
+            item["mappings"] = [*(item.get("mappings") or []), mapping["id"]]
+    saved = client.put(
+        "/v0.1/studio/drafts/default",
+        headers=headers,
+        json={"expectedRevision": draft["revision"], "documents": documents},
+    )
+    assert saved.status_code == 200, saved.text
+    reloaded = client.get("/v0.1/studio/drafts/default").json()
+    assert any(item["id"] == "tax.g2DraftMetric" for item in reloaded["documents"])
+    stored = next(item for item in reloaded["documents"] if item["id"] == "tax.g2DraftMetric")
+    assert stored["valueType"] == "DECIMAL"
+    assert stored["unit"] == "CNY"
+    assert stored["grain"] == ["taxpayerId", "taxYear"]
+    assert stored["perspective"] == "TAX_RETURN"
+
+    preview = client.post(
+        "/v0.1/studio/sample",
+        headers=headers,
+        json={
+            "mappingId": "tax.g2DraftMetric.tax_pg",
+            "identity": "TAXPAYER-A",
+            "draftId": "default",
+            "bindings": {"taxYear": "2024"},
+        },
+    )
+    assert preview.status_code == 200
+    assert preview.json()["preview"] is True
+    assert preview.json()["kind"] in {"MISSING", "PRESENT", "NULL"}
+
+    impacts = client.get("/v0.1/studio/drafts/default/impacts/procurement.orderAmount")
+    assert impacts.status_code == 200
+    impact_ids = {item["id"] for item in impacts.json()["impacts"]}
+    assert "procurement.amountWithinLimit" in impact_ids
+
+    conflict = client.put(
+        "/v0.1/studio/drafts/default",
+        headers=headers,
+        json={"expectedRevision": draft["revision"], "documents": reloaded["documents"]},
+    )
+    assert conflict.status_code == 409
+    assert "REVISION_CONFLICT" in str(conflict.json())
+
+
+def test_published_query_and_claim_evidence_for_tax_and_procurement() -> None:
+    client = TestClient(create_app(load_services=True, load_fixtures=True))
+    headers = {"Authorization": "Bearer tenant-a-analyst"}
+    tax = client.post(
+        "/v0.1/query",
+        headers=headers,
+        json={
+            "metric": "tax.reportedIncome",
+            "bindings": {
+                "taxpayer": "TAXPAYER-A",
+                "taxYear": 2024,
+                "perspective": "TAX_RETURN",
+            },
+            "periodFrom": "2024-01-01",
+            "periodTo": "2025-01-01",
+        },
+    )
+    assert tax.status_code == 200
+    tax_body = tax.json()
+    assert tax_body["observations"][0]["kind"] == "PRESENT"
+    assert Decimal(tax_body["observations"][0]["value"]) == Decimal("110.10")
+    assert tax_body["sourceActivities"][0]["sourceId"] == "tax_pg"
+    assert tax_body["releaseDigest"]
+
+    order = client.post(
+        "/v0.1/query",
+        headers=headers,
+        json={
+            "metric": "procurement.orderAmount",
+            "bindings": {"orderId": "PO-001"},
+            "periodFrom": "2024-01-01",
+            "periodTo": "2025-01-01",
+        },
+    )
+    assert order.status_code == 200
+    order_body = order.json()
+    assert order_body["observations"][0]["kind"] == "PRESENT"
+    assert Decimal(order_body["observations"][0]["value"]) != Decimal("0")
+    assert order_body["sourceActivities"][0]["sourceId"] == "orders_pg"
+
+    tax_claim = client.post(
+        "/v0.1/claims/evaluate",
+        headers=headers,
+        json={
+            "claimId": "tax.incomeReconciles",
+            "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            "periodFrom": "2024-01-01",
+            "periodTo": "2025-01-01",
+            "dimensions": {"jurisdiction": "CN"},
+        },
+    )
+    assert tax_claim.status_code == 200
+    assert tax_claim.json()["claim"]["truth"] == "TRUE"
+    assert tax_claim.json()["observations"]
+
+    proc_claim = client.post(
+        "/v0.1/claims/evaluate",
+        headers=headers,
+        json={
+            "claimId": "procurement.amountWithinLimit",
+            "bindings": {"orderId": "PO-001", "organizationId": "ORG-A"},
+            "periodFrom": "2024-01-01",
+            "periodTo": "2025-01-01",
+            "dimensions": {"organizationId": "ORG-A"},
+        },
+    )
+    assert proc_claim.status_code == 200
+    assert proc_claim.json()["claim"]["truth"] == "TRUE"
+    assert proc_claim.json()["releaseDigest"]
+
+
+def test_http_self_approve_rejected_and_viewer_cannot_validate() -> None:
+    client, headers = _studio_client()
+    services = client.app.state.services
+    for profile in services.source_profiles.list("tenant-a"):
+        services.source_profiles.set_validation("tenant-a", profile.source_id, "VALID")
+    draft = client.get("/v0.1/studio/drafts/default").json()
+    documents = [dict(item) for item in draft["documents"]]
+    taxpayer = next(item for item in documents if item["id"] == "tax.Taxpayer")
+    taxpayer["description"] = f"g3 http self-approve {draft['revision']}"
+    saved = client.put(
+        "/v0.1/studio/drafts/default",
+        headers=headers,
+        json={"expectedRevision": draft["revision"], "documents": documents},
+    )
+    assert saved.status_code == 200, saved.text
+    validation = client.post("/v0.1/studio/drafts/default/validate", headers=headers)
+    assert validation.status_code == 200, validation.text
+    assert validation.json()["status"] == "VALID"
+    assert validation.json()["candidateDigest"] == saved.json()["candidateDigest"]
+
+    self_approve = client.post("/v0.1/studio/drafts/default/approve", headers=headers)
+    assert (self_approve.status_code, self_approve.json()["detail"]) == (
+        409,
+        "INDEPENDENT_REVIEW_REQUIRED",
+    )
+
+    reviewer = TestClient(create_app(load_services=True, load_fixtures=False))
+    reviewer.post("/v0.1/studio/session/demo", json={"persona": "reviewer"})
+    reviewer_headers = {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": reviewer.cookies["semaloom_csrf"],
+    }
+    approved = reviewer.post("/v0.1/studio/drafts/default/approve", headers=reviewer_headers)
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "APPROVED"
+    assert approved.json()["candidateDigest"] == saved.json()["candidateDigest"]
+
+    viewer = TestClient(create_app(load_services=True, load_fixtures=False))
+    viewer.post("/v0.1/studio/session/demo", json={"persona": "viewer"})
+    viewer_headers = {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": viewer.cookies["semaloom_csrf"],
+    }
+    forbidden_validate = viewer.post("/v0.1/studio/drafts/default/validate", headers=viewer_headers)
+    assert forbidden_validate.status_code == 403
+    forbidden_approve = viewer.post("/v0.1/studio/drafts/default/approve", headers=viewer_headers)
+    assert forbidden_approve.status_code == 403
+    forbidden_publish = viewer.post(
+        "/v0.1/studio/drafts/default/publish",
+        headers=viewer_headers,
+        json={"expectedEnvironmentRevision": 0},
+    )
+    assert forbidden_publish.status_code == 403

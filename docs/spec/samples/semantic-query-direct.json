@@ -1,0 +1,91 @@
+{
+  "apiVersion": "semaloom/v0.1",
+  "kind": "SemanticQueryContractSample",
+  "id": "direct-compute",
+  "description": "Complete definition: prepare is READY and execute returns engine values plus an evidence table. No user choice.",
+  "session": {
+    "conversationId": "conv-direct-1",
+    "tenantId": "tenant-a",
+    "actorId": "analyst",
+    "releaseDigest": "rel-direct-example",
+    "originalQuestion": "2024 年各企业申报营业收入合计是多少？",
+    "query": {
+      "apiVersion": "semaloom/v0.1",
+      "metrics": [{"id": "finance.declaredRevenue", "aggregation": "SUM"}],
+      "groupBy": [{"id": "finance.TaxReturn.companyId"}],
+      "filters": {
+        "kind": "PRED",
+        "field": "finance.TaxReturn.taxYear",
+        "op": "EQ",
+        "value": {"valueType": "INTEGER", "value": 2024}
+      },
+      "missingPolicy": "reject",
+      "evidenceLimit": 50,
+      "decisions": []
+    },
+    "pendingQuestion": null,
+    "planId": "plan-direct-1",
+    "resultId": "result-direct-1",
+    "questionRevision": 0
+  },
+  "prepare": {
+    "status": "READY",
+    "plan": {
+      "planId": "plan-direct-1",
+      "releaseDigest": "rel-direct-example",
+      "compiledDigest": "compiled-direct-1",
+      "query": {
+        "apiVersion": "semaloom/v0.1",
+        "metrics": [{"id": "finance.declaredRevenue", "aggregation": "SUM"}],
+        "groupBy": [{"id": "finance.TaxReturn.companyId"}],
+        "filters": {
+          "kind": "PRED",
+          "field": "finance.TaxReturn.taxYear",
+          "op": "EQ",
+          "value": {"valueType": "INTEGER", "value": 2024}
+        },
+        "missingPolicy": "reject",
+        "evidenceLimit": 50,
+        "decisions": []
+      }
+    }
+  },
+  "result": {
+    "resultId": "result-direct-1",
+    "planId": "plan-direct-1",
+    "releaseDigest": "rel-direct-example",
+    "values": [
+      {
+        "metric": "finance.declaredRevenue",
+        "grain": {"companyId": "C1", "taxYear": 2024},
+        "value": "150.2600",
+        "unit": "CNY",
+        "valueType": "DECIMAL"
+      }
+    ],
+    "scope": {
+      "populationCount": 3,
+      "observedCount": 3,
+      "missingCount": 0,
+      "denominator": null,
+      "numerator": null
+    },
+    "mappingFields": [
+      {
+        "mappingId": "finance.declaredRevenue.pg",
+        "sourceId": "sample_pg",
+        "table": "sample_declaration",
+        "columns": ["declared_revenue", "tax_year", "taxpayer_id"]
+      }
+    ],
+    "evidence": {
+      "columns": [
+        {"id": "companyId", "label": "企业编号"},
+        {"id": "value", "label": "申报营业收入"}
+      ],
+      "rows": [["C1", "150.2600"]],
+      "truncated": false,
+      "rowCount": 1
+    }
+  }
+}

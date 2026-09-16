@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from copy import deepcopy
 from graphlib import CycleError, TopologicalSorter
 from itertools import pairwise
 from pathlib import Path
@@ -16,7 +17,7 @@ from semaloom.compiler.digest import canonical_json, physical_digest, sha256_dig
 from semaloom.compiler.yaml_load import load_yaml_documents
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.diagnostics import Diagnostic
-from semaloom.core.expr import collect_refs
+from semaloom.core.expr import collect_refs, expression_type
 from semaloom.core.ids import (
     API_VERSION,
     BUNDLE_FORMAT,
@@ -170,8 +171,25 @@ def compile_documents(
     mappings = [item for item in parsed if isinstance(item, MappingDef)]
     bindings = [item for item in parsed if isinstance(item, ActionBindingDef)]
 
-    _check_ids(parsed, diagnostics)
-    _check_packs(packs, parsed, diagnostics)
+    metrics = _metrics_from_properties(objects, metrics, mappings)
+    metrics = _materialize_metrics(objects, metrics, mappings, diagnostics)
+    mappings, integrations = _bind_metric_mappings(metrics, mappings, integrations)
+
+    compiled_docs = [
+        *packs,
+        *objects,
+        *metrics,
+        *links,
+        *rules,
+        *policies,
+        *actions,
+        *profiles,
+        *integrations,
+        *mappings,
+        *bindings,
+    ]
+    _check_ids(compiled_docs, diagnostics)
+    _check_packs(packs, compiled_docs, diagnostics)
     _check_object_metrics(objects, metrics, packs, diagnostics)
     _check_links(objects, links, diagnostics)
     _check_rules(metrics, objects, rules, diagnostics)
@@ -249,6 +267,236 @@ def _dump(model: Any) -> dict[str, Any]:
 
 def _sorted(items: Iterable[Any]) -> list[Any]:
     return sorted(items, key=lambda item: (item.kind, item.id, item.version))
+
+
+def _physical_slots(mapping: MappingDef) -> dict[str, str]:
+    slots: dict[str, str] = {}
+    for field in ("grainColumns", "propertyColumns", "grainPointers", "propertyPointers"):
+        raw = mapping.physical.get(field)
+        if isinstance(raw, dict):
+            slots.update({str(key): str(value) for key, value in raw.items()})
+    return slots
+
+
+def _grain_slots(mapping: MappingDef) -> dict[str, str]:
+    slots: dict[str, str] = {}
+    for field in ("grainColumns", "grainPointers"):
+        raw = mapping.physical.get(field)
+        if isinstance(raw, dict):
+            slots.update({str(key): str(value) for key, value in raw.items()})
+    return slots
+
+
+def _metrics_from_properties(
+    objects: Sequence[ObjectTypeDef],
+    metrics: Sequence[MetricDef],
+    mappings: Sequence[MappingDef],
+) -> list[MetricDef]:
+    """Numeric properties with a unit are queryable; do not make users declare Metric docs."""
+    claimed = {(item.object_type, item.property) for item in metrics if item.property}
+    ids = {item.id for item in metrics}
+    extra: list[MetricDef] = []
+    for obj in objects:
+        mapped = {
+            slot
+            for mapping in mappings
+            if mapping.target == obj.id
+            for slot in _physical_slots(mapping)
+        }
+        for prop in obj.properties:
+            if not prop.unit or prop.value_type not in {"DECIMAL", "INTEGER"}:
+                continue
+            if (obj.id, prop.id) in claimed or prop.id not in mapped:
+                continue
+            metric_id = f"{obj.id}.{prop.id}"
+            if metric_id in ids:
+                continue
+            extra.append(
+                MetricDef.model_validate(
+                    {
+                        "apiVersion": "semaloom/v0.1",
+                        "kind": "Metric",
+                        "id": metric_id,
+                        "version": obj.version,
+                        "label": prop.label or prop.id,
+                        "objectType": obj.id,
+                        "property": prop.id,
+                        "valueType": prop.value_type,
+                        "unit": prop.unit,
+                        "aggregation": prop.aggregation or "NONE",
+                        "aliases": list(prop.aliases),
+                    }
+                )
+            )
+            claimed.add((obj.id, prop.id))
+            ids.add(metric_id)
+    return [*metrics, *extra]
+
+
+def _covering_mappings(metric: MetricDef, mappings: Sequence[MappingDef]) -> list[MappingDef]:
+    if not metric.property:
+        return []
+    return [
+        mapping
+        for mapping in mappings
+        if mapping.target == metric.object_type and metric.property in _physical_slots(mapping)
+    ]
+
+
+def _materialize_metrics(
+    objects: Sequence[ObjectTypeDef],
+    metrics: Sequence[MetricDef],
+    mappings: Sequence[MappingDef],
+    diagnostics: list[Diagnostic],
+) -> list[MetricDef]:
+    object_index = _index(objects)
+    filled: list[MetricDef] = []
+    for metric in metrics:
+        obj = object_index.get(metric.object_type)
+        updates: dict[str, Any] = {}
+        prop = None
+        if metric.property:
+            if obj is None:
+                filled.append(metric)
+                continue
+            prop = next((item for item in obj.properties if item.id == metric.property), None)
+            if prop is None:
+                diagnostics.append(
+                    Diagnostic(
+                        code="DANGLING_REF",
+                        path=f"{metric.id}.property",
+                        message=metric.property,
+                    )
+                )
+                filled.append(metric)
+                continue
+            if prop.value_type not in {"DECIMAL", "INTEGER"}:
+                diagnostics.append(
+                    Diagnostic(
+                        code="TYPE_MISMATCH",
+                        path=f"{metric.id}.property",
+                        message="measure property must be DECIMAL or INTEGER",
+                    )
+                )
+            if metric.value_type is None:
+                updates["value_type"] = prop.value_type
+            if not metric.unit:
+                updates["unit"] = prop.unit
+            if metric.aggregation == "NONE" and prop.aggregation:
+                updates["aggregation"] = prop.aggregation
+            if prop.aliases:
+                updates["aliases"] = tuple(dict.fromkeys((*prop.aliases, *metric.aliases)))
+        if metric.population is None and obj is not None and obj.population is not None:
+            updates["population"] = obj.population
+        if not metric.grain:
+            select_keys = set(metric.select)
+            if metric.perspective:
+                select_keys.add("perspective")
+            covering = _covering_mappings(metric, mappings)
+            dims: list[str] = []
+            if covering:
+                dims = [
+                    key
+                    for key in _grain_slots(covering[0])
+                    if key not in select_keys and key != metric.property
+                ]
+            if not dims and obj is not None and metric.property:
+                dims = [key for key in obj.identity_keys if key not in select_keys]
+            if dims:
+                identity = [
+                    key for key in (obj.identity_keys if obj is not None else ()) if key in dims
+                ]
+                rest = sorted(key for key in dims if key not in identity)
+                updates["grain"] = tuple([*identity, *rest])
+        if metric.value_type is None and not metric.property and metric.derived_from:
+            updates["value_type"] = "DECIMAL"
+        filled.append(metric.model_copy(update=updates) if updates else metric)
+    return filled
+
+
+def _bind_metric_mappings(
+    metrics: Sequence[MetricDef],
+    mappings: Sequence[MappingDef],
+    integrations: Sequence[IntegrationBindingDef],
+) -> tuple[list[MappingDef], list[IntegrationBindingDef]]:
+    existing_ids = {item.id for item in mappings}
+    mapped_targets = {item.target for item in mappings}
+    extra: list[MappingDef] = []
+    owners: dict[str, str] = {}
+    for metric in metrics:
+        if metric.id in mapped_targets or not metric.property:
+            continue
+        for source in _covering_mappings(metric, mappings):
+            suffix = source.id.rsplit(".", 1)[-1]
+            mapping_id = f"{metric.id}.{suffix}"
+            if mapping_id in existing_ids or mapping_id in owners:
+                mapping_id = f"{metric.id}.via_{source.id.rpartition('.')[-1]}"
+            if mapping_id in existing_ids or mapping_id in owners:
+                continue
+            physical = deepcopy(dict(source.physical))
+            slots = _physical_slots(source)
+            column = slots[metric.property]
+            if source.physical.get("propertyPointers") and metric.property in dict(
+                source.physical.get("propertyPointers") or {}
+            ):
+                physical["valuePointer"] = column
+            else:
+                physical["valueColumn"] = column
+            filters = dict(physical.get("filters") or {})
+            for key, value in metric.select.items():
+                selected = slots.get(key)
+                if selected:
+                    filters[selected] = value
+            if metric.perspective:
+                perspective_col = slots.get("perspective")
+                if perspective_col:
+                    filters.setdefault(perspective_col, metric.perspective)
+            if filters:
+                physical["filters"] = filters
+            extra.append(
+                MappingDef.model_validate(
+                    {
+                        "apiVersion": "semaloom/v0.1",
+                        "kind": "Mapping",
+                        "id": mapping_id,
+                        "version": source.version,
+                        "label": metric.label or metric.id,
+                        "target": metric.id,
+                        "sourceId": source.source_id,
+                        "provider": source.provider,
+                        "objectType": metric.object_type,
+                        "perspective": metric.perspective,
+                        "expectedCardinality": source.expected_cardinality,
+                        "completeness": source.completeness,
+                        "physical": physical,
+                    }
+                )
+            )
+            owners[mapping_id] = source.id
+            existing_ids.add(mapping_id)
+    if not extra:
+        return list(mappings), list(integrations)
+    next_mappings = [*mappings, *extra]
+    next_integrations: list[IntegrationBindingDef] = []
+    source_owner = {
+        mapping_id: integration.id
+        for integration in integrations
+        for mapping_id in integration.mappings
+    }
+    attached: dict[str, list[str]] = defaultdict(list)
+    for mapping_id, source_id in owners.items():
+        integration_id = source_owner.get(source_id)
+        if integration_id is not None:
+            attached[integration_id].append(mapping_id)
+    for integration in integrations:
+        added = attached.get(integration.id)
+        if not added:
+            next_integrations.append(integration)
+            continue
+        next_integrations.append(
+            integration.model_copy(update={"mappings": (*integration.mappings, *added)})
+        )
+    return next_mappings, next_integrations
 
 
 def _reject_approval_fields(
@@ -384,6 +632,17 @@ def _check_object_metrics(
     object_index = _index(objects)
     for obj in objects:
         prop_ids = [prop.id for prop in obj.properties]
+        if obj.period is not None:
+            types = {prop.id: prop.value_type for prop in obj.properties}
+            if any(
+                types.get(key) != "DATE"
+                for key in (obj.period.from_property, obj.period.to_property)
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        code="TYPE_MISMATCH", path=obj.id, message="period requires DATE properties"
+                    )
+                )
         if len(prop_ids) != len(set(prop_ids)):
             diagnostics.append(
                 Diagnostic(code="DUPLICATE_ID", path=obj.id, message="duplicate property id")
@@ -407,6 +666,22 @@ def _check_object_metrics(
             continue
         obj = object_index[metric.object_type]
         property_ids = {prop.id for prop in obj.properties}
+        if metric.population:
+            spec = metric.population
+            types = {prop.id: prop.value_type for prop in obj.properties}
+            if (
+                spec.unit_property not in property_ids
+                or types.get(spec.year_property) != "INTEGER"
+                or len(obj.identity_keys) != 1
+                or set(metric.grain) - {*obj.identity_keys, spec.year_property, "perspective"}
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        code="INVALID_POPULATION",
+                        path=metric.id,
+                        message="population needs unit, integer year and scalar object grain",
+                    )
+                )
         if not metric.grain:
             diagnostics.append(
                 Diagnostic(code="INCOMPLETE_GRAIN", path=metric.id, message="grain is required")
@@ -415,11 +690,29 @@ def _check_object_metrics(
             diagnostics.append(
                 Diagnostic(code="MISSING_UNIT", path=metric.id, message="unit is required")
             )
+        if metric.value_type is None:
+            diagnostics.append(
+                Diagnostic(
+                    code="INVALID_DEFINITION",
+                    path=metric.id,
+                    message="valueType is required unless inherited from a measure property",
+                )
+            )
         pack = next(
             (item for item in packs if namespace_of(metric.id) == item.namespace),
             None,
         )
         context_ids = {dim.id for dim in pack.context_dimensions} if pack is not None else set()
+        for key in metric.select:
+            if key in property_ids or key in obj.identity_keys or key in context_ids:
+                continue
+            diagnostics.append(
+                Diagnostic(
+                    code="INVALID_DIMENSION_TYPE",
+                    path=f"{metric.id}.select",
+                    message=f"unknown select dimension {key}",
+                )
+            )
         for dim in metric.grain:
             if dim in property_ids or dim in obj.identity_keys or dim in context_ids:
                 continue
@@ -510,10 +803,62 @@ def _check_rules(
     metric_ids = {item.id for item in metrics}
     object_ids = {item.id for item in objects}
     rule_deps: dict[str, set[str]] = {}
+    outputs: set[tuple[str, str]] = set()
     for rule in rules:
+        for kind, output in (("claim", rule.claim), ("metric", rule.output_metric)):
+            if output is not None:
+                if (kind, output) in outputs:
+                    diagnostics.append(
+                        Diagnostic(
+                            code="AMBIGUOUS_RULE",
+                            path=rule.id,
+                            message="each output must have one defining rule",
+                        )
+                    )
+                outputs.add((kind, output))
         deps: set[str] = set()
         input_names = {item.name for item in rule.inputs}
+        input_types: dict[str, str] = {}
+        if len(input_names) != len(rule.inputs):
+            diagnostics.append(
+                Diagnostic(
+                    code="INVALID_DEFINITION",
+                    path=f"{rule.id}.inputs",
+                    message="duplicate input name",
+                )
+            )
         for spec in rule.inputs:
+            if spec.metric is not None and (
+                spec.property is not None or spec.object_type is not None
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        code="INVALID_DEFINITION",
+                        path=f"{rule.id}.inputs.{spec.name}",
+                        message="input must select exactly one metric or object property",
+                    )
+                )
+            if spec.metric is not None:
+                definition = next((m for m in metrics if m.id == spec.metric), None)
+                if definition is not None:
+                    input_types[spec.name] = definition.value_type or "DECIMAL"
+            if spec.property is not None:
+                obj = next((o for o in objects if o.id == spec.object_type), None)
+                prop = (
+                    next((p for p in obj.properties if p.id == spec.property), None)
+                    if obj
+                    else None
+                )
+                if prop is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            code="DANGLING_REF",
+                            path=f"{rule.id}.inputs.{spec.name}.property",
+                            message="unknown object property",
+                        )
+                    )
+                else:
+                    input_types[spec.name] = prop.value_type
             if spec.metric is None and spec.property is None:
                 diagnostics.append(
                     Diagnostic(
@@ -562,6 +907,24 @@ def _check_rules(
         if rule.claim is not None and not is_semantic_id(rule.claim):
             diagnostics.append(
                 Diagnostic(code="INVALID_ID", path=f"{rule.id}.claim", message=rule.claim)
+            )
+        if rule.claim is not None and rule.output_metric is not None:
+            diagnostics.append(
+                Diagnostic(
+                    code="INVALID_DEFINITION",
+                    path=rule.id,
+                    message="rule must not produce both a Claim and a Metric",
+                )
+            )
+        try:
+            result_type = expression_type(rule.expression, input_types)
+            if rule.claim is not None and result_type != "BOOLEAN":
+                raise ValueError("Claim expression must return BOOLEAN")
+            if rule.output_metric is not None and result_type not in {"DECIMAL", "INTEGER"}:
+                raise ValueError("Metric expression must return a number")
+        except ValueError as exc:
+            diagnostics.append(
+                Diagnostic(code="TYPE_MISMATCH", path=f"{rule.id}.expression", message=str(exc))
             )
         rule_deps[rule.id] = deps
     _reject_rule_cycles(rules, metrics, diagnostics)

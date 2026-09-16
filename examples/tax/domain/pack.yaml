@@ -13,3 +13,5 @@ contextDimensions:
     valueType: STRING
   - id: jurisdiction
     valueType: STRING
+  - id: measureCode
+    valueType: STRING

@@ -2,15 +2,21 @@
 
 ## 目标与适用范围
 
+本地接入验证：`SEMALOOM_PACK_PATHS` 由 app 装配领域包，业务定义与物理绑定分别位于 domain/integration；[financial-review 样本](local-business-samples.md) 通过现有 PostgreSQL/OpenAPI provider 读取，不增加 core/Compiler 领域分支。可选工作流 mock 在 local-dev 同进程装配，不属于通用语义执行器。
+
 SemaLoom 是通用企业业务语义层，采用 Python 与 Apache-2.0。通过经审核的业务模型，让 AI 或应用用稳定的业务标识查询事实、评估命题、计划并执行受控操作。确定性是指相同语义发布版本、执行 profile、环境绑定、身份范围、来源输入与请求产生相同语义计划和结果；时间戳、trace ID 不要求相同，变化中的远程系统也不会永远返回相同数据。
 
 面向各类企业业务，行业知识由领域包表达，来源差异由独立接入层适配。税务与采购用于验证通用性。首版支持能力由接口 profile 与验收案例明确界定。
+
+## 可选对话扩展
+
+用户要求的内置 Chat 采用 [ADR-0010](adr/0010-pi-chat-harness.md)：Python 管理一个有界的 pi 子进程/运行回合，复用官方 core hooks；模型循环在 Node，业务语义、身份和规则仍由 Python 执行。它是单应用入口下的可选能力，无 Node HTTP 服务；未启用时沿用原单 Python 进程基线。接口与选型见 [Chat Harness](chat-harness.md)。
 
 ## 架构决策
 
 采用一个 Python distribution、一个应用进程部署。Compiler、Runtime、接入 adapter 和后台恢复任务在进程内装配；模块独立不要求分开部署。核心拥有语义类型、编译、规划及执行；来源数据通过 adapter 读取，业务定义由领域包提供，物理绑定由独立接入声明提供。请求固定不可变发布版本；授权与证据覆盖完整执行链路。
 
-关键理由见 [ADR-0001](adr/0001-runtime-and-domain-packs.md)、[ADR-0002](adr/0002-observation-truth-and-errors.md)、[ADR-0003](adr/0003-immutable-release-and-evidence.md)、[ADR-0004](adr/0004-action-delivery-and-approval.md)、[ADR-0005](adr/0005-python-and-dependency-ownership.md)、[ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)、[ADR-0009](adr/0009-progressive-studio-dependencies.md)。
+关键理由见 [ADR-0001](adr/0001-runtime-and-domain-packs.md)、[ADR-0002](adr/0002-observation-truth-and-errors.md)、[ADR-0003](adr/0003-immutable-release-and-evidence.md)、[ADR-0004](adr/0004-action-delivery-and-approval.md)、[ADR-0005](adr/0005-python-and-dependency-ownership.md)、[ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)、[ADR-0009](adr/0009-progressive-studio-dependencies.md)、[ADR-0010](adr/0010-pi-chat-harness.md)、[ADR-0011](adr/0011-semantic-query-planner.md)、[ADR-0012](adr/0012-facts-and-business-vocabulary.md)。
 
 ## 内化什么，复用什么
 
@@ -25,7 +31,7 @@ SemaLoom 是通用企业业务语义层，采用 Python 与 Apache-2.0。通过�
 | 能力 | 首选 | 取舍与引入条件 |
 | --- | --- | --- |
 | HTTP / 输入模型 | FastAPI、Pydantic | Pydantic 模型导出 JSON Schema，并加标准校验；领域语义检查由 Compiler 负责 |
-| 关系查询 | SQLAlchemy Core + psycopg | 受限关系计划通过单一 SQL 生成链执行 |
+| 关系查询 | SQLAlchemy Core + psycopg；SQLGlot 作 AST 限定 | 同源分析由 SemanticQuery 编译为参数化 SQL 并下推；跨源仍为有界 Link。Wren 已实测不纳入发行物，见 [ADR-0011](adr/0011-semantic-query-planner.md) |
 | 连接与持久化 | PostgreSQL、SQLAlchemy、Alembic | 来源只读与 metadata/action 写入分角色；ORM 仅在持久化实现需要时使用 |
 | API | httpx | 只读 OpenAPI Provider 与 ActionExecutor 分离；当前支持经审核的固定 GET profile，不接受调用方 URL |
 | 工作台 | React、TypeScript、Vite、原生 SVG | 当前实体图保持轻量并限定 60 节点；复杂连线编辑或大图达到明确门槛再引入专用库，见 [ADR-0009](adr/0009-progressive-studio-dependencies.md) |
@@ -172,3 +178,19 @@ tests/                      # 契约、行为、集成及 import 依赖检查
 新方言、超出受限组合的查询能力、标准互操作、复杂策略及工作流由可验收的实际用例触发，另行评估实现与维护成本；当前不预选技术栈。ReadProvider/ActionExecutor 的协议变化由 adapter 承担，同协议内的业务定义和来源绑定变化分别由领域包与接入声明承担。
 
 PoC、开源准备与真实 pilot 分别由 [PLAN](PLAN.md) 的 gate 验收；运行能力及容量由实现证据确认。
+
+## 有界集合分析
+
+集合分析由 `SemanticQuery` prepare/execute 拥有。REST `POST /v0.1/analyze` 的 `analyze_population` 只做兼容翻译到同一执行链，不是第二条统计引擎。Chat/pi 工具目录只暴露 `prepare_semantic_query`。Metric.population 由领域包声明，不在 core 编写财税分支。50 只限明细分页，不截断总体聚合。详细能力和限制见 [分析质量](analysis-quality.md)。
+
+### 企业配置与 Chat 边界
+
+事实在表：integration 一张事实表一条 Mapping。业务层补充对象、关系、判断和少量指标词条（别名、口径、科目筛选），不穷举来源科目或公式；grain/单位从对象与 Mapping 继承，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。连接凭据仍由环境绑定管理。新增同协议企业模型不修改 core/runtime/harness。新协议需要 adapter，不能承诺仅画本体即可自动理解任何来源。
+
+Chat 的 intent 模块只处理通用且明确的年份、统计操作、比较与缺失授权；词汇来自当前 release。schema 模块把 canonical JSON Schema 的本地引用展开为模型可理解的嵌套对象，不接受字符串冒充对象，不削弱 Python 校验。集合结果说明由 Python 引擎值生成，pi 原生 afterToolCall 在 answerReady 后结束；其他问答仍走 present_answer。准确性边界及审计证据见 [审计修复](audit-fixes.md)。
+
+## 通用分析实施状态
+
+原候选研究保留在 [通用语义查询建议](semantic-query-design.md)，实际选型和修订以 ADR-0011 为准。物理规划和快照执行位于 adapters/analysis.py，runtime/analysis.py 只做语义准备与能力调度；Chat 只使用 prepare_semantic_query，原 analyze HTTP 只翻译请求。当前同事实表能力与未闭合 Link/窗口目标见 [主责收口](semantic-query-closure.md)。
+
+Chat 的开放式业务目录问答复用 runtime.discovery 的固定版本定义投影，说明文本与引擎事实分型，领域词汇仍由本体拥有；见 [Chat 语义契约](spec/semantic-contract-v0.1.md)。Studio 的 ELK 只拥有视图布局，边界与替换记录见 [ADR-0009](adr/0009-progressive-studio-dependencies.md)。

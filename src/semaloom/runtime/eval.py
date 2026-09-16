@@ -5,13 +5,21 @@ from __future__ import annotations
 import json
 import uuid
 from decimal import Decimal, DivisionByZero, InvalidOperation, Overflow, localcontext
-from typing import Literal
+from typing import Any, Literal, cast
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.diagnostics import Diagnostic
 from semaloom.core.expr import Expr
 from semaloom.core.model import PolicyDef, RuleDef
-from semaloom.core.results import Claim, Observation
+from semaloom.core.results import (
+    Claim,
+    EvidenceEnvelope,
+    MetricSelect,
+    Observation,
+    QueryContext,
+    SourceActivity,
+)
+from semaloom.core.values import Scalar, scalar_value
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
 
@@ -33,6 +41,10 @@ def select_policy(
     period_to: str,
     dimensions: dict[str, str],
 ) -> PolicyDef:
+    try:
+        QueryContext(business_period={"from": period_from, "to": period_to})
+    except ValueError as exc:
+        raise EvaluationError("INVALID_BINDINGS", "invalid business period") from exc
     matches = [
         policy
         for policy in bundle.policies
@@ -60,79 +72,65 @@ def select_policy(
     return covering[0]
 
 
-def evaluate_rule(
-    rule: RuleDef,
-    observations: dict[str, Observation],
-) -> tuple[Claim, tuple[Diagnostic, ...]]:
-    missing_reasons: list[str] = []
-    values: dict[str, Decimal] = {}
+def evaluate_rule_value(
+    rule: RuleDef, observations: dict[str, Observation]
+) -> tuple[Scalar | None, tuple[str, ...], tuple[Diagnostic, ...]]:
+    reasons: list[str] = []
+    values: dict[str, Scalar | None] = {}
     diagnostics: list[Diagnostic] = []
     for spec in rule.inputs:
         obs = observations.get(spec.name)
-        if obs is None or obs.kind == "MISSING":
+        values[spec.name] = None
+        if (
+            obs is None
+            or obs.kind in {"MISSING", "NULL"}
+            or (obs.kind == "PRESENT" and obs.value is None)
+        ):
             if spec.required:
-                missing_reasons.append("MISSING_INPUT")
-            continue
-        if obs.kind == "NULL":
-            missing_reasons.append("NULL_INPUT")
+                reasons.append("NULL_INPUT" if obs and obs.kind == "NULL" else "MISSING_INPUT")
             continue
         if obs.kind in {"UNAVAILABLE", "FORBIDDEN"}:
+            reasons.append("UNAVAILABLE")
             diagnostics.append(
                 Diagnostic(code="PROVIDER_ERROR", path=spec.name, message=obs.reason or obs.kind)
             )
-            missing_reasons.append("UNAVAILABLE")
             continue
-        if obs.value is None:
-            missing_reasons.append("MISSING_INPUT")
-            continue
-        values[spec.name] = _decimal(obs.value)
-    if missing_reasons:
-        truth: Literal["TRUE", "FALSE", "UNKNOWN"] = "UNKNOWN"
-        return (
-            Claim(
-                claim_id=rule.claim or rule.id,
-                evaluation_id=uuid.uuid4().hex,
-                truth=truth,
-                predicate_version=rule.version,
-                reason_codes=tuple(dict.fromkeys(missing_reasons)),
-            ),
-            tuple(diagnostics),
-        )
+        try:
+            values[spec.name] = scalar_value(obs.value or "", obs.value_type or "DECIMAL")
+        except ValueError as exc:
+            diagnostics.append(Diagnostic(code="TYPE_MISMATCH", path=spec.name, message=str(exc)))
+            reasons.append("INVALID_INPUT")
+    if reasons:
+        return None, tuple(dict.fromkeys(reasons)), tuple(diagnostics)
     try:
         result = _eval(rule.expression, values)
+        return result, ("MISSING_INPUT",) if result is None else (), tuple(diagnostics)
     except EvaluationError as exc:
         diagnostics.append(Diagnostic(code=exc.code, path=rule.id, message=exc.message))
-        return (
-            Claim(
-                claim_id=rule.claim or rule.id,
-                evaluation_id=uuid.uuid4().hex,
-                truth="UNKNOWN",
-                predicate_version=rule.version,
-                reason_codes=("RULE_EVALUATION_ERROR",),
-            ),
-            tuple(diagnostics),
-        )
+        return None, ("RULE_EVALUATION_ERROR",), tuple(diagnostics)
+
+
+def evaluate_rule(
+    rule: RuleDef, observations: dict[str, Observation]
+) -> tuple[Claim, tuple[Diagnostic, ...]]:
+    result, reasons, diagnostics = evaluate_rule_value(rule, observations)
+    truth: Literal["TRUE", "FALSE", "UNKNOWN"] = "UNKNOWN"
     if isinstance(result, bool):
         truth = "TRUE" if result else "FALSE"
-        return (
-            Claim(
-                claim_id=rule.claim or rule.id,
-                evaluation_id=uuid.uuid4().hex,
-                truth=truth,
-                predicate_version=rule.version,
+    elif result is not None:
+        reasons = ("NON_BOOLEAN_CLAIM",)
+        diagnostics += (
+            Diagnostic(
+                code="TYPE_MISMATCH", path=rule.id, message="Claim requires a boolean result"
             ),
-            tuple(diagnostics),
         )
-    return (
-        Claim(
-            claim_id=rule.claim or rule.id,
-            evaluation_id=uuid.uuid4().hex,
-            truth="TRUE",
-            predicate_version=rule.version,
-            reason_codes=("NUMERIC_RESULT",),
-        ),
-        tuple(diagnostics),
-    )
+    return Claim(
+        claim_id=rule.claim or rule.id,
+        evaluation_id=uuid.uuid4().hex,
+        truth=truth,
+        predicate_version=rule.version,
+        reason_codes=reasons,
+    ), diagnostics
 
 
 def evaluate_named_claim(
@@ -146,23 +144,88 @@ def evaluate_named_claim(
     period_to: str,
     dimensions: dict[str, str],
 ) -> tuple[Claim, tuple[Observation, ...], tuple[Diagnostic, ...], str]:
-    rule = next(
-        (item for item in bundle.rules if item.claim == claim_id or item.id == claim_id), None
+    claim, observations, diagnostics, digest, _ = evaluate_claim_with_evidence(
+        bundle,
+        query,
+        actor,
+        claim_id=claim_id,
+        bindings=bindings,
+        period_from=period_from,
+        period_to=period_to,
+        dimensions=dimensions,
     )
+    return claim, observations, diagnostics, digest
+
+
+def evaluate_claim_with_evidence(
+    bundle: CompiledBundle,
+    query: QueryService,
+    actor: RequestActor,
+    *,
+    claim_id: str,
+    bindings: dict[str, str | int],
+    period_from: str,
+    period_to: str,
+    dimensions: dict[str, str],
+) -> tuple[Claim, tuple[Observation, ...], tuple[Diagnostic, ...], str, tuple[SourceActivity, ...]]:
+    rule = next((item for item in bundle.rules if item.claim == claim_id), None)
     if rule is None:
         raise EvaluationError("INVALID_REQUEST", f"unknown claim {claim_id}")
     policy = select_policy(
         bundle, rule.id, period_from=period_from, period_to=period_to, dimensions=dimensions
     )
+    normalized, envelope = _rule_inputs(
+        bundle, query, actor, rule, bindings, period_from, period_to
+    )
+    observations = {spec.name: normalized[index] for index, spec in enumerate(rule.inputs)}
+    claim, extra = evaluate_rule(rule, observations)
+    claim = claim.model_copy(
+        update={
+            "context": {
+                "policyId": policy.id,
+                "businessFrom": period_from,
+                "businessTo": period_to,
+            },
+            "evidence_refs": tuple(item.activity_id for item in envelope.source_activities),
+        }
+    )
+    return (
+        claim,
+        normalized,
+        envelope.diagnostics + extra,
+        envelope.release_digest,
+        envelope.source_activities,
+    )
+
+
+def _rule_inputs(
+    bundle: CompiledBundle,
+    query: QueryService,
+    actor: RequestActor,
+    rule: RuleDef,
+    bindings: dict[str, str | int],
+    period_from: str,
+    period_to: str,
+) -> tuple[tuple[Observation, ...], EvidenceEnvelope]:
     from semaloom.core.results import MetricSelect, ObjectSelect, QueryContext, QueryRequest
 
     selects: list[MetricSelect | ObjectSelect] = []
     for spec in rule.inputs:
         if spec.metric is not None:
             metric = next(item for item in bundle.metrics if item.id == spec.metric)
-            metric_bindings = dict(bindings)
+            try:
+                normalized_bindings = query.normalize_bindings(
+                    MetricSelect(metric=spec.metric, bindings=bindings)
+                )
+            except ValueError as exc:
+                raise EvaluationError("INVALID_BINDINGS", "conflicting identity aliases") from exc
+            metric_bindings = {
+                key: value
+                for key, value in normalized_bindings.items()
+                if key in metric.grain or key == "perspective"
+            }
             if metric.perspective:
-                metric_bindings.setdefault("perspective", metric.perspective)
+                metric_bindings["perspective"] = metric.perspective
             selects.append(MetricSelect(metric=spec.metric, bindings=metric_bindings))
             continue
         if spec.property is None or spec.object_type is None:
@@ -193,19 +256,86 @@ def evaluate_named_claim(
         _property_value(spec.property, observation) if spec.property else observation
         for spec, observation in zip(rule.inputs, envelope.observations, strict=True)
     )
-    observations = {spec.name: normalized[index] for index, spec in enumerate(rule.inputs)}
-    claim, extra = evaluate_rule(rule, observations)
-    claim = claim.model_copy(
-        update={
-            "context": {
-                "policyId": policy.id,
-                "businessFrom": period_from,
-                "businessTo": period_to,
-            },
-            "evidence_refs": tuple(item.activity_id for item in envelope.source_activities),
-        }
+    typed_observations = []
+    for spec, observation in zip(rule.inputs, normalized, strict=True):
+        if spec.property and spec.object_type:
+            obj = next(item for item in bundle.object_types if item.id == spec.object_type)
+            prop = next(item for item in obj.properties if item.id == spec.property)
+            observation = observation.model_copy(update={"value_type": prop.value_type})
+        typed_observations.append(observation)
+    normalized = tuple(typed_observations)
+    return normalized, envelope
+
+
+def evaluate_derived_metric(
+    query: QueryService, actor: RequestActor, selection: MetricSelect, context: QueryContext
+) -> tuple[Observation, tuple[SourceActivity, ...], tuple[Diagnostic, ...]]:
+    bundle = query.bundle
+    rules = [rule for rule in bundle.rules if rule.output_metric == selection.metric]
+    metric = next(m for m in bundle.metrics if m.id == selection.metric)
+    if len(rules) != 1:
+        return (
+            Observation(kind="UNAVAILABLE", target=selection.metric, reason="AMBIGUOUS_RULE"),
+            (),
+            (),
+        )
+    rule = rules[0]
+    period_from, period_to = (
+        context.business_period.get("from", ""),
+        context.business_period.get("to", ""),
     )
-    return claim, normalized, envelope.diagnostics + extra, envelope.release_digest
+    try:
+        if any(policy.rule == rule.id for policy in bundle.policies):
+            select_policy(
+                bundle,
+                rule.id,
+                period_from=period_from,
+                period_to=period_to,
+                dimensions=context.scope,
+            )
+        normalized, envelope = _rule_inputs(
+            bundle, query, actor, rule, selection.bindings, period_from, period_to
+        )
+    except EvaluationError as exc:
+        return (
+            Observation(kind="UNAVAILABLE", target=selection.metric, reason=exc.code),
+            (),
+            (Diagnostic(code=exc.code, path=rule.id, message=exc.message),),
+        )
+    value, reasons, diagnostics = evaluate_rule_value(
+        rule, {spec.name: obs for spec, obs in zip(rule.inputs, normalized, strict=True)}
+    )
+    diagnostics = envelope.diagnostics + diagnostics
+    if isinstance(value, Decimal):
+        try:
+            scalar_value(str(value), metric.value_type or "DECIMAL")
+        except ValueError:
+            diagnostics += (
+                Diagnostic(
+                    code="TYPE_MISMATCH",
+                    path=rule.id,
+                    message="derived value does not match the metric type",
+                ),
+            )
+            value = None
+    if value is not None and not isinstance(value, Decimal):
+        diagnostics += (
+            Diagnostic(
+                code="TYPE_MISMATCH", path=rule.id, message="Metric requires a numeric result"
+            ),
+        )
+        value = None
+    observation = Observation(
+        kind="PRESENT" if value is not None else "UNAVAILABLE" if diagnostics else "NULL",
+        target=metric.id,
+        bindings=selection.bindings,
+        value=str(value) if value is not None else None,
+        value_type=metric.value_type,
+        unit=metric.unit,
+        rule_id=rule.id,
+        reason=",".join(reasons) if value is None else None,
+    )
+    return observation, envelope.source_activities, diagnostics
 
 
 def _decimal(value: str) -> Decimal:
@@ -218,10 +348,15 @@ def _decimal(value: str) -> Decimal:
     return parsed
 
 
-def _eval(expr: Expr, values: dict[str, Decimal]) -> Decimal | bool:
+def _eval(expr: Expr, values: dict[str, Scalar | None]) -> Scalar | None:
     op = expr["op"]
     if op == "decimal":
         return _decimal(str(expr["value"]))
+    if op in {"string", "date", "datetime"}:
+        try:
+            return scalar_value(str(expr["value"]), str(op).upper())
+        except ValueError as exc:
+            raise EvaluationError("RULE_EVALUATION_ERROR", str(exc)) from exc
     if op == "bool":
         return bool(expr["value"])
     if op == "ref":
@@ -231,11 +366,15 @@ def _eval(expr: Expr, values: dict[str, Decimal]) -> Decimal | bool:
             raise EvaluationError("RULE_EVALUATION_ERROR", "unknown input reference") from exc
     if op == "not":
         value = _eval(expr["arg"], values)
+        if value is None:
+            return None
         if not isinstance(value, bool):
             raise EvaluationError("RULE_EVALUATION_ERROR", "not requires boolean")
         return not value
     if op == "round":
         value = _eval(expr["value"], values)
+        if value is None:
+            return None
         if not isinstance(value, Decimal):
             raise EvaluationError("RULE_EVALUATION_ERROR", "round requires decimal")
         mode = "ROUND_HALF_UP" if expr.get("mode") == "ROUND_HALF_UP" else "ROUND_HALF_EVEN"
@@ -250,6 +389,8 @@ def _eval(expr: Expr, values: dict[str, Decimal]) -> Decimal | bool:
             except InvalidOperation as exc:
                 raise EvaluationError("RULE_EVALUATION_ERROR", "rounding overflow") from exc
     args = [_eval(item, values) for item in expr["args"]]
+    if op not in {"and", "or"} and any(item is None for item in args):
+        return None
     if op in {"add", "sub", "mul", "div"}:
         numbers = []
         for item in args:
@@ -275,38 +416,33 @@ def _eval(expr: Expr, values: dict[str, Decimal]) -> Decimal | bool:
                 return result
             except (DivisionByZero, Overflow, InvalidOperation) as exc:
                 raise EvaluationError("RULE_EVALUATION_ERROR", str(exc)) from exc
-    bools: list[bool] = []
-    decimals: list[Decimal] = []
-    for item in args:
-        if isinstance(item, bool):
-            bools.append(item)
-        elif isinstance(item, Decimal):
-            decimals.append(item)
-        else:
-            raise EvaluationError("RULE_EVALUATION_ERROR", "unsupported operand")
     if op in {"and", "or"}:
-        if len(bools) != len(args):
+        if not all(isinstance(item, bool) or item is None for item in args):
             raise EvaluationError("RULE_EVALUATION_ERROR", "boolean operation requires booleans")
-        if op == "and":
-            return all(bools)
-        return any(bools)
-    if op in {"eq", "ne"} and len(bools) == 2 and len(args) == 2:
-        return bools[0] == bools[1] if op == "eq" else bools[0] != bools[1]
-    if len(decimals) != 2 or len(args) != 2:
+        if op == "and" and any(item is False for item in args):
+            return False
+        if op == "or" and any(item is True for item in args):
+            return True
+        if any(item is None for item in args):
+            return None
+        return all(args) if op == "and" else any(args)
+    if len(args) != 2 or type(args[0]) is not type(args[1]):
         raise EvaluationError("RULE_EVALUATION_ERROR", "comparison requires matching operands")
-    left, right = decimals[0], decimals[1]
+    if op not in {"eq", "ne"} and isinstance(args[0], bool):
+        raise EvaluationError("RULE_EVALUATION_ERROR", "booleans are not ordered")
+    left, right = cast(Any, args[0]), cast(Any, args[1])
     if op == "eq":
-        return left == right
+        return bool(left == right)
     if op == "ne":
-        return left != right
+        return bool(left != right)
     if op == "lt":
-        return left < right
+        return bool(left < right)
     if op == "le":
-        return left <= right
+        return bool(left <= right)
     if op == "gt":
-        return left > right
+        return bool(left > right)
     if op == "ge":
-        return left >= right
+        return bool(left >= right)
     raise EvaluationError("RULE_EVALUATION_ERROR", f"unknown op {op}")
 
 

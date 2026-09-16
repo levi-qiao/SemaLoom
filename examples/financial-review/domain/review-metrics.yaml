@@ -1,0 +1,77 @@
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.declared_profit
+  objectType: finance.ReviewCase
+  property: declared_profit
+  label: 选定申报利润总额
+  description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
+  perspective: TAX_RETURN
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.audit_profit
+  objectType: finance.ReviewCase
+  property: audit_profit
+  label: 抽取审计利润总额
+  description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
+  perspective: AUDIT_REPORT
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.net_profit
+  objectType: finance.ReviewCase
+  property: net_profit
+  label: 抽取审计净利润
+  description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
+  perspective: AUDIT_REPORT
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.tax_expense
+  objectType: finance.ReviewCase
+  property: tax_expense
+  label: 抽取审计所得税费用
+  description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
+  perspective: AUDIT_REPORT
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.assets
+  objectType: finance.ReviewCase
+  property: assets
+  label: 抽取审计资产总计
+  description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
+  perspective: AUDIT_REPORT
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.liabilities
+  objectType: finance.ReviewCase
+  property: liabilities
+  label: 抽取审计负债合计
+  description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
+  perspective: AUDIT_REPORT
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.equity
+  objectType: finance.ReviewCase
+  property: equity
+  label: 抽取审计所有者权益合计
+  description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
+  perspective: AUDIT_REPORT
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.profitDifference
+  label: 选定样本利润差额
+  description: 申报利润总额减去抽取审计利润总额，人民币元。由确定性规则计算，不代表税务调整金额。
+  objectType: finance.ReviewCase
+  valueType: DECIMAL
+  unit: CNY
+  grain:
+  - caseId
+  derivedFrom:
+  - finance.review.declared_profit
+  - finance.review.audit_profit

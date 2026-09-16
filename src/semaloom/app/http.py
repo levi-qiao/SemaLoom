@@ -2,21 +2,39 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Self, cast
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from semaloom.core.bundle import CompiledBundle
-from semaloom.core.results import MetricSelect, ObjectSelect, QueryContext, QueryRequest
+from semaloom.core.results import (
+    MetricSelect,
+    ObjectSearchRequest,
+    ObjectSelect,
+    PopulationRequest,
+    QueryContext,
+    QueryRequest,
+)
+from semaloom.core.semantic_query import PlanRef, SemanticQuery
+from semaloom.runtime.analysis import AnalysisError, execute, prepare
 from semaloom.runtime.auth import RequestActor, authorize_query
-from semaloom.runtime.eval import EvaluationError, evaluate_named_claim
+from semaloom.runtime.discovery import SemanticDiscovery
+from semaloom.runtime.eval import EvaluationError, evaluate_claim_with_evidence
+from semaloom.runtime.population import analyze_population
+from semaloom.runtime.query import QueryService
 from semaloom.runtime.registry import StaleRevision
+from semaloom.runtime.source_introspection import introspect_source, peek_source_rows
 from semaloom.runtime.source_registry import SourceRevisionConflict
-from semaloom.runtime.source_validation import validate_source, validate_sources
+from semaloom.runtime.source_validation import (
+    resolve_environment_binding,
+    validate_source,
+    validate_sources,
+)
 from semaloom.runtime.studio import (
     studio_graph,
     studio_inspector,
+    studio_mapping_preview,
     studio_mappings,
     studio_sources,
 )
@@ -84,18 +102,24 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class QueryBody(StrictModel):
+class PeriodBody(StrictModel):
+    period_from: str = Field(alias="periodFrom")
+    period_to: str = Field(alias="periodTo")
+
+    @model_validator(mode="after")
+    def valid_period(self) -> Self:
+        QueryContext(business_period={"from": self.period_from, "to": self.period_to})
+        return self
+
+
+class QueryBody(PeriodBody):
     metric: str
     bindings: dict[str, str | int]
-    period_from: str = Field(alias="periodFrom")
-    period_to: str = Field(alias="periodTo")
 
 
-class ClaimBody(StrictModel):
+class ClaimBody(PeriodBody):
     claim_id: str = Field(alias="claimId")
     bindings: dict[str, str | int]
-    period_from: str = Field(alias="periodFrom")
-    period_to: str = Field(alias="periodTo")
     dimensions: dict[str, str] = Field(default_factory=dict)
 
 
@@ -144,6 +168,13 @@ def actor_from_studio_request(request: Request, authorization: str | None) -> Re
     return actor
 
 
+def actor_from_read_request(request: Request, authorization: str | None) -> RequestActor:
+    """Use explicit bearer credentials or the same guarded Studio session."""
+    if authorization is not None:
+        return actor_from_header(authorization)
+    return actor_from_studio_request(request, None)
+
+
 def reject_forbidden(payload: dict[str, Any]) -> None:
     lowered = {str(key).lower() for key in payload}
     if lowered & FORBIDDEN_KEYS:
@@ -157,7 +188,7 @@ def require_role(actor: RequestActor, *roles: str) -> None:
 
 def studio_bundle(request: Request, actor: RequestActor, draft_id: str | None) -> CompiledBundle:
     if draft_id is None:
-        return cast(CompiledBundle, request.app.state.services.bundle)
+        return cast(CompiledBundle, request.app.state.services.query_active(actor.tenant).bundle)
     require_role(actor, "modeler")
     return cast(
         CompiledBundle,
@@ -165,24 +196,118 @@ def studio_bundle(request: Request, actor: RequestActor, draft_id: str | None) -
     )
 
 
+@router.get("/describe")
+def describe_semantic(
+    request: Request,
+    semanticId: str = Query(min_length=1, max_length=200),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    actor = actor_from_read_request(request, authorization)
+    bundle = request.app.state.services.query_active(actor.tenant).bundle
+    try:
+        return SemanticDiscovery(bundle).describe(semanticId, actor)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="FORBIDDEN") from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="NOT_FOUND") from exc
+
+
+@router.get("/search")
+def search_semantics(
+    request: Request,
+    q: str = Query(min_length=1, max_length=200),
+    limit: int = Query(default=20, ge=1, le=50),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    actor = actor_from_read_request(request, authorization)
+    bundle = request.app.state.services.query_active(actor.tenant).bundle
+    try:
+        return SemanticDiscovery(bundle).search(q, actor, limit=limit)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="FORBIDDEN") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="INVALID_SEARCH") from exc
+
+
+@router.post("/semantic/prepare")
+def semantic_prepare(
+    body: SemanticQuery, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    actor = actor_from_read_request(request, authorization)
+    try:
+        result = prepare(request.app.state.services.query_active(actor.tenant), body, actor)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="FORBIDDEN") from exc
+    except AnalysisError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return result.model_dump(mode="json", by_alias=True)
+
+
+@router.post("/semantic/execute")
+def semantic_execute(
+    body: PlanRef, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    actor = actor_from_read_request(request, authorization)
+    try:
+        result = execute(request.app.state.services.query_active(actor.tenant), body, actor)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="FORBIDDEN") from exc
+    except AnalysisError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return result.model_dump(mode="json", by_alias=True)
+
+
+@router.post("/analyze")
+def population_analysis(
+    body: PopulationRequest, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    actor = actor_from_read_request(request, authorization)
+    try:
+        return analyze_population(
+            request.app.state.services.query_active(actor.tenant), body, actor
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, "FORBIDDEN") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/objects/search")
+def find_business_objects(
+    body: ObjectSearchRequest, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    actor = actor_from_read_request(request, authorization)
+    try:
+        return cast(
+            dict[str, Any],
+            request.app.state.services.query_active(actor.tenant).find_objects(body, actor),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="FORBIDDEN") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/query")
 def query_metric(
-    body: QueryBody,
+    body: QueryBody | QueryRequest,
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     reject_forbidden(body.model_dump())
-    reject_forbidden(body.bindings)
-    actor = actor_from_header(authorization)
+    actor = actor_from_read_request(request, authorization)
     services = request.app.state.services
-    envelope = services.query.execute(
-        QueryRequest(
+    if isinstance(body, QueryBody):
+        reject_forbidden(body.bindings)
+        semantic_request = QueryRequest(
             api_version="semaloom/v0.1",
             select=(MetricSelect(metric=body.metric, bindings=body.bindings),),
             context=QueryContext(business_period={"from": body.period_from, "to": body.period_to}),
-        ),
-        actor,
-    )
+        )
+    else:
+        semantic_request = body
+    query = services.query_active(actor.tenant)
+    envelope = query.execute(semantic_request, actor)
     dumped = envelope.model_dump(mode="json", by_alias=True)
     return dict(dumped)
 
@@ -193,12 +318,14 @@ def evaluate_claim(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    actor = actor_from_header(authorization)
+    reject_forbidden(body.bindings)
+    actor = actor_from_read_request(request, authorization)
     services = request.app.state.services
+    query = services.query_active(actor.tenant)
     try:
-        claim, observations, diagnostics, digest = evaluate_named_claim(
-            services.bundle,
-            services.query,
+        claim, observations, diagnostics, digest, activities = evaluate_claim_with_evidence(
+            query.bundle,
+            query,
             actor,
             claim_id=body.claim_id,
             bindings=body.bindings,
@@ -213,6 +340,7 @@ def evaluate_claim(
         "observations": [item.model_dump(mode="json", by_alias=True) for item in observations],
         "diagnostics": [item.model_dump() for item in diagnostics],
         "releaseDigest": digest,
+        "sourceActivities": [item.model_dump(mode="json", by_alias=True) for item in activities],
     }
 
 
@@ -313,10 +441,20 @@ class DemoSessionBody(StrictModel):
     persona: str = "studio-admin"
 
 
+class SourceRowsBody(StrictModel):
+    table: str = Field(min_length=1, max_length=64)
+    schema_name: str | None = Field(default=None, alias="schema", max_length=64)
+    limit: int = Field(default=20, ge=1, le=50)
+
+
 class SampleBody(StrictModel):
-    object_id: str = Field(alias="objectId")
+    object_id: str | None = Field(default=None, alias="objectId")
+    mapping_id: str | None = Field(default=None, alias="mappingId")
+    metric_id: str | None = Field(default=None, alias="metricId")
     identity: str
     properties: list[str] = Field(default_factory=list)
+    bindings: dict[str, str] = Field(default_factory=dict)
+    draft_id: str | None = Field(default=None, alias="draftId")
 
 
 @router.post("/studio/session/demo")
@@ -412,15 +550,32 @@ def studio_sample(
 ) -> dict[str, Any]:
     actor = actor_from_studio_request(request, authorization)
     require_role(actor, "sample-viewer")
-    services = request.app.state.services
-    active_digest = services.registry.current(services.environment)
-    if active_digest is None:
-        raise HTTPException(status_code=409, detail="NO_ACTIVE_RELEASE")
-    bundle = services.registry.load(active_digest)
+    reject_forbidden(body.bindings)
+    if not body.mapping_id and not body.object_id and not body.metric_id:
+        raise HTTPException(status_code=422, detail="MAPPING_OR_OBJECT_REQUIRED")
+    bundle = studio_bundle(request, actor, body.draft_id)
+    mapping_id = body.mapping_id
+    if mapping_id is None and body.metric_id:
+        match = next((item for item in bundle.mappings if item.target == body.metric_id), None)
+        mapping_id = match.id if match is not None else None
+        if mapping_id is None:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+    if mapping_id:
+        payload = studio_mapping_preview(
+            bundle,
+            request.app.state.services.provider,
+            mapping_id=mapping_id,
+            tenant=actor.tenant,
+            identity=body.identity,
+            bindings=body.bindings,
+        )
+        if payload is None:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        return payload
     object_type = next((item for item in bundle.object_types if item.id == body.object_id), None)
     if object_type is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
-    envelope = services.query_active(actor.tenant).execute(
+    envelope = QueryService(bundle, request.app.state.services.provider).execute(
         QueryRequest(
             api_version="semaloom/v0.1",
             select=(
@@ -511,6 +666,55 @@ def studio_save_source_profile(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return cast(dict[str, Any], profile.to_dict())
+
+
+@router.get("/studio/source-profiles/{source_id}/schema")
+def studio_source_schema(
+    source_id: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    actor = actor_from_studio_request(request, authorization)
+    require_role(actor, "source-admin", "modeler")
+    services = request.app.state.services
+    try:
+        profile = services.source_profiles.get(actor.tenant, source_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="NOT_FOUND") from exc
+    url = resolve_environment_binding(profile.binding_ref, services.environment_bindings)
+    if url is None:
+        return {"provider": profile.provider, "resources": [], "reason": "BINDING_NOT_RESOLVED"}
+    return introspect_source(profile.provider, url)
+
+
+@router.post("/studio/source-profiles/{source_id}/rows")
+def studio_source_rows(
+    source_id: str,
+    body: SourceRowsBody,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    actor = actor_from_studio_request(request, authorization)
+    require_role(actor, "sample-viewer", "modeler")
+    services = request.app.state.services
+    try:
+        profile = services.source_profiles.get(actor.tenant, source_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="NOT_FOUND") from exc
+    url = resolve_environment_binding(profile.binding_ref, services.environment_bindings)
+    if url is None:
+        return {"columns": [], "rows": [], "reason": "BINDING_NOT_RESOLVED"}
+    try:
+        return peek_source_rows(
+            profile.provider,
+            url,
+            body.table,
+            body.schema_name,
+            actor.tenant,
+            body.limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/studio/source-profiles/{source_id}/validate")
@@ -726,6 +930,26 @@ def studio_release_history(
         "activeDigest": digest,
         "environmentRevision": revision,
         "releases": services.studio_releases.history(actor.tenant),
+    }
+
+
+@router.get("/agent/tools")
+def agent_tools(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    from semaloom.app.agent_tools import read_tools
+
+    actor = actor_from_read_request(request, authorization)
+    if not authorize_query(actor, "discover").allowed:
+        raise HTTPException(status_code=403, detail="FORBIDDEN")
+    return {
+        "tools": read_tools(ClaimBody.model_json_schema(by_alias=True)),
+        "instructions": (
+            "Use semantic definitions and exact business identities. Select among ambiguous "
+            "candidates. Quote units, periods, source status and evidence. Never equate "
+            "missing with zero, UNKNOWN with FALSE, or a numeric check with compliance. "
+            "These are HTTP tools, not MCP transport. "
+        ),
     }
 
 

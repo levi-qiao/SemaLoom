@@ -1,5 +1,15 @@
 # Third-party notices
 
+The complete license texts for packages included in the current Studio bundle,
+including react-markdown and its dependencies, are generated during the frontend
+build in `src/semaloom/app/static/third-party-licenses.txt` and served at
+`/studio/third-party-licenses.txt`.
+
+The optional Chat worker uses the MIT-licensed official
+[@earendil-works/pi-agent-core and pi-ai](https://github.com/earendil-works/pi).
+Their pinned npm distributions retain their own license files; the Python wheel
+ships only SemaLoom's worker and dependency manifest, not installed npm packages.
+
 SemaLoom Studio's compiled browser assets include the following packages:
 
 - React 19.3.0
@@ -30,3 +40,9 @@ These packages are distributed under the MIT License:
 
 The source and license information for these packages is available from the
 [React repository](https://github.com/facebook/react).
+
+Studio's optional, lazily loaded graph layout includes `elkjs 0.12.0`, used
+under the Eclipse Public License 2.0. The unmodified source is available from
+the [ELK.js project](https://github.com/kieler/elkjs) and the versioned
+[elkjs npm distribution](https://www.npmjs.com/package/elkjs/v/0.12.0).
+Its complete license is included in `/studio/third-party-licenses.txt`.

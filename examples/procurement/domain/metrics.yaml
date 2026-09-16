@@ -3,27 +3,21 @@
   id: procurement.orderAmount
   version: "1.0.0"
   objectType: procurement.Order
-  valueType: DECIMAL
-  unit: CNY
-  grain: [orderId]
-  aggregation: NONE
+  property: amount
+  label: 订单金额
 
 - apiVersion: semaloom/v0.1
   kind: Metric
   id: procurement.orderQuantity
   version: "1.0.0"
   objectType: procurement.Order
-  valueType: DECIMAL
-  unit: EA
-  grain: [orderId]
-  aggregation: NONE
+  property: quantity
+  label: 订单数量
 
 - apiVersion: semaloom/v0.1
   kind: Metric
   id: procurement.approvalLimit
   version: "1.0.0"
   objectType: procurement.Organization
-  valueType: DECIMAL
-  unit: CNY
-  grain: [organizationId]
-  aggregation: NONE
+  property: approvalLimit
+  label: 审批额度

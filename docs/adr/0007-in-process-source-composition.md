@@ -21,3 +21,7 @@ Compiler、Runtime、接入 adapter、REST/MCP 及 Action 恢复任务在同一�
 T01 定义跨来源 Link 的类型与引用；T02 使用两个真实 PostgreSQL database、不同连接串和只读角色完成关联查询、失败注入及预算检查；T03 验证组合结果进入 Rule；T07 回归。A61 验证上述行为，A62 分阶段验证单应用装配，由 T06 闭合包含 REST/MCP 的统一启动方式。
 
 这是对首版能力范围的扩展，不引入通用关系代数优化器。初版不增加无限多对多展开、跨库事务或大表内存扫描。超过已验证预算明确拒绝。现阶段只有文档基线，没有已发布代码或数据需要迁移。
+
+## 修订（2026-09-14）
+
+同源 PostgreSQL 的组合分析计划由 [ADR-0011](0011-semantic-query-planner.md) 增补：一份 `SemanticQuery` 契约、SQLAlchemy 参数化下推、SQLGlot allowlist。跨来源组合、单应用进程、不接收调用方 SQL 的约束不变。Wren 已实测且不作为发行规划器。

@@ -1,0 +1,13 @@
+{
+  "name": "semaloom-pi-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {"node": ">=22.19.0"},
+  "scripts": {"test": "node --test test/*.test.mjs"},
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1"
+  }
+}

@@ -26,6 +26,7 @@ dependencies = [
     "pydantic>=2.10",
     "pyyaml>=6.0",
     "sqlalchemy>=2.0",
+    "sqlglot>=30.18.0",
     "uvicorn[standard]>=0.32",
 ]
 
@@ -70,7 +71,14 @@ include = [
     "/THIRD_PARTY_NOTICES.md",
     "/compose.yaml",
     "/ops",
+    "/harness",
     "/pyproject.toml",
+]
+exclude = [
+    "/.agents",
+    "/docs/local-business-samples.md",
+    "/ops/data",
+    "/harness/node_modules",
 ]
 
 [tool.ruff]
@@ -80,6 +88,10 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/semaloom/runtime/analysis.py" = ["E501", "RUF001"]
+"tests/test_chat_choices.py" = ["RUF001"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -100,3 +112,10 @@ pythonpath = ["src"]
 
 [tool.uv]
 default-groups = ["dev"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"harness/worker.mjs" = "semaloom/app/chat/harness/worker.mjs"
+"harness/semantic-plugin.mjs" = "semaloom/app/chat/harness/semantic-plugin.mjs"
+"harness/provider.mjs" = "semaloom/app/chat/harness/provider.mjs"
+"harness/package.json" = "semaloom/app/chat/harness/package.json"
+"harness/pnpm-lock.yaml" = "semaloom/app/chat/harness/pnpm-lock.yaml"

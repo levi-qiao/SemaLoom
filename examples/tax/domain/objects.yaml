@@ -2,34 +2,47 @@
   kind: ObjectType
   id: tax.Taxpayer
   version: "1.0.0"
-  label: Taxpayer
+  label: 纳税人
+  description: 税务域中的纳税主体。金额在申报事实表中，按年度、口径和科目读取，不在本体穷举。
   identityKeys: [taxpayerId]
   properties:
     - id: taxpayerId
+      label: 纳税人编号
       valueType: STRING
       required: true
     - id: name
+      label: 名称
       valueType: STRING
     - id: jurisdiction
+      label: 管辖地
       valueType: STRING
       required: true
+    - id: amount
+      label: 金额
+      valueType: DECIMAL
+      unit: CNY
 
 - apiVersion: semaloom/v0.1
   kind: ObjectType
   id: tax.Filing
   version: "1.0.0"
-  label: Tax filing
+  label: 纳税申报
+  description: 某纳税人在某一年度、某一口径下的申报记录。
   identityKeys: [filingId]
   properties:
     - id: filingId
+      label: 申报编号
       valueType: STRING
       required: true
     - id: taxpayerId
+      label: 纳税人编号
       valueType: STRING
       required: true
     - id: taxYear
+      label: 税款所属期
       valueType: INTEGER
       required: true
     - id: perspective
+      label: 口径
       valueType: STRING
       required: true

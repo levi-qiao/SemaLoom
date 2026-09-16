@@ -3,53 +3,54 @@
   id: tax.operatingRevenue
   version: "1.0.0"
   objectType: tax.Taxpayer
-  valueType: DECIMAL
-  unit: CNY
-  grain: [taxpayerId, taxYear, perspective]
-  aggregation: NONE
-  label: Operating revenue (demo)
+  property: amount
+  select:
+    measureCode: operatingRevenue
+  label: 营业收入（演示）
+  description: 区分申报与审计口径的营业收入；查询必须明确 perspective，不能自动选取口径。
 
 - apiVersion: semaloom/v0.1
   kind: Metric
   id: tax.otherRevenue
+  label: 其他收入（演示）
   version: "1.0.0"
   objectType: tax.Taxpayer
-  valueType: DECIMAL
-  unit: CNY
-  grain: [taxpayerId, taxYear, perspective]
-  aggregation: NONE
+  property: amount
+  select:
+    measureCode: otherRevenue
+  perspective: TAX_RETURN
 
 - apiVersion: semaloom/v0.1
   kind: Metric
   id: tax.reportedIncome
+  label: 申报收入（演示）
   version: "1.0.0"
   objectType: tax.Taxpayer
-  valueType: DECIMAL
-  unit: CNY
-  grain: [taxpayerId, taxYear]
+  property: amount
+  select:
+    measureCode: reportedIncome
   perspective: TAX_RETURN
-  aggregation: NONE
 
 - apiVersion: semaloom/v0.1
   kind: Metric
   id: tax.auditIncome
+  label: 审计收入（演示）
   version: "1.0.0"
   objectType: tax.Taxpayer
-  valueType: DECIMAL
-  unit: CNY
-  grain: [taxpayerId, taxYear]
+  property: amount
+  select:
+    measureCode: auditIncome
   perspective: AUDIT_REPORT
-  aggregation: NONE
 
 - apiVersion: semaloom/v0.1
   kind: Metric
   id: tax.vatPayable
   version: "1.0.0"
   objectType: tax.Taxpayer
-  valueType: DECIMAL
-  unit: CNY
-  grain: [taxpayerId, taxYear, perspective]
-  aggregation: NONE
+  property: amount
+  select:
+    measureCode: vatPayable
+  perspective: TAX_RETURN
 
 - apiVersion: semaloom/v0.1
   kind: Metric

@@ -1,266 +1,335 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { apiHeaders, checkedJson, ensureSession } from "./api";
-import { DraftEditor, type DraftDocument } from "./DraftEditor";
-import { ReleasePanel } from "./ReleasePanel";
-import { SourceManager } from "./SourceManager";
+import {
+  ApiError,
+  DEMO_PERSONAS,
+  apiHeaders,
+  checkedJson,
+  ensureSession,
+  errorDetail,
+  hasRole,
+  personaFromSubject,
+  switchDemoPersona,
+  type StudioSession,
+} from "./api";
+import { ChatPage } from "./ChatPage";
+import { EntityPage } from "./EntityPage";
+import { GraphCanvas } from "./GraphCanvas";
+import { draftSaveLabel, gateErrorMessage } from "./labels";
+import { ReleasePage } from "./ReleasePage";
+import { SourcePage } from "./SourcePage";
+import { StudioDialog } from "./StudioDialog";
+import type { DraftDocument, Edge, GraphMeta, Mapping, Node, Source, View } from "./types";
 
-type Counts = { objects: number; links: number; mappings: number; sources: number; rules: number };
-type GraphMeta = {
-  releaseDigest: string;
-  onlineValidation: string;
-  packs: { id: string; label: string; version: string }[];
-  counts: Counts;
-};
-type Node = {
-  id: string;
-  label: string;
-  namespace: string;
-  properties: string[];
-  metricCount: number;
-  ruleCount: number;
-  mappingCount: number;
-  sourceCount: number;
-};
-type Edge = {
-  id: string;
-  label: string;
-  source: string;
-  target: string;
-  cardinality: string;
-  sourceKey: string;
-  targetKey: string;
-};
-type Mapping = {
-  id: string;
-  label: string;
-  target: string;
-  objectType: string;
-  sourceId: string;
-  provider: string;
-  resource: string;
-  fieldCount: number;
-  fields: { semanticField: string; physicalField: string; role: string }[];
-  completeness: string;
-  expectedCardinality: string;
-  perspective: string | null;
-};
-type Source = {
-  id: string;
-  label: string;
-  sourceId: string;
-  provider: string;
-  mappingCount: number;
-  actionCount: number;
-  targets: string[];
-  namespaces: string[];
-  status: string;
-};
-type Inspector = {
-  id: string;
-  label: string;
-  version: string;
-  namespace: string;
-  identityKeys: string[];
-  properties: { id: string; label?: string; valueType: string; required: boolean }[];
-  metrics: { id: string; label: string; valueType: string; unit: string; perspective: string | null }[];
-  mappings: Mapping[];
-  rules: { id: string; label: string; claim: string | null }[];
-  relations: {
-    id: string;
-    label: string;
-    direction: string;
-    target: string;
-    targetLabel: string;
-    cardinality: string;
-  }[];
-};
-type View = "graph" | "list" | "draft" | "mappings" | "sources" | "release";
-type Position = { x: number; y: number };
-type GraphArea = { namespace: string; y: number; height: number };
-
-const MAX_GRAPH_NODES = 60;
+type DialogState =
+  | { mode: "entity"; id: string }
+  | { mode: "link"; id: string }
+  | { mode: "create" }
+  | null;
 
 const viewNames: Record<View, { title: string; description: string }> = {
-  graph: { title: "实体关系", description: "从业务实体出发，检查关系、规则与来源覆盖。" },
-  list: { title: "实体目录", description: "按稳定语义标识浏览当前发布中的全部实体。" },
-  draft: { title: "模型草稿", description: "编辑业务定义并通过同一 Compiler 校验后保存。" },
-  mappings: { title: "来源映射", description: "追踪业务定义与数据库表、API 操作之间的绑定。" },
-  sources: { title: "数据源", description: "查看独立接入层中的来源、协议和影响范围。" },
-  release: { title: "校验与发布", description: "依次校验、批准并激活精确的候选版本。" },
+  chat: { title: "业务问答", description: "用业务语言提问，查看规则结果与来源依据。" },
+  graph: { title: "图谱", description: "看关系和试读映射。点实体做主要维护，细节到「实体」菜单。" },
+  objects: { title: "实体", description: "维护业务对象、属性和来源字段对应。金额是带单位的属性；问答里再选合计或平均。" },
+  sources: { title: "数据源", description: "点卡片配置连接，表结构自动读取。" },
+  release: { title: "变更与发布", description: "区分草稿保存与版本生效：校验候选、独立审核并激活当前环境。" },
 };
 
-function viewFromUrl(): View | null {
-  const value = new URLSearchParams(window.location.search).get("view");
-  return value && value in viewNames ? (value as View) : null;
+function readLocation(): { view: View; entity: string | null } {
+  const params = new URLSearchParams(window.location.search);
+  const value = params.get("view");
+  const view: View = value === "chat" || value === "sources" || value === "objects" || value === "release" ? value : "graph";
+  return { view, entity: params.get("entity") };
+}
+
+function writeLocation(view: View, entity: string | null, history: "push" | "replace") {
+  const params = new URLSearchParams();
+  params.set("view", view);
+  if (entity) params.set("entity", entity);
+  const url = `${window.location.pathname}?${params.toString()}`;
+  if (`${window.location.pathname}${window.location.search}` === url) return;
+  if (history === "push") window.history.pushState({ view, entity }, "", url);
+  else window.history.replaceState({ view, entity }, "", url);
 }
 
 export default function App() {
-  const [hasExplicitView] = useState(() => viewFromUrl() !== null);
-  const [initialEntity] = useState(() => new URLSearchParams(window.location.search).get("entity"));
-  const [view, setView] = useState<View>(() => viewFromUrl() ?? "graph");
+  const initial = useMemo(() => readLocation(), []);
+  const [view, setView] = useState<View>(initial.view);
   const [meta, setMeta] = useState<GraphMeta | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [selected, setSelected] = useState<string | null>(
-    () => initialEntity,
+  const [selected, setSelected] = useState<string | null>(initial.entity);
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<DialogState>(
+    initial.entity ? { mode: "entity", id: initial.entity } : null,
   );
-  const [inspector, setInspector] = useState<Inspector | null>(null);
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
-  const [search, setSearch] = useState("");
   const [documents, setDocuments] = useState<DraftDocument[]>([]);
+  const [savedDocuments, setSavedDocuments] = useState<DraftDocument[]>([]);
   const [revision, setRevision] = useState(0);
-  const [status, setStatus] = useState("正在同步草稿");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("正在载入");
+  const [error, setError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [sourceDirty, setSourceDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [sourceId, setSourceId] = useState<string | null>(null);
+  const [namespaceFilter, setNamespaceFilter] = useState("");
+  const [relationFilter, setRelationFilter] = useState("");
+  const [session, setSession] = useState<StudioSession | null>(null);
+  const [candidateDigest, setCandidateDigest] = useState<string | null>(null);
+  const [activeDigest, setActiveDigest] = useState<string | null>(null);
+  const [sourceGeneration, setSourceGeneration] = useState(0);
+  const editGen = useRef(0);
+  const viewRef = useRef(view);
+  const canModel = hasRole(session, "modeler");
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+
+  function selectEntity(id: string, history: "push" | "replace" = "push") {
+    setSelected(id);
+    setSelectedEdge(null);
+    setDialog({ mode: "entity", id });
+    writeLocation(viewRef.current, id, history);
+  }
+
+  function selectView(next: View) {
+    setSearch("");
+    setView(next);
+    if (next === "graph" && selected) setDialog({ mode: "entity", id: selected });
+    writeLocation(next, selected, "push");
+  }
+
+  async function loadInitialState(force = false) {
+    if ((dirty || sourceDirty) && !force) {
+      setError("有未保存修改，重新载入会丢弃它们。请先保存，或选择放弃本地修改并载入。");
+      return;
+    }
+    try {
+      const nextSession = await ensureSession();
+      setSession(nextSession);
+      const modeler = hasRole(nextSession, "modeler");
+      const reviewer = hasRole(nextSession, "modeler", "reviewer", "publisher");
+      const draftQuery = modeler ? "?draftId=default" : "";
+      const [graph, mappingPayload, sourcePayload, draft, releases] = await Promise.all([
+        fetch(`/v0.1/studio/graph${draftQuery}`).then(checkedJson),
+        fetch(`/v0.1/studio/mappings${draftQuery}`).then(checkedJson),
+        fetch(`/v0.1/studio/sources${draftQuery}`).then(checkedJson),
+        modeler
+          ? fetch("/v0.1/studio/drafts/default").then(checkedJson)
+          : reviewer
+            ? fetch("/v0.1/studio/drafts/default/review").then(checkedJson)
+            : Promise.resolve(null),
+        fetch("/v0.1/studio/releases").then(checkedJson).catch(() => null),
+      ]);
+      const nextDocuments = (draft?.documents ?? []) as DraftDocument[];
+      const urlEntity = readLocation().entity;
+      const nextSelected = selected && (graph.nodes.some((item: Node) => item.id === selected) || nextDocuments.some((item) => item.id === selected))
+        ? selected
+        : urlEntity && (graph.nodes.some((item: Node) => item.id === urlEntity) || nextDocuments.some((item) => item.id === urlEntity))
+          ? urlEntity
+          : graph.nodes[0]?.id ?? null;
+      setMeta(graph.meta);
+      setNodes(graph.nodes);
+      setEdges(graph.edges);
+      setMappings(mappingPayload.mappings ?? []);
+      setSources(sourcePayload.sources ?? []);
+      setDocuments(nextDocuments);
+      setSavedDocuments(nextDocuments);
+      setRevision(draft?.revision ?? 0);
+      setCandidateDigest(draft?.candidateDigest ?? null);
+      setActiveDigest(releases?.activeDigest ?? null);
+      setSelected(nextSelected);
+      setDialog((current) => {
+        if (current?.mode === "link") return current;
+        if (current?.mode === "entity" && current.id === nextSelected) return current;
+        return nextSelected ? { mode: "entity", id: nextSelected } : current;
+      });
+      setSourceId((current) => current ?? sourcePayload.sources?.[0]?.sourceId ?? null);
+      setDirty(false);
+      setConflict(false);
+      setStatus(force ? "已重新载入" : "已同步");
+      setError(null);
+      writeLocation(viewRef.current, nextSelected, "replace");
+    } catch (cause) {
+      setError(gateErrorMessage(errorDetail(cause), cause instanceof ApiError ? cause.status : undefined));
+    }
+  }
 
   useEffect(() => {
     void loadInitialState();
   }, []);
 
   useEffect(() => {
-    if (!selected) return;
-    fetch(`/v0.1/studio/inspector?draftId=default&objectId=${encodeURIComponent(selected)}`)
-      .then(checkedJson)
-      .then(setInspector)
-      .catch((cause: Error) => setError(cause.message));
-  }, [selected]);
+    function onPop() {
+      const location = readLocation();
+      setView(location.view);
+      setSearch("");
+      if (location.entity) {
+        setSelected(location.entity);
+        setSelectedEdge(null);
+        setDialog({ mode: "entity", id: location.entity });
+      }
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   useEffect(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("view", view);
-    if (selected) url.searchParams.set("entity", selected);
-    else url.searchParams.delete("entity");
-    window.history.replaceState(null, "", url);
-  }, [view, selected]);
-
-  async function loadInitialState(preferSaved = false) {
-    try {
-      setError(null);
-      await ensureSession();
-      const [graphPayload, mappingPayload, sourcePayload, draftPayload] = await Promise.all([
-        fetch("/v0.1/studio/graph?draftId=default").then(checkedJson),
-        fetch("/v0.1/studio/mappings?draftId=default").then(checkedJson),
-        fetch("/v0.1/studio/sources?draftId=default").then(checkedJson),
-        fetch("/v0.1/studio/drafts/default").then(checkedJson),
-      ]);
-      setMeta(graphPayload.meta);
-      setNodes(graphPayload.nodes);
-      setEdges(graphPayload.edges);
-      setMappings(mappingPayload.mappings ?? []);
-      setSources(sourcePayload.sources ?? []);
-      setRevision(draftPayload.revision);
-      setDocuments(draftPayload.documents ?? []);
-      setDirty(false);
-      setConflict(false);
-      const candidate = initialEntity;
-      const selectedId = graphPayload.nodes.some((node: Node) => node.id === candidate)
-        ? candidate
-        : graphPayload.nodes[0]?.id;
-      setSelected(selectedId ?? null);
-      if (preferSaved || !hasExplicitView) setView(viewFromUrl() ?? "graph");
-      setSearch("");
-      setStatus(draftPayload.exists ? `草稿已同步 · r${draftPayload.revision}` : "基于当前发布");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "UNKNOWN_ERROR");
-      setStatus("同步失败");
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (!dirty && !sourceDirty) return;
+      event.preventDefault();
+      event.returnValue = "";
     }
-  }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty, sourceDirty]);
 
-  async function saveDraft() {
+  async function save(expectedRevision = revision) {
+    const gen = editGen.current;
+    const toSave = documents;
     setSaving(true);
-    setStatus("正在保存");
     setError(null);
     try {
-      const response = await fetch("/v0.1/studio/drafts/default", {
+      const payload = await fetch("/v0.1/studio/drafts/default", {
         method: "PUT",
         headers: apiHeaders(),
-        body: JSON.stringify({
-          expectedRevision: revision,
-          documents,
-        }),
-      });
-      if (response.status === 409) {
-        setConflict(true);
-        setStatus("工作区有新版本");
-        return;
-      }
-      const payload = await checkedJson(response);
+        body: JSON.stringify({ expectedRevision, documents: toSave }),
+      }).then(checkedJson);
       setRevision(payload.revision);
-      setDocuments(payload.documents);
-      setDirty(false);
-      setConflict(false);
-      setStatus(`已保存 · r${payload.revision}`);
-      try {
-        await refreshProjection();
-      } catch (cause) {
-        setError(
-          `草稿已保存，但预览刷新失败：${cause instanceof Error ? cause.message : "UNKNOWN_ERROR"}`,
-        );
+      setCandidateDigest(payload.candidateDigest ?? candidateDigest);
+      setSavedDocuments(payload.documents ?? toSave);
+      if (editGen.current !== gen) {
+        setConflict(false);
+        setStatus("较早草稿已保存，当前修改仍未保存");
+      } else {
+        setDocuments(payload.documents ?? toSave);
+        setDirty(false);
+        setConflict(false);
+        setStatus("草稿已保存");
       }
+      const graph = await fetch("/v0.1/studio/graph?draftId=default").then(checkedJson);
+      setMeta(graph.meta);
+      setNodes(graph.nodes);
+      setEdges(graph.edges);
+      const mappingPayload = await fetch("/v0.1/studio/mappings?draftId=default").then(checkedJson);
+      setMappings(mappingPayload.mappings ?? []);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "UNKNOWN_ERROR");
-      setStatus("保存失败");
+      const message = errorDetail(cause);
+      const statusCode = cause instanceof ApiError ? cause.status : undefined;
+      if (message.includes("409") || message.includes("REVISION_CONFLICT") || statusCode === 409) {
+        setConflict(true);
+        setStatus("保存冲突");
+        setError(gateErrorMessage("REVISION_CONFLICT", 409));
+      } else {
+        setError(gateErrorMessage(message, statusCode));
+      }
     } finally {
       setSaving(false);
     }
   }
 
-  async function refreshProjection() {
-    const [graphPayload, mappingPayload, sourcePayload] = await Promise.all([
-      fetch("/v0.1/studio/graph?draftId=default").then(checkedJson),
-      fetch("/v0.1/studio/mappings?draftId=default").then(checkedJson),
-      fetch("/v0.1/studio/sources?draftId=default").then(checkedJson),
-    ]);
-    setMeta(graphPayload.meta);
-    setNodes(graphPayload.nodes);
-    setEdges(graphPayload.edges);
-    setMappings(mappingPayload.mappings ?? []);
-    setSources(sourcePayload.sources ?? []);
+  async function retrySave() {
+    try {
+      const draft = await fetch("/v0.1/studio/drafts/default").then(checkedJson);
+      await save(draft.revision ?? revision);
+    } catch (cause) {
+      setError(gateErrorMessage(errorDetail(cause), cause instanceof ApiError ? cause.status : undefined));
+    }
   }
 
   function changeDocuments(next: DraftDocument[]) {
+    if (!canModel) return;
+    editGen.current += 1;
     setDocuments(next);
     setDirty(true);
-    setStatus("有未保存修改");
+    setStatus("有未保存的草稿修改");
   }
 
-  async function checkDelete(semanticId: string) {
-    const payload = await fetch(
-      `/v0.1/studio/drafts/default/impacts/${encodeURIComponent(semanticId)}`,
-      {},
-    ).then(checkedJson);
-    return payload.impacts as { id: string; kind: string }[];
+  async function changePersona(persona: string) {
+    if (dirty || sourceDirty) {
+      setError("有未保存修改，切换身份会丢弃它们。请先保存。");
+      return;
+    }
+    try {
+      await switchDemoPersona(persona);
+      await loadInitialState(true);
+      setStatus(`已切换为 ${persona}`);
+    } catch (cause) {
+      setError(gateErrorMessage(errorDetail(cause), cause instanceof ApiError ? cause.status : undefined));
+    }
   }
 
-  function showMappings(filter: string) {
-    setSearch(filter);
-    setView("mappings");
+  async function logout() {
+    try {
+      await fetch("/v0.1/studio/session", { method: "DELETE", headers: apiHeaders() }).then(checkedJson);
+      setSession((current) => (current ? { ...current, authenticated: false } : current));
+      setStatus("已退出会话");
+      setError(null);
+    } catch (cause) {
+      setSession((current) => (current ? { ...current, authenticated: false } : current));
+      setStatus("已退出会话");
+      setError(gateErrorMessage(errorDetail(cause), cause instanceof ApiError ? cause.status : undefined));
+    }
   }
 
-  function navigate(nextView: View) {
-    setSearch("");
-    setView(nextView);
-  }
-
-  const activeTitle = viewNames[view];
-  const normalizedSearch = search.trim().toLowerCase();
-  const filteredNodes = nodes.filter((node) =>
-    `${node.label} ${node.id} ${node.namespace}`.toLowerCase().includes(normalizedSearch),
+  const query = search.trim().toLowerCase();
+  const liveNodes = useMemo(() => {
+    const mapped = nodes.map((node) => {
+      const doc = documents.find((item) => item.id === node.id && item.kind === "ObjectType");
+      return doc?.label ? { ...node, label: String(doc.label) } : node;
+    });
+    const extras = documents
+      .filter((item) => item.kind === "ObjectType" && !nodes.some((node) => node.id === item.id))
+      .map((item) => ({
+        id: item.id,
+        label: String(item.label || item.id),
+        namespace: item.id.split(".")[0] ?? "",
+        properties: [] as string[],
+        metricCount: 0,
+        ruleCount: 0,
+        actionCount: 0,
+        mappingCount: 0,
+        sourceCount: 0,
+      }));
+    return [...mapped, ...extras];
+  }, [nodes, documents]);
+  const liveEdges = useMemo(
+    () =>
+      documents
+        .filter((item) => item.kind === "Link")
+        .map((item) => {
+          const identity = item.identity && typeof item.identity === "object" && !Array.isArray(item.identity)
+            ? (item.identity as Record<string, unknown>)
+            : {};
+          return {
+            id: item.id,
+            label: String(item.label || "关联"),
+            source: String(item.source ?? ""),
+            target: String(item.target ?? ""),
+            cardinality: String(item.cardinality || "ONE"),
+            sourceKey: String(identity.source ?? ""),
+            targetKey: String(identity.target ?? ""),
+          };
+        }),
+    [documents],
   );
-  const filteredMappings = mappings.filter((item) =>
-    `${item.id} ${item.target} ${item.sourceId} ${item.resource} ${item.provider}`
-      .toLowerCase()
-      .includes(normalizedSearch),
-  );
-  const filteredSources = sources.filter((item) =>
-    `${item.id} ${item.label} ${item.sourceId} ${item.provider} ${item.targets.join(" ")}`
-      .toLowerCase()
-      .includes(normalizedSearch),
-  );
+  const namespaces = [...new Set(liveNodes.map((node) => node.namespace))].sort();
+  const relationOptions = liveEdges.map((edge) => ({ id: edge.id, label: edge.label }));
+  const scopedNodes = liveNodes.filter((node) => {
+    if (namespaceFilter && node.namespace !== namespaceFilter) return false;
+    return `${node.label} ${node.id} ${node.namespace}`.toLowerCase().includes(query);
+  });
+  const scopedIds = new Set(scopedNodes.map((node) => node.id));
+  const scopedEdges = liveEdges.filter((edge) => {
+    if (!scopedIds.has(edge.source) || !scopedIds.has(edge.target)) return false;
+    return !relationFilter || edge.id === relationFilter;
+  });
+  const unsaved = dirty || sourceDirty;
 
   return (
     <div className="shell">
@@ -269,164 +338,187 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">SL</span>
           <div><strong>SemaLoom</strong><small>Semantic Studio</small></div>
         </div>
-        <NavGroup label="语义模型">
-          <NavButton label="实体关系" active={view === "graph"} onClick={() => navigate("graph")} />
-          <NavButton label="实体目录" active={view === "list"} onClick={() => navigate("list")} />
-          <NavButton label="模型草稿" active={view === "draft"} onClick={() => navigate("draft")} />
-        </NavGroup>
-        <NavGroup label="独立接入层">
-          <NavButton label="来源映射" active={view === "mappings"} onClick={() => navigate("mappings")} />
-          <NavButton label="数据源" active={view === "sources"} onClick={() => navigate("sources")} />
-        </NavGroup>
-        <NavGroup label="生命周期">
-          <NavButton label="校验与发布" active={view === "release"} onClick={() => navigate("release")} />
-        </NavGroup>
+        <div className="nav-group">
+          <NavButton label="图谱" active={view === "graph"} onClick={() => selectView("graph")} />
+          <NavButton label="实体" active={view === "objects"} onClick={() => selectView("objects")} />
+          <NavButton label="数据源" active={view === "sources"} onClick={() => selectView("sources")} />
+          <NavButton label="问答" active={view === "chat"} onClick={() => selectView("chat")} />
+          <NavButton label="变更" active={view === "release"} onClick={() => selectView("release")} />
+        </div>
         <div className="nav-spacer" />
         <div className="environment">
           <span className="status-dot" aria-hidden="true" />
-          <span><strong>本地合成环境</strong><small>未连接真实业务数据</small></span>
+          <span><strong>本地开发环境</strong><small>业务样本请查看数据源</small></span>
         </div>
       </nav>
       <main>
         <header>
           <div className="context-title">
-            <small>模型工作区 / 合成发布</small>
-            <strong>企业语义模型</strong>
+            <small>{viewNames[view].description}</small>
+            <h1>{viewNames[view].title}</h1>
           </div>
           <div className="header-actions">
-            {meta ? <span className="release-ref" title={meta.releaseDigest}>v0.1 · {meta.releaseDigest.slice(0, 7)}</span> : null}
-            <span className={conflict ? "save-status conflict" : "save-status"}>{status}</span>
-            {conflict ? <button className="secondary" onClick={() => void loadInitialState(true)}>重新载入</button> : null}
-            {view === "draft" ? <button className="primary" disabled={saving || !dirty} onClick={() => void saveDraft()}>保存草稿</button> : null}
+            {view === "release" || view === "chat" ? null : (
+              <label className="search-field">
+                <span className="sr-only">搜索当前视图</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称或 ID" />
+              </label>
+            )}
+            <span className="readout" aria-label="草稿与当前版本">
+              r{revision} · {activeDigest ? activeDigest.slice(0, 8) : "未激活"}
+            </span>
+            <select
+              aria-label="本地身份"
+              value={personaFromSubject(session?.subject) || "studio-admin"}
+              onChange={(event) => void changePersona(event.target.value)}
+            >
+              {DEMO_PERSONAS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+            <button className="secondary" onClick={() => void logout()}>退出会话</button>
+            <span className={conflict ? "save-status conflict" : "save-status"}>{status}{sourceDirty && view === "sources" ? " · 来源未保存" : ""}</span>
+            {conflict ? (
+              <span className="conflict-actions">
+                <button className="secondary" onClick={() => void retrySave()}>用当前修改重试保存</button>
+                <button className="secondary" onClick={() => void loadInitialState(true)}>放弃本地修改并载入</button>
+              </span>
+            ) : null}
+            {view === "sources" || view === "release" || view === "chat" || !canModel ? null : (
+              <button className="primary" disabled={saving || !dirty} onClick={() => void save()}>{draftSaveLabel()}</button>
+            )}
           </div>
         </header>
-        {error ? <div className="error" role="alert"><span>操作未完成：{error}</span><button onClick={() => void loadInitialState()}>重新载入</button></div> : null}
-        <div className="view-heading">
-          <div><p className="eyebrow">{view === "graph" || view === "list" ? "ONTOLOGY" : "INTEGRATION"}</p><h1>{activeTitle.title}</h1><p>{activeTitle.description}</p></div>
-          {view !== "release" ? <label className="search-field">
-            <span className="sr-only">搜索当前视图</span>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、ID 或来源" />
-            {search ? <button aria-label="清除搜索" onClick={() => setSearch("")}>清除</button> : null}
-          </label> : null}
-        </div>
-        <section className={view === "draft" || view === "sources" || view === "release" ? "workspace full" : "workspace"}>
-          <div className="content-pane">
-            {view === "graph" ? <EntityGraph nodes={filteredNodes} edges={edges} selected={selected} onSelect={setSelected} /> : null}
-            {view === "list" ? <EntityTable nodes={filteredNodes} selected={selected} onSelect={setSelected} /> : null}
-            {view === "draft" ? <DraftEditor documents={documents} search={search} onChange={changeDocuments} onImport={changeDocuments} onError={setError} onCheckDelete={checkDelete} /> : null}
-            {view === "mappings" ? <MappingTable items={filteredMappings} selected={selected} onSelect={setSelected} /> : null}
-            {view === "sources" ? <><SourceCatalog items={filteredSources} onShowMappings={showMappings} /><SourceManager ready={meta !== null} onError={setError} /></> : null}
-            {view === "release" ? <ReleasePanel ready={meta !== null} onError={setError} /> : null}
-            {normalizedSearch && ((view === "graph" || view === "list") ? filteredNodes.length === 0 : view === "mappings" ? filteredMappings.length === 0 : view === "sources" ? filteredSources.length === 0 : false) ? <EmptySearch onClear={() => setSearch("")} /> : null}
+        {error ? (
+          <div className="error" role="alert">
+            <span>操作未完成：{error}</span>
+            {unsaved ? (
+              <button onClick={() => setError(null)}>关闭</button>
+            ) : (
+              <button onClick={() => void loadInitialState()}>重新载入</button>
+            )}
           </div>
-          {view !== "draft" && view !== "sources" && view !== "release" ? <EntityInspector inspector={inspector} onSelect={setSelected} onShowMappings={showMappings} /> : null}
+        ) : null}
+        {view === "chat" && session ? <ChatPage key={`${session.tenant}:${session.subject}`} session={session} /> : null}
+        <section className={view === "objects" ? "workspace entity-workspace" : "workspace"} hidden={view === "sources" || view === "release" || view === "chat"}>
+          {view === "graph" ? (
+            <div className="content-pane graph-host">
+              <GraphCanvas
+                nodes={scopedNodes}
+                edges={scopedEdges}
+                selected={selected}
+                selectedEdge={selectedEdge}
+                onSelect={(id) => selectEntity(id)}
+                onSelectEdge={(id) => {
+                  setSelectedEdge(id);
+                  setDialog({ mode: "link", id });
+                }}
+                onCreate={() => setDialog({mode: "create"})}
+                canEdit={Boolean(session?.roles.includes("modeler"))}
+                onOpenFull={(id) => {
+                  selectEntity(id, "replace");
+                  selectView("objects");
+                }}
+                onLink={(source, target) => {
+                  const exists = documents.find((item) => item.kind === "Link" && item.source === source && item.target === target);
+                  if (exists) {
+                    setDialog({ mode: "link", id: exists.id });
+                    setSelectedEdge(exists.id);
+                    return;
+                  }
+                  const sourceDoc = documents.find((item) => item.id === source);
+                  const targetDoc = documents.find((item) => item.id === target);
+                  const sourceKey = Array.isArray(sourceDoc?.identityKeys) ? String(sourceDoc.identityKeys[0] ?? "id") : "id";
+                  const targetKey = Array.isArray(targetDoc?.identityKeys) ? String(targetDoc.identityKeys[0] ?? "id") : "id";
+                  const ns = source.split(".")[0] ?? "procurement";
+                  const id = `${ns}.${source.split(".").at(-1)}To${target.split(".").at(-1)}`;
+                  changeDocuments([
+                    ...documents,
+                    {
+                      apiVersion: "semaloom/v0.1",
+                      kind: "Link",
+                      id,
+                      version: "1.0.0",
+                      label: "关联",
+                      source,
+                      target,
+                      cardinality: "ONE",
+                      traversal: "FORWARD",
+                      identity: { source: sourceKey, target: targetKey },
+                    },
+                  ]);
+                  setSelectedEdge(id);
+                  setDialog({ mode: "link", id });
+                }}
+                namespaces={namespaces}
+                relations={relationOptions}
+                namespaceFilter={namespaceFilter}
+                relationFilter={relationFilter}
+                onNamespaceFilter={setNamespaceFilter}
+                onRelationFilter={setRelationFilter}
+              />
+            </div>
+          ) : null}
+          {view === "objects" ? (
+            <EntityPage
+              documents={documents}
+              savedDocuments={savedDocuments}
+              savedRevision={revision}
+              search={search}
+              selectedId={selected}
+              onSelect={(id) => selectEntity(id)}
+              onChange={changeDocuments}
+              onError={(message) => setError(message ? gateErrorMessage(message) : null)}
+            />
+          ) : null}
+          {view === "graph" ? (
+            <StudioDialog
+              mode={dialog?.mode ?? "entity"}
+              variant="quick"
+              targetId={dialog?.mode === "create" || !dialog ? null : dialog.id}
+              documents={documents}
+              savedDocuments={savedDocuments}
+              savedRevision={revision}
+              onChange={changeDocuments}
+              onClose={() => setDialog(selected ? { mode: "entity", id: selected } : null)}
+              onCreated={(id) => { selectEntity(id); }}
+              onOpenEntity={(id) => {
+                selectEntity(id, "replace");
+                selectView("objects");
+              }}
+              onError={(message) => setError(message ? gateErrorMessage(message) : null)}
+            />
+          ) : null}
+        </section>
+        <section className="workspace" hidden={view !== "sources"}>
+          <SourcePage
+            ready={meta !== null}
+            catalog={sources}
+            mappings={mappings}
+            search={search}
+            selectedId={sourceId}
+            onSelect={setSourceId}
+            onError={(message) => setError(message ? gateErrorMessage(message) : null)}
+            onDirtyChange={setSourceDirty}
+            onSaved={() => setSourceGeneration((value) => value + 1)}
+          />
+        </section>
+        <section className="workspace full" hidden={view !== "release"}>
+          <ReleasePage
+            ready={meta !== null}
+            session={session}
+            draftRevision={revision}
+            candidateDigest={candidateDigest}
+            sourceGeneration={sourceGeneration}
+            onError={(message) => setError(message ? gateErrorMessage(message) : null)}
+            onPublished={() => void loadInitialState(true)}
+          />
         </section>
       </main>
     </div>
   );
 }
 
-function NavGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="nav-group"><p className="nav-label">{label}</p>{children}</div>;
-}
-
 function NavButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return <button aria-pressed={active} className={active ? "active" : ""} onClick={onClick}>{label}</button>;
-}
-
-function EntityGraph({ nodes, edges, selected, onSelect }: { nodes: Node[]; edges: Edge[]; selected: string | null; onSelect: (id: string) => void }) {
-  const [zoom, setZoom] = useState(1);
-  const renderedNodes = nodes.slice(0, MAX_GRAPH_NODES);
-  const visible = new Set(renderedNodes.map((node) => node.id));
-  const graphLayout = buildLayout(renderedNodes);
-  const clipped = nodes.length - renderedNodes.length;
-  return (
-    <div className="graph-panel">
-      <div className="graph-legend"><span><i className="legend-node" />实体定义</span><span><i className="legend-edge" />业务关系</span><span className="graph-controls"><button aria-label="缩小图谱" onClick={() => setZoom((value) => Math.max(.7, value - .1))}>−</button><button onClick={() => setZoom(1)}>适应</button><button aria-label="放大图谱" onClick={() => setZoom((value) => Math.min(1.5, value + .1))}>＋</button></span><span>{renderedNodes.length} 个实体 · {edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)).length} 条关系{clipped ? ` · 另 ${clipped} 个请用目录查看` : ""}</span></div>
-      <svg style={{ width: `${zoom * 100}%` }} viewBox={`0 0 980 ${graphLayout.height}`} role="img" aria-label="实体关系图">
-        <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>
-        {graphLayout.areas.map((area) => <g key={area.namespace}><rect className="domain-area" x="24" y={area.y} width="932" height={area.height} rx="8" /><text className="domain-label" x="48" y={area.y + 33}>{area.namespace.toUpperCase()}</text></g>)}
-        {edges.map((edge) => {
-          if (!visible.has(edge.source) || !visible.has(edge.target)) return null;
-          const from = graphLayout.positions[edge.source]; const to = graphLayout.positions[edge.target];
-          if (!from || !to) return null;
-          const forward = to.x >= from.x;
-          const x1 = forward ? from.x + 240 : from.x; const x2 = forward ? to.x : to.x + 240;
-          const mid = (x1 + x2) / 2;
-          const midY = (from.y + to.y) / 2 + 54;
-          return <g key={edge.id}><line x1={x1} y1={from.y + 54} x2={x2} y2={to.y + 54} /><rect className="edge-label-bg" x={mid - 25} y={midY - 19} width="50" height="28" rx="4" /><text className="edge-label" x={mid} y={midY - 5}>{edge.label}</text><text className="edge-cardinality" x={mid} y={midY + 6}>{edge.cardinality}</text></g>;
-        })}
-        {renderedNodes.map((node) => {
-          const pos = graphLayout.positions[node.id];
-          return <g key={node.id} role="button" tabIndex={0} aria-pressed={selected === node.id} aria-label={`选择实体 ${node.label}`} onClick={() => onSelect(node.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node.id); } }}>
-            <title>{node.label}</title>
-            <rect x={pos.x} y={pos.y} width="240" height="108" rx="6" className={selected === node.id ? "node selected" : "node"} />
-            <text x={pos.x + 16} y={pos.y + 29} className="node-title">{compactGraphLabel(node.label)}</text>
-            <text x={pos.x + 16} y={pos.y + 51} className="node-id">{node.id}</text>
-            <line className="node-divider" x1={pos.x + 16} y1={pos.y + 67} x2={pos.x + 224} y2={pos.y + 67} />
-            <text x={pos.x + 16} y={pos.y + 91} className="node-count">{node.properties.length} 属性</text>
-            <text x={pos.x + 92} y={pos.y + 91} className="node-count">{node.metricCount} 指标</text>
-            <text x={pos.x + 164} y={pos.y + 91} className="node-count">{node.sourceCount} 来源</text>
-          </g>;
-        })}
-      </svg>
-    </div>
-  );
-}
-
-function compactGraphLabel(label: string): string {
-  return label.length > 24 ? `${label.slice(0, 23)}…` : label;
-}
-
-function buildLayout(nodes: Node[]): { positions: Record<string, Position>; areas: GraphArea[]; height: number } {
-  const groups = [...new Set(nodes.map((node) => node.namespace))];
-  const positions: Record<string, Position> = {};
-  const areas: GraphArea[] = [];
-  let areaY = 28;
-  groups.forEach((group) => {
-    const members = nodes.filter((node) => node.namespace === group);
-    const rows = Math.ceil(members.length / 3);
-    const areaHeight = 244 + Math.max(0, rows - 1) * 140;
-    areas.push({ namespace: group, y: areaY, height: areaHeight });
-    members.forEach((node, index) => {
-      positions[node.id] = {
-        x: 56 + (index % 3) * 292,
-        y: areaY + 74 + Math.floor(index / 3) * 140,
-      };
-    });
-    areaY += areaHeight + 36;
-  });
-  return { positions, areas, height: Math.max(620, areaY) };
-}
-
-function EntityTable({ nodes, selected, onSelect }: { nodes: Node[]; selected: string | null; onSelect: (id: string) => void }) {
-  return <TableFrame count={nodes.length} label="实体"><table><thead><tr><th>实体</th><th>Semantic ID</th><th>定义</th><th>接入覆盖</th></tr></thead><tbody>{nodes.map((node) => <tr key={node.id} data-selected={selected === node.id}><td><button className="text-button" onClick={() => onSelect(node.id)}>{node.label}</button></td><td><code>{node.id}</code></td><td>{node.properties.length} 属性 · {node.metricCount} 指标 · {node.ruleCount} 规则</td><td>{node.mappingCount} Mapping · {node.sourceCount} 来源</td></tr>)}</tbody></table></TableFrame>;
-}
-
-function MappingTable({ items, selected, onSelect }: { items: Mapping[]; selected: string | null; onSelect: (id: string) => void }) {
-  return <TableFrame count={items.length} label="Mapping"><table><thead><tr><th>业务目标</th><th>Mapping</th><th>数据源 / 资源</th><th>字段定位</th><th>契约</th></tr></thead><tbody>{items.map((item) => <tr key={item.id} data-selected={selected === item.objectType}><td><button className="text-button" onClick={() => onSelect(item.objectType)}>{item.target}</button><small className="cell-note">归属 {item.objectType}</small></td><td><code>{item.id}</code></td><td><strong>{item.sourceId}</strong><small className="cell-note"><ProviderMark provider={item.provider} /> {item.resource}</small></td><td><div className="field-bindings">{item.fields.map((field) => <span key={`${field.role}:${field.semanticField}`}><code>{field.semanticField}</code><i>→</i><code>{field.physicalField}</code></span>)}</div></td><td><span className="contract">{item.completeness === "AUTHORITATIVE" ? "权威" : "部分"}</span><small className="cell-note">{item.fieldCount} 字段 · {item.expectedCardinality}</small></td></tr>)}</tbody></table></TableFrame>;
-}
-
-function SourceCatalog({ items, onShowMappings }: { items: Source[]; onShowMappings: (source: string) => void }) {
-  return <div className="source-grid">{items.map((item) => <article className="source-card" key={item.id}><div className="source-card-head"><ProviderMark provider={item.provider} large /><span className={item.status === "PASSED" ? "source-state verified" : "source-state"}>{item.status === "PASSED" ? "已验证" : "已声明"}</span></div><h2>{item.label}</h2><code>{item.id}</code><dl><div><dt>Mapping</dt><dd>{item.mappingCount}</dd></div><div><dt>Action</dt><dd>{item.actionCount}</dd></div><div><dt>影响目标</dt><dd>{item.targets.length}</dd></div></dl><div className="source-targets">{item.namespaces.map((namespace) => <span key={namespace}>{namespace}</span>)}</div>{item.mappingCount ? <button className="secondary full" onClick={() => onShowMappings(item.sourceId)}>查看 Mapping</button> : <p className="source-note">仅用于受控 Action，没有读取 Mapping。</p>}</article>)}</div>;
-}
-
-function EntityInspector({ inspector, onSelect, onShowMappings }: { inspector: Inspector | null; onSelect: (id: string) => void; onShowMappings: (filter: string) => void }) {
-  return <aside className="inspector" aria-label="实体检查器">{inspector ? <><div className="inspector-kicker"><span>{inspector.namespace}</span><span>v{inspector.version}</span></div><h2>{inspector.label}</h2><code className="semantic-id">{inspector.id}</code><div className="meta-row"><span>业务键</span><strong>{inspector.identityKeys.join(", ")}</strong></div><DefinitionList title="属性" items={inspector.properties.map((item) => ({ label: item.label ?? item.id, id: item.id, meta: `${item.valueType}${item.required ? " · 必需" : ""}` }))} /><DefinitionList title="指标" items={inspector.metrics.map((item) => ({ label: item.label, id: item.id, meta: `${item.valueType} · ${item.unit}` }))} /><DefinitionList title="规则" items={inspector.rules.map((item) => ({ label: item.label, id: item.id }))} /><section className="definition-section"><div className="section-heading"><h3>关系</h3><span>{inspector.relations.length}</span></div>{inspector.relations.length ? <ul className="definition-list">{inspector.relations.map((item) => <li key={item.id}><button className="definition-link" onClick={() => onSelect(item.target)}><span>{item.label}</span><small>{item.direction === "OUTGOING" ? "→" : "←"} {item.targetLabel}</small></button></li>)}</ul> : <p className="empty">尚无业务关系</p>}</section><section className="definition-section"><div className="section-heading"><h3>来源追踪</h3><span>{inspector.mappings.length}</span></div>{inspector.mappings.length ? <ol className="trace-list">{inspector.mappings.map((item) => <li key={item.id}><button onClick={() => onShowMappings(item.id)}><span className="trace-target">{item.target}</span><span className="trace-line" aria-hidden="true" /><span className="trace-source"><ProviderMark provider={item.provider} /> {item.sourceId} / {item.resource}</span></button></li>)}</ol> : <p className="empty">此实体尚未配置来源</p>}</section></> : <div className="inspector-empty"><p className="eyebrow">ENTITY INSPECTOR</p><h2>选择一个实体</h2><p>查看它的属性、指标、规则、关系和物理来源。</p></div>}</aside>;
-}
-
-function DefinitionList({ title, items }: { title: string; items: { label: string; id: string; meta?: string }[] }) {
-  return <section className="definition-section"><div className="section-heading"><h3>{title}</h3><span>{items.length}</span></div>{items.length ? <ul className="definition-list">{items.map((item) => <li key={item.id}><span><strong>{item.label}</strong><code>{item.id}</code></span>{item.meta ? <small>{item.meta}</small> : null}</li>)}</ul> : <p className="empty">暂无定义</p>}</section>;
-}
-
-function TableFrame({ count, label, children }: { count: number; label: string; children: React.ReactNode }) {
-  return <div className="table-frame"><div className="table-meta"><span>{count} 个{label}</span><span>当前发布 · 只读视图</span></div><div className="table-scroll">{children}</div></div>;
-}
-
-function ProviderMark({ provider, large = false }: { provider: string; large?: boolean }) {
-  return <span className={large ? "provider-mark large" : "provider-mark"}>{provider === "postgres" ? "PG" : "API"}</span>;
-}
-
-function EmptySearch({ onClear }: { onClear: () => void }) {
-  return <div className="empty-search"><h2>没有匹配项</h2><p>尝试名称、Semantic ID、来源 ID 或物理资源。</p><button className="secondary" onClick={onClear}>清除搜索</button></div>;
 }

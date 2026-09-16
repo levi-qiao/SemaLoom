@@ -2,45 +2,69 @@
   kind: ObjectType
   id: procurement.Organization
   version: "1.0.0"
-  label: Organization
+  label: 组织
+  description: 采购业务中的下单组织，用 organizationId 标识。
   identityKeys: [organizationId]
   properties:
     - id: organizationId
+      label: 组织编号
       valueType: STRING
       required: true
     - id: name
+      label: 名称
       valueType: STRING
+    - id: approvalLimit
+      label: 审批额度
+      valueType: DECIMAL
+      unit: CNY
 
 - apiVersion: semaloom/v0.1
   kind: ObjectType
   id: procurement.Supplier
   version: "1.0.0"
-  label: Supplier
+  label: 供应商
+  description: 向企业供货的供应商。
   identityKeys: [supplierId]
   properties:
     - id: supplierId
+      label: 供应商编号
       valueType: STRING
       required: true
     - id: name
+      label: 名称
       valueType: STRING
 
 - apiVersion: semaloom/v0.1
   kind: ObjectType
   id: procurement.Order
   version: "1.0.0"
-  label: Purchase order
+  label: 采购订单
+  description: 企业向供应商发出的采购订单，用订单编号标识。金额、数量来自订单库，交货风险来自独立接口。
   identityKeys: [orderId]
   properties:
     - id: orderId
+      label: 订单编号
       valueType: STRING
       required: true
     - id: organizationId
+      label: 组织编号
       valueType: STRING
       required: true
     - id: supplierId
+      label: 供应商编号
       valueType: STRING
       required: true
     - id: status
+      label: 状态
       valueType: STRING
     - id: deliveryRisk
+      label: 交货风险
       valueType: STRING
+    - id: amount
+      label: 订单金额
+      valueType: DECIMAL
+      unit: CNY
+    - id: quantity
+      label: 订单数量
+      valueType: DECIMAL
+      unit: EA

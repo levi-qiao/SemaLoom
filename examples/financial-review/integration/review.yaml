@@ -1,0 +1,49 @@
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: IntegrationBinding
+  id: finance.review.pg
+  provider: postgres
+  sourceId: sample_pg
+  mappings:
+  - finance.ReviewCase.pg
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Mapping
+  id: finance.ReviewCase.pg
+  target: finance.ReviewCase
+  objectType: finance.ReviewCase
+  sourceId: sample_pg
+  provider: postgres
+  expectedCardinality: ONE
+  completeness: PARTIAL
+  physical:
+    table: sample_financial_review
+    identityColumn: id
+    tenantColumn: tenant_id
+    grainColumns:
+      caseId: id
+    propertyColumns:
+      companyId: company_id
+      companyName: company_name
+      taxYear: tax_year
+      reportId: report_id
+      returnId: return_id
+      periodStart: period_start
+      periodTo: period_to
+      uniquePair: unique_pair
+      pairingPolicy: pairing_policy
+      unitBasis: unit_basis
+      sourceReviewStatus: source_review_status
+      audit_profitStatus: audit_profit_status
+      net_profitStatus: net_profit_status
+      tax_expenseStatus: tax_expense_status
+      assetsStatus: assets_status
+      liabilitiesStatus: liabilities_status
+      equityStatus: equity_status
+      declared_profit: declared_profit
+      audit_profit: audit_profit
+      net_profit: net_profit
+      tax_expense: tax_expense
+      assets: assets
+      liabilities: liabilities
+      equity: equity
