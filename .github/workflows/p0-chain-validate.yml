@@ -121,6 +121,14 @@ jobs:
           patch('src/semaloom/compiler/mapping_ir.py', fix_ir)
 
           def fix_studio(text: str) -> str:
+              text = text.replace(
+                  'from semaloom.core.provider import IdentityValue, ReadProvider',
+                  'from semaloom.core.provider import IdentityScalar, IdentityValue, ReadProvider',
+              )
+              text = text.replace(
+                  'bindings: dict[str, str] | None = None,',
+                  'bindings: dict[str, IdentityScalar] | None = None,',
+              )
               replacement = '''def _required_preview_bindings(
               mapping: MappingDef, identity_fields: list[str] | None = None
           ) -> list[str]:
@@ -136,6 +144,27 @@ jobs:
               )
 
           patch('src/semaloom/runtime/studio.py', fix_studio)
+
+          def fix_eval(text: str) -> str:
+              text = text.replace(
+                  'from semaloom.core.model import PolicyDef, RuleDef\n',
+                  'from semaloom.core.model import PolicyDef, RuleDef\n'
+                  'from semaloom.core.provider import IdentityScalar\n',
+              )
+              text = text.replace('dict[str, str | int]', 'dict[str, IdentityScalar]')
+              text = re.sub(
+                  r'''            try:\n                normalized_bindings = query\.normalize_bindings\(\n                    MetricSelect\(metric=spec\.metric, bindings=bindings\)\n                \)\n            except ValueError as exc:\n                raise EvaluationError\("INVALID_BINDINGS", "conflicting identity aliases"\) from exc\n            metric_bindings = \{\n                key: value\n                for key, value in normalized_bindings\.items\(\)\n                if key in metric\.grain or key == "perspective"\n            \}''',
+                  '''            metric_bindings = {
+                key: value
+                for key, value in bindings.items()
+                if key in metric.grain or key == "perspective"
+            }''',
+                  text,
+                  count=1,
+              )
+              return text
+
+          patch('src/semaloom/runtime/eval.py', fix_eval)
 
           for path in Path('tests').rglob('*.py'):
               text = path.read_text()
@@ -201,7 +230,7 @@ jobs:
           ! grep -R -nE '"identityColumn"|"identityPointer"|"identityParameter"|"identityColumns"|"identityPointers"|"identityParameters"' src/semaloom frontend/src examples
           ! grep -n 'mapping\.physical' src/semaloom/runtime/query.py
           ! grep -n 'provider == "postgres"' src/semaloom/runtime/discovery.py
-          ! grep -n 'normalize_bindings' src/semaloom/runtime/query.py src/semaloom/app/chat/tools.py
+          ! grep -n 'normalize_bindings' src/semaloom/runtime/query.py src/semaloom/runtime/eval.py src/semaloom/app/chat/tools.py
           ! grep -n 'identity: str' src/semaloom/app/http.py src/semaloom/runtime/studio.py
           ! grep -n 'PostgreSQL Link' src/semaloom/app/chat/system_prompt.txt
           test -f src/semaloom/compiler/mapping_ir.py
