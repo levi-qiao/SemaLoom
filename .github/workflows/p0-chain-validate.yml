@@ -71,8 +71,6 @@ jobs:
           )
           script.write_text(text)
 
-          # The first composite-identity pass used a temporary plural name. Normalize
-          # the working tree before the final migration so only one OpenAPI contract remains.
           roots = [Path('src/semaloom'), Path('frontend/src'), Path('examples')]
           for root in roots:
               for path in root.rglob('*'):
@@ -84,10 +82,100 @@ jobs:
           PY
       - name: Apply clean-cut migration
         run: python .github/scripts/finish_p0_chain.py
+      - name: Finalize clean generated tree
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def patch(path: str, transform) -> None:
+              target = Path(path)
+              target.write_text(transform(target.read_text()))
+
+          def fix_ir(text: str) -> str:
+              text = text.replace(
+                  'from typing import Any, Sequence',
+                  'from collections.abc import Sequence\nfrom typing import Any',
+              )
+              text = text.replace(
+                  'grain, properties, capabilities = _provider_contract(mapping)',
+                  'grain, properties, capabilities = _provider_contract(mapping, obj.identity_keys)',
+              )
+              text = text.replace(
+                  'def _provider_contract(\n    mapping: MappingDef,\n)',
+                  'def _provider_contract(\n    mapping: MappingDef, identity_fields: Sequence[str],\n)',
+              )
+              text = text.replace(
+                  'missing_parameters = [key for key in grain if key not in parameters]\n'
+                  '        identity_like = [key for key in missing_parameters if key in mapping.identity_fields]\n'
+                  '        if identity_like:\n'
+                  '            raise ValueError(f"identity parameters missing: {\', \'.join(identity_like)}")',
+                  'missing_parameters = [key for key in identity_fields if key not in parameters]\n'
+                  '        if missing_parameters:\n'
+                  '            raise ValueError(\n'
+                  '                f"identity parameters missing: {\', \'.join(missing_parameters)}"\n'
+                  '            )',
+              )
+              return text
+
+          patch('src/semaloom/compiler/mapping_ir.py', fix_ir)
+
+          def fix_studio(text: str) -> str:
+              replacement = '''def _required_preview_bindings(
+              mapping: MappingDef, identity_fields: list[str] | None = None
+          ) -> list[str]:
+              identity = set(identity_fields or mapping.identity_fields)
+              return [field for field in mapping.grain_fields if field not in identity]
+          '''
+              return re.sub(
+                  r'def _required_preview_bindings\(.*?\n\ndef _preview_value',
+                  replacement + '\n\ndef _preview_value',
+                  text,
+                  count=1,
+                  flags=re.DOTALL,
+              )
+
+          patch('src/semaloom/runtime/studio.py', fix_studio)
+
+          for path in Path('tests').rglob('*.py'):
+              text = path.read_text()
+              if 'IdentityValue' not in text:
+                  continue
+              if re.search(r'from semaloom\.core\.provider import .*\bIdentityValue\b', text):
+                  continue
+              marker = text.find('from semaloom.')
+              if marker >= 0:
+                  text = (
+                      text[:marker]
+                      + 'from semaloom.core.provider import IdentityValue\n'
+                      + text[marker:]
+                  )
+                  path.write_text(text)
+
+          prompt = Path('src/semaloom/app/chat/system_prompt.txt')
+          text = prompt.read_text()
+          old = (
+              '集合统计默认同源同事实表。已声明且基数为 ONE 的 PostgreSQL Link，可以用关联对象属性做 groupBy 或筛选'
+              '（例如 finance.Company.name 或 procurement.Supplier.name）；同源走 SQL JOIN，跨源由引擎按业务键分批对齐，'
+              '不要发明 SQL，也不要把键列表交给模型循环查询。一对多、非 PostgreSQL 目标、多跳或未声明路径仍不支持。'
+          )
+          new = (
+              '集合统计只使用服务端声明的 analysisCapabilities。仅当 Link 明确返回 collectionJoin=true 时，才可用关联对象属性做 '
+              'groupBy 或筛选（例如 finance.Company.name 或 procurement.Supplier.name）。执行方式由已发布 capability 决定，'
+              '不要根据 provider 名称或物理数据源猜测能力，不要发明 SQL，也不要把键列表交给模型循环查询。'
+              '一对多、多跳或未声明路径仍不支持。'
+          )
+          if old in text:
+              prompt.write_text(text.replace(old, new))
+
+          Path('.github/scripts/finish_p0_chain.py').unlink(missing_ok=True)
+          PY
       - name: Install backend
         run: uv python install && uv sync --frozen --all-groups
-      - name: Format generated Python
-        run: uv run ruff format .
+      - name: Normalize generated Python
+        run: |
+          uv run ruff check --fix .
+          uv run ruff format .
       - name: Create fixture databases
         run: |
           for database in semaloom_tax semaloom_orders semaloom_suppliers semaloom_meta semaloom_g4_tax semaloom_g4_orders semaloom_g4_suppliers semaloom_g4_meta; do
@@ -115,6 +203,7 @@ jobs:
           ! grep -n 'provider == "postgres"' src/semaloom/runtime/discovery.py
           ! grep -n 'normalize_bindings' src/semaloom/runtime/query.py src/semaloom/app/chat/tools.py
           ! grep -n 'identity: str' src/semaloom/app/http.py src/semaloom/runtime/studio.py
+          ! grep -n 'PostgreSQL Link' src/semaloom/app/chat/system_prompt.txt
           test -f src/semaloom/compiler/mapping_ir.py
           test -f tests/test_composite_identity_chain.py
       - name: Commit validated implementation
