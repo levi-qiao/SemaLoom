@@ -1,4 +1,4 @@
-name: P0 Refactor Bootstrap
+name: P0 Refactor Apply
 
 on:
   push:
@@ -6,10 +6,77 @@ on:
       - feat/p0-capability-composite-identity
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: p0-refactor-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  smoke:
+  apply-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[p0-refactor]') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: semaloom
+          POSTGRES_PASSWORD: semaloom
+          POSTGRES_DB: semaloom_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U semaloom -d semaloom_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: semaloom
+      SEMALOOM_TAX_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_tax
+      SEMALOOM_ORDERS_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_orders
+      SEMALOOM_SUPPLIERS_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_suppliers
+      SEMALOOM_META_DATABASE_URL: postgresql+psycopg://semaloom:semaloom@127.0.0.1:5432/semaloom_meta
     steps:
-      - run: echo ready
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: feat/p0-capability-composite-identity
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: frontend/.node-version
+      - name: Apply backend and frontend refactor
+        run: |
+          python .github/scripts/p0_backend.py
+          python .github/scripts/p0_frontend.py
+      - name: Install backend dependencies
+        run: uv python install && uv sync --frozen --all-groups
+      - name: Create isolated fixture databases
+        run: |
+          for database in semaloom_tax semaloom_orders semaloom_suppliers semaloom_meta semaloom_g4_tax semaloom_g4_orders semaloom_g4_suppliers semaloom_g4_meta; do
+            createdb --host 127.0.0.1 --username semaloom "$database"
+          done
+      - name: Backend test suite
+        run: uv run pytest
+      - name: Frontend typecheck and build
+        working-directory: frontend
+        run: |
+          corepack enable
+          corepack install
+          pnpm install --frozen-lockfile
+          pnpm check
+          pnpm build
+      - name: Static checks for P0 boundaries
+        run: |
+          ! grep -n 'provider == "postgres"' src/semaloom/runtime/discovery.py
+          ! grep -R -n 'COMPOSITE_IDENTITY_NOT_SUPPORTED' src/semaloom
+          ! grep -R -n 'identity_value=' src/semaloom/runtime src/semaloom/app
+      - name: Commit validated refactor
+        run: |
+          rm -f .github/scripts/p0_backend.py .github/scripts/p0_frontend.py .github/workflows/p0-refactor.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add capability IR and composite identity [p0-refactor]"
+          git push origin HEAD:feat/p0-capability-composite-identity
