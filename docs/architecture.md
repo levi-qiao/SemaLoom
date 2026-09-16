@@ -88,7 +88,7 @@ flowchart TD
 | 新增来源协议或厂商能力 | 接入 adapter、profile 校验和 app 注册 | 公共 Compiler 与 core |
 | 通用语义能力扩展 | 独立契约变更、ADR 与兼容性验证 | 禁止以行业特判替代通用设计 |
 
-Core 选择语义合法路径、执行预算和授权约束；接入 adapter 编译物理查询，执行协议并返回规范化观测/操作结果。物理字段和 operation 只存在于受审核接入产物；core 持有其标识与摘要，不解释协议专属结构。依赖关系与验证见 [ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)。
+Core 选择语义合法路径、执行预算和授权约束；接入 adapter 编译物理查询，执行协议并返回规范化观测/操作结果。物理字段和 operation 只存在于受审核接入产物；core 持有其标识与摘要，不解释协议专属结构。当前 `Mapping.physical` 仍为按 provider 约定的字典（成熟度项：后续按 provider 分型校验）；依赖关系与验证见 [ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)。
 
 ## 实体建模工作台
 
@@ -181,7 +181,7 @@ PoC、开源准备与真实 pilot 分别由 [PLAN](PLAN.md) 的 gate 验收；�
 
 ## 有界集合分析
 
-集合分析由 `SemanticQuery` prepare/execute 拥有。REST `POST /v0.1/analyze` 的 `analyze_population` 只做兼容翻译到同一执行链，不是第二条统计引擎。Chat/pi 工具目录只暴露 `prepare_semantic_query`。Metric.population 由领域包声明，不在 core 编写财税分支。50 只限明细分页，不截断总体聚合。详细能力和限制见 [分析质量](analysis-quality.md)。
+集合分析由 `SemanticQuery` prepare/execute 拥有。REST `POST /v0.1/analyze`（原 `analyze_population`）为**已废弃**兼容翻译，不是第二条统计引擎；新集成与 Chat 只使用 `prepare_semantic_query`。Metric 是查询面一级公民、作者面为测量槽 + 可选词条，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。Metric.population 由领域包声明，不在 core 编写财税分支。50 只限明细分页，不截断总体聚合。声明 Link 用于点查；集合分析可沿 ONE 同源 PostgreSQL Link 做关联属性分组/筛选，一对多与跨源 JOIN 未开放。详细能力和限制见 [分析质量](analysis-quality.md) 与 [主责收口](semantic-query-closure.md)。
 
 ### 企业配置与 Chat 边界
 

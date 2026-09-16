@@ -7,24 +7,23 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from semaloom.app.chat.choices import submit_choice
 from semaloom.app.chat.presentation import visible_answer, without_physical_metadata
 from semaloom.app.chat.service import ChatService
 from semaloom.app.http import actor_from_read_request
 from semaloom.core.semantic_query import ChoiceError, ChoiceSubmit
+from semaloom.core.wire import wire_config
 from semaloom.runtime.auth import RequestActor, authorize_query
 
 router = APIRouter(prefix="/v0.1/chat")
 
 
 class TurnBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = wire_config(frozen=False)
     message: str = Field(min_length=1, max_length=4000)
-    conversation_id: str | None = Field(
-        default=None, alias="conversationId", pattern=r"^[0-9a-f]{32}$"
-    )
+    conversation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 def chat_actor(request: Request, authorization: str | None) -> RequestActor:
@@ -68,12 +67,12 @@ async def conversation(
 
 
 class ChoiceBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    conversation_id: str = Field(alias="conversationId", pattern=r"^[0-9a-f]{32}$")
-    question_id: str = Field(alias="questionId")
+    model_config = wire_config(frozen=False)
+    conversation_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    question_id: str
     revision: int = Field(ge=1)
-    option_ids: list[str] = Field(alias="optionIds", min_length=1, max_length=4)
-    other_text: str | None = Field(default=None, alias="otherText", max_length=400)
+    option_ids: list[str] = Field(min_length=1, max_length=4)
+    other_text: str | None = Field(default=None, max_length=400)
 
 
 @router.post("/choices")

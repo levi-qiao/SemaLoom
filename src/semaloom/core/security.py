@@ -4,34 +4,26 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
+
+from semaloom.core.wire import wire_config
 
 
 class ResourceScope(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        validate_by_name=True,
-    )
+    model_config = wire_config()
 
     tenants: tuple[str, ...]
-    object_types: tuple[str, ...] = Field(default=(), alias="objectTypes")
+    object_types: tuple[str, ...] = ()
     identities: tuple[str, ...] = ()
     fields: tuple[str, ...] = ()
 
 
 class AccessDecision(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        validate_by_name=True,
-    )
+    model_config = wire_config()
 
     allowed: bool
     effect: Literal["ALLOW", "DENY"]
     reason: str
     scope: ResourceScope
-    policy_revision: str = Field(alias="policyRevision")
-    decision_id: str = Field(alias="decisionId")
+    policy_revision: str
+    decision_id: str

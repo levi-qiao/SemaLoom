@@ -107,6 +107,7 @@
       supplierId: supplier_id
     propertyColumns:
       name: name
+      region: region
 
 - apiVersion: semaloom/v0.1
   kind: ActionBinding

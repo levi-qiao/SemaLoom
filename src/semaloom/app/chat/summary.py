@@ -22,6 +22,39 @@ COMPARISONS = {
     "outperforms": "严格优于同行比例",
 }
 
+CAPABILITY_MESSAGES: dict[str, str] = {
+    "LINK_ANALYSIS_UNSUPPORTED": (
+        "当前集合分析不能沿该路径做跨表 JOIN。"
+        "已声明、基数为 ONE、且同一 PostgreSQL 来源的关系，可用于按关联对象属性分组或筛选；"
+        "一对多、跨数据源、多跳或未声明的路径仍不支持。"
+        "请改用已声明的一对一关系字段，或先用 find_objects / semantic_query 按业务键分步查询。"
+    ),
+    "MULTI_METRIC_ORDER_COMPARISON_UNSUPPORTED": (
+        "当前不支持多个指标的联合排序或联合比较。请一次只对一个指标做排序或比较，或拆成多个问题。"
+    ),
+    "TIME_GRAIN_UNSUPPORTED": (
+        "当前不支持该时间粒度分组。请改用已声明的年度或日期字段，或去掉时间分组。"
+    ),
+    "CROSS_SOURCE_SQL": (
+        "当前不能把该请求编译成跨数据源集合 SQL。"
+        "已声明的一对一 PostgreSQL 关系会由引擎按业务键分批对齐；"
+        "非 PostgreSQL 目标、多指标跨源或一对多仍不支持。"
+    ),
+    "BUDGET_EXCEEDED": ("跨源关联的键数量超过本轮预算。请缩小筛选范围后再统计。"),
+    "OPERATOR_NOT_SUPPORTED": (
+        "当前引擎不支持该分析算子或请求形状。请缩小范围或改用已支持的聚合与筛选。"
+    ),
+}
+
+
+def capability_message(capability: str | None) -> str:
+    """Engine-owned Chinese prose for UNSUPPORTED analysis capabilities."""
+    code = (capability or "OPERATOR_NOT_SUPPORTED").strip()
+    return CAPABILITY_MESSAGES.get(
+        code,
+        f"当前不支持该分析能力（{code}）。请改用同表集合统计、对象点查或已定义规则。",
+    )
+
 
 def _filter_description(node: FilterAtom | FilterGroup | None) -> str:
     if node is None:

@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, localcontext
 from typing import Any
 
@@ -17,7 +17,7 @@ from sqlglot import exp
 
 from semaloom.adapters.postgres import require_ident
 from semaloom.core.bundle import CompiledBundle
-from semaloom.core.model import EmbeddedProperty, MappingDef, MetricDef, ObjectTypeDef
+from semaloom.core.model import EmbeddedProperty, LinkDef, MappingDef, MetricDef, ObjectTypeDef
 from semaloom.core.semantic_query import (
     AnalysisError,
     ComparisonExpr,
@@ -25,9 +25,11 @@ from semaloom.core.semantic_query import (
     EvidenceTable,
     FilterAtom,
     FilterGroup,
+    GroupByItem,
     PlanRef,
     QueryResult,
     SemanticQuery,
+    TypedValue,
     conflicting_equalities,
 )
 
@@ -36,6 +38,7 @@ from semaloom.core.semantic_query import (
 class _Context:
     bundle: CompiledBundle
     provider: Any
+    bind_provider: Any | None = None
 
 
 _ALLOWED_FUNCS = frozenset(
@@ -86,10 +89,12 @@ class _Plan:
     query: SemanticQuery
     sql: str
     table: str
+    from_sql: str
     tenant_col: str
     unit_col: str | None
     value_col: str
     where: list[str]
+    bind_joins: tuple[_BindJoin, ...] = ()
 
 
 def _metric(service: _Context, metric_id: str) -> MetricDef:
@@ -168,6 +173,179 @@ def _projection(mapping: MappingDef) -> dict[str, str]:
     return projection
 
 
+def _property_ids(obj: ObjectTypeDef) -> set[str]:
+    return {prop.id for prop in obj.properties} | set(obj.identity_keys)
+
+
+def _referenced_fields(query: SemanticQuery) -> tuple[str, ...]:
+    names: list[str] = []
+
+    def walk(node: FilterAtom | FilterGroup | None) -> None:
+        if isinstance(node, FilterAtom):
+            names.append(node.field)
+        elif isinstance(node, FilterGroup):
+            for arg in node.args:
+                walk(arg)
+
+    walk(query.filters)
+    names.extend(item.id for item in query.group_by)
+    reserved = {"value", "total"}
+    if query.metrics:
+        reserved.add(query.metrics[0].id)
+    names.extend(item.field for item in query.order_by if item.field not in reserved)
+    return tuple(dict.fromkeys(names))
+
+
+def _is_local_field(obj: ObjectTypeDef, field: str) -> bool:
+    name = _bare(field)
+    return name in _property_ids(obj) and field in {name, f"{obj.id}.{name}"}
+
+
+@dataclass(frozen=True)
+class _ResolvedLink:
+    link: LinkDef
+    target: ObjectTypeDef
+    mapping: MappingDef
+    field: str
+    same_source: bool
+
+
+@dataclass(frozen=True)
+class _BindJoin:
+    link: LinkDef
+    target: ObjectTypeDef
+    mapping: MappingDef
+    local_key: str
+    remote_field: str
+    query_field: str
+    filter_atom: FilterAtom | None = None
+
+
+_BIND_KEY_LIMIT = 1000
+_BIND_BATCH = 50
+
+
+def _one_link_join(
+    service: _Context, source_id: str, field: str, source_physical: str
+) -> _ResolvedLink | None:
+    name = _bare(field)
+    qualified = field[: -len(name) - 1] if "." in field and field.endswith("." + name) else None
+    found: list[_ResolvedLink] = []
+    for link in service.bundle.links:
+        if link.source != source_id or link.traversal != "FORWARD":
+            continue
+        target = _object_type(service.bundle, link.target)
+        if target is None or name not in _property_ids(target):
+            continue
+        if qualified not in {None, target.id}:
+            continue
+        if link.cardinality != "ONE":
+            raise AnalysisError("UNBOUNDED_MANY_TO_MANY")
+        mapping = _mapping(service, target.id)
+        if mapping.provider != "postgres":
+            raise AnalysisError("CROSS_SOURCE_SQL")
+        found.append(
+            _ResolvedLink(
+                link=link,
+                target=target,
+                mapping=mapping,
+                field=name,
+                same_source=mapping.source_id == source_physical,
+            )
+        )
+    if len(found) > 1:
+        raise AnalysisError("AMBIGUOUS_MAPPING")
+    return found[0] if found else None
+
+
+def _qualify_simple(column: str, alias: str) -> str:
+    if not column or "." in column or "(" in column or " " in column:
+        return column
+    return f"{alias}.{column}"
+
+
+def _bind_from_resolved(resolved: _ResolvedLink, query_field: str) -> _BindJoin:
+    return _BindJoin(
+        link=resolved.link,
+        target=resolved.target,
+        mapping=resolved.mapping,
+        local_key=resolved.link.identity.source,
+        remote_field=resolved.field,
+        query_field=query_field,
+    )
+
+
+def _strip_bind_filters(
+    node: FilterAtom | FilterGroup | None,
+    obj: ObjectTypeDef,
+    service: _Context,
+    source_physical: str,
+) -> tuple[FilterAtom | FilterGroup | None, list[_BindJoin]]:
+    if node is None:
+        return None, []
+    if isinstance(node, FilterAtom):
+        if _is_local_field(obj, node.field):
+            return node, []
+        resolved = _one_link_join(service, obj.id, node.field, source_physical)
+        if resolved is None:
+            raise AnalysisError("INVALID_PROPERTIES")
+        if resolved.same_source:
+            return node, []
+        if node.op not in {"EQ", "IN"}:
+            raise AnalysisError("OPERATOR_NOT_SUPPORTED")
+        return None, [replace(_bind_from_resolved(resolved, node.field), filter_atom=node)]
+    if node.kind in {"OR", "NOT"}:
+        for arg in node.args:
+            _, extra = _strip_bind_filters(arg, obj, service, source_physical)
+            if extra:
+                raise AnalysisError("OPERATOR_NOT_SUPPORTED")
+        return node, []
+    kept: list[FilterAtom | FilterGroup] = []
+    binds: list[_BindJoin] = []
+    for arg in node.args:
+        part, extra = _strip_bind_filters(arg, obj, service, source_physical)
+        binds.extend(extra)
+        if part is not None:
+            kept.append(part)
+    if not kept:
+        return None, binds
+    if len(kept) == 1:
+        return kept[0], binds
+    return FilterGroup(kind="AND", args=tuple(kept)), binds
+
+
+def _rewrite_bind_joins(
+    service: _Context, query: SemanticQuery, obj: ObjectTypeDef, source_physical: str
+) -> tuple[SemanticQuery, tuple[_BindJoin, ...]]:
+    binds: list[_BindJoin] = []
+    groups: list[GroupByItem] = []
+    seen_keys: set[str] = set()
+    for item in query.group_by:
+        if _is_local_field(obj, item.id):
+            groups.append(item)
+            continue
+        resolved = _one_link_join(service, obj.id, item.id, source_physical)
+        if resolved is None:
+            raise AnalysisError("INVALID_PROPERTIES")
+        if resolved.same_source:
+            groups.append(item)
+            continue
+        binds.append(_bind_from_resolved(resolved, item.id))
+        key = resolved.link.identity.source
+        if key not in seen_keys:
+            groups.append(GroupByItem(id=key))
+            seen_keys.add(key)
+    filters, extra = _strip_bind_filters(query.filters, obj, service, source_physical)
+    binds.extend(extra)
+    if not binds:
+        return query, ()
+    if query.comparison or any(
+        ref.aggregation == "AVG" for ref in query.metrics if ref.aggregation
+    ):
+        raise AnalysisError("OPERATOR_NOT_SUPPORTED")
+    return query.model_copy(update={"group_by": tuple(groups), "filters": filters}), tuple(binds)
+
+
 def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     def _metric_table(metric_id: str) -> object:
         metric_def = _metric(service, metric_id)
@@ -241,21 +419,71 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     types: dict[str, str] = {prop.id: prop.value_type for prop in obj.properties}
     for key in obj.identity_keys:
         types.setdefault(key, "STRING")
+    query, bind_joins = _rewrite_bind_joins(service, query, obj, metric_mapping.source_id)
+    join_tables: set[str] = set()
+    used_links: dict[str, tuple[LinkDef, ObjectTypeDef, MappingDef]] = {}
+    for field in _referenced_fields(query):
+        if _is_local_field(obj, field):
+            continue
+        resolved = _one_link_join(service, obj.id, field, metric_mapping.source_id)
+        if resolved is None:
+            raise AnalysisError("INVALID_PROPERTIES")
+        if not resolved.same_source:
+            raise AnalysisError("CROSS_SOURCE_SQL")
+        used_links[resolved.link.id] = (resolved.link, resolved.target, resolved.mapping)
+    if (used_links or bind_joins) and metric.derived_from:
+        raise AnalysisError("LINK_ANALYSIS_UNSUPPORTED")
+    if used_links:
+        fact = require_ident("fact", field="alias")
+        from_sql = f"{table} AS {fact}"
+        projection = {key: _qualify_simple(column, fact) for key, column in projection.items()}
+        identity_col = _qualify_simple(identity_col, fact)
+        value_col = _qualify_simple(value_col, fact)
+        tenant_pred = f"{fact}.{tenant_col} = :tenant"
+        for index, (link, target, target_mapping) in enumerate(used_links.values()):
+            alias = require_ident(f"link_{index}", field="alias")
+            target_table = require_ident(target_mapping.physical.get("table"), field="table")
+            target_tenant = require_ident(
+                target_mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
+            )
+            target_projection = _projection(target_mapping)
+            source_col = projection.get(link.identity.source)
+            target_col = target_projection.get(link.identity.target)
+            if source_col is None or target_col is None:
+                raise AnalysisError("NO_PATH")
+            from_sql += (
+                f" LEFT JOIN {target_table} AS {alias} ON {alias}.{target_tenant} = :tenant"
+                f" AND {alias}.{require_ident(target_col, field='column')} = {source_col}"
+            )
+            join_tables.add(target_table)
+            target_types = {prop.id: prop.value_type for prop in target.properties}
+            for key in target.identity_keys:
+                target_types.setdefault(key, "STRING")
+            for semantic, column in target_projection.items():
+                qualified_col = f"{alias}.{column}"
+                projection[f"{target.id}.{semantic}"] = qualified_col
+                projection.setdefault(semantic, qualified_col)
+            for semantic, value_type in target_types.items():
+                types[f"{target.id}.{semantic}"] = value_type
+                types.setdefault(semantic, value_type)
+    else:
+        from_sql = table
+        tenant_pred = f"{tenant_col} = :tenant"
 
     def validate_filter(node: FilterAtom | FilterGroup | None) -> None:
         if isinstance(node, FilterGroup):
             for arg in node.args:
                 validate_filter(arg)
         elif isinstance(node, FilterAtom):
-            name = _bare(node.field)
-            if node.field not in {name, obj.id + "." + name} or name not in types:
+            key = node.field if node.field in types else _bare(node.field)
+            if key not in types:
                 raise AnalysisError("INVALID_PROPERTIES")
-            if types[name] != node.value.value_type:
+            if types[key] != node.value.value_type:
                 raise AnalysisError("FILTER_TYPE_MISMATCH")
 
     validate_filter(query.filters)
     params: dict[str, Any] = {"tenant": tenant}
-    where = [f"{tenant_col} = :tenant"]
+    where = [tenant_pred]
     where.extend(_filter_sql(query.filters, projection, params))
     if query.comparison and query.comparison.subject and query.comparison.subject.filters:
         subject_keys = set(query.comparison.subject.filters)
@@ -278,10 +506,10 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     order_clause = _order_sql(query, aliases).replace("__AVG_COLUMN__", value_col)
     limit_clause = f" LIMIT {int(query.limit or 1001)}"
     sql = (
-        f"SELECT {select_list} FROM {table} WHERE {' AND '.join(where)}"
+        f"SELECT {select_list} FROM {from_sql} WHERE {' AND '.join(where)}"
         f"{group_clause}{order_clause}{limit_clause}"
     )
-    _assert_sql(sql, {table})
+    _assert_sql(sql, {table, *join_tables})
     unit_col = None
     if metric.population is not None:
         unit_col = projection.get(metric.population.unit_property)
@@ -294,17 +522,17 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
             if unit_col and metric.population
             else ""
         )
-        + f" FROM {table} WHERE {' AND '.join(where)}"
+        + f" FROM {from_sql} WHERE {' AND '.join(where)}"
     )
     extra_sql = ""
     if unit_col and unit_col != identity_col:
         extra_sql += f", {unit_col} AS unit_id"
     for prop in _display_name_fields(obj):
-        column = projection.get(prop.id)
-        if column and column not in {identity_col, value_col, unit_col}:
-            extra_sql += f', {column} AS "{prop.id}"'
+        label_col = projection.get(prop.id)
+        if label_col and label_col not in {identity_col, value_col, unit_col}:
+            extra_sql += f', {label_col} AS "{prop.id}"'
     evidence_sql = (
-        f"SELECT {identity_col} AS identity, {value_col} AS value{extra_sql} FROM {table} "
+        f"SELECT {identity_col} AS identity, {value_col} AS value{extra_sql} FROM {from_sql} "
         f"WHERE {' AND '.join(where)} ORDER BY {identity_col} LIMIT {int(query.evidence_limit)}"
     )
     return _Plan(
@@ -320,10 +548,12 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
         query=query,
         sql=sql,
         table=table,
+        from_sql=from_sql,
         tenant_col=tenant_col,
         unit_col=unit_col,
         value_col=value_col,
         where=where,
+        bind_joins=bind_joins,
     )
 
 
@@ -357,7 +587,7 @@ def _filter_sql(
         if node.kind == "OR":
             return ["(" + " OR ".join(parts) + ")"]
         return ["(" + " AND ".join(parts) + ")"]
-    column = projection.get(_bare(node.field))
+    column = projection.get(node.field) or projection.get(_bare(node.field))
     if column is None:
         raise AnalysisError("INVALID_PROPERTIES")
     key = f"p{len(params)}"
@@ -388,7 +618,7 @@ def _group_sql(
     aliases: list[str] = []
     for item in query.group_by:
         name = _bare(item.id)
-        column = projection.get(name)
+        column = projection.get(item.id) or projection.get(name)
         if column is None:
             raise AnalysisError("INVALID_PROPERTIES")
         if item.time_grain and types.get(name) in {"DATE", "DATETIME"}:
@@ -559,7 +789,7 @@ def _comparison(
         text(
             f"SELECT SUM({compiled.value_col}) AS value, "
             f"COUNT({compiled.value_col}) AS n, COUNT(*) AS members "
-            f"FROM {compiled.table} WHERE {' AND '.join(subject_where)}"
+            f"FROM {compiled.from_sql} WHERE {' AND '.join(subject_where)}"
         ),
         params,
     )
@@ -568,7 +798,7 @@ def _comparison(
         tenant,
         text(
             f"SELECT SUM({compiled.value_col}) AS total, COUNT({compiled.value_col}) AS observed "
-            f"FROM {compiled.table} WHERE {' AND '.join(compiled.where)}"
+            f"FROM {compiled.from_sql} WHERE {' AND '.join(compiled.where)}"
         ),
         compiled.params,
     )
@@ -581,7 +811,7 @@ def _comparison(
         source,
         tenant,
         text(
-            f"SELECT {compiled.identity_col} AS identity FROM {compiled.table} "
+            f"SELECT {compiled.identity_col} AS identity FROM {compiled.from_sql} "
             f"WHERE {' AND '.join(subject_where)} LIMIT 2"
         ),
         params,
@@ -619,7 +849,7 @@ def _comparison(
                 tenant,
                 text(
                     f"SELECT COUNT(*) FILTER (WHERE {compiled.value_col} < 0) AS n "
-                    f"FROM {compiled.table} WHERE {' AND '.join(compiled.where)}"
+                    f"FROM {compiled.from_sql} WHERE {' AND '.join(compiled.where)}"
                 ),
                 compiled.params,
             )
@@ -671,7 +901,7 @@ def _comparison(
             text(
                 f"SELECT COUNT({compiled.value_col}) "
                 f"FILTER (WHERE {compiled.value_col} {op} :subject_value) "
-                f"AS wins, COUNT({compiled.value_col}) AS peers FROM {compiled.table} "
+                f"AS wins, COUNT({compiled.value_col}) AS peers FROM {compiled.from_sql} "
                 f"WHERE {' AND '.join(exclude_where)}"
             ),
             params,
@@ -934,8 +1164,183 @@ def _decorate_labels(
     return tuple(decorated), table
 
 
+def _bind_select(service: _Context) -> Any:
+    provider = service.bind_provider or service.provider
+    run = getattr(provider, "execute_select", None)
+    if not callable(run):
+        raise AnalysisError("CROSS_SOURCE_SQL")
+    return run
+
+
+def _materialize_bind_filters(
+    service: _Context, query: SemanticQuery, tenant: str
+) -> SemanticQuery | None:
+    """Resolve remote EQ/IN filters to local keys. None means empty match."""
+    metric = _metric(service, query.metrics[0].id)
+    obj = next(item for item in service.bundle.object_types if item.id == metric.object_type)
+    try:
+        source_id = _mapping(service, metric.id).source_id
+    except AnalysisError:
+        source_id = _mapping(service, metric.object_type).source_id
+    _rewritten, binds = _rewrite_bind_joins(service, query, obj, source_id)
+    extra: list[FilterAtom] = []
+    for bind in binds:
+        if bind.filter_atom is None:
+            continue
+        keys = _lookup_bind_identities(service, bind, tenant)
+        if not keys:
+            return None
+        extra.append(
+            FilterAtom(
+                field=bind.local_key,
+                op="IN",
+                value=TypedValue(value_type="STRING", value=tuple(keys)),
+            )
+        )
+    if not extra:
+        return query
+    filters = query.filters
+    for atom in extra:
+        filters = atom if filters is None else FilterGroup(kind="AND", args=(filters, atom))
+    return query.model_copy(update={"filters": filters})
+
+
+def _lookup_bind_identities(service: _Context, bind: _BindJoin, tenant: str) -> list[str]:
+    assert bind.filter_atom is not None
+    projection = _projection(bind.mapping)
+    column = projection.get(bind.remote_field)
+    if column is None:
+        raise AnalysisError("NO_MAPPING")
+    identity = require_ident(bind.mapping.physical.get("identityColumn"), field="identityColumn")
+    tenant_col = require_ident(
+        bind.mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
+    )
+    table = require_ident(bind.mapping.physical.get("table"), field="table")
+    params: dict[str, Any] = {"tenant": tenant}
+    atom = bind.filter_atom
+    if atom.op == "EQ":
+        params["v"] = atom.value.value
+        predicate = f"{column} = :v"
+    else:
+        values = atom.value.value
+        assert isinstance(values, tuple)
+        keys = []
+        for index, item in enumerate(values):
+            token = f"v_{index}"
+            params[token] = item
+            keys.append(f":{token}")
+        predicate = f"{column} IN ({', '.join(keys)})"
+    sql = text(
+        f"SELECT {identity} AS identity FROM {table} "
+        f"WHERE {tenant_col} = :tenant AND {predicate} LIMIT {_BIND_KEY_LIMIT + 1}"
+    )
+    try:
+        rows = _bind_select(service)(bind.mapping.source_id, tenant, sql, params)
+    except (SQLAlchemyError, KeyError) as exc:
+        raise AnalysisError("PROVIDER_UNAVAILABLE") from exc
+    if len(rows) > _BIND_KEY_LIMIT:
+        raise AnalysisError("BUDGET_EXCEEDED")
+    return [str(row["identity"]) for row in rows]
+
+
+def _lookup_bind_properties(
+    service: _Context, bind: _BindJoin, keys: list[str], tenant: str
+) -> dict[str, str | None]:
+    found: dict[str, str | None] = {key: None for key in keys}
+    if not keys:
+        return found
+    projection = _projection(bind.mapping)
+    column = projection.get(bind.remote_field)
+    identity = require_ident(bind.mapping.physical.get("identityColumn"), field="identityColumn")
+    tenant_col = require_ident(
+        bind.mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
+    )
+    table = require_ident(bind.mapping.physical.get("table"), field="table")
+    if column is None:
+        raise AnalysisError("NO_MAPPING")
+    for start in range(0, len(keys), _BIND_BATCH):
+        chunk = keys[start : start + _BIND_BATCH]
+        params: dict[str, Any] = {"tenant": tenant}
+        tokens = []
+        for index, key in enumerate(chunk):
+            token = f"id_{index}"
+            params[token] = key
+            tokens.append(f":{token}")
+        sql = text(
+            f'SELECT {identity} AS identity, {column} AS "value" FROM {table} '
+            f"WHERE {tenant_col} = :tenant AND {identity} IN ({', '.join(tokens)})"
+        )
+        try:
+            rows = _bind_select(service)(bind.mapping.source_id, tenant, sql, params)
+        except (SQLAlchemyError, KeyError) as exc:
+            raise AnalysisError("PROVIDER_UNAVAILABLE") from exc
+        for row in rows:
+            ident = str(row.get("identity") or "")
+            raw = row.get("value")
+            found[ident] = None if raw in {None, ""} else str(raw)
+    return found
+
+
+def _apply_bind_groups(
+    compiled: _Plan, values: tuple[dict[str, Any], ...], labels: dict[str, str | None]
+) -> tuple[dict[str, Any], ...]:
+    group_binds = [item for item in compiled.bind_joins if item.filter_atom is None]
+    if not group_binds:
+        return values
+    buckets: dict[tuple[tuple[str, Any], ...], list[dict[str, Any]]] = {}
+    for row in values:
+        grain = dict(row.get("grain") or {})
+        for bind in group_binds:
+            key = grain.pop(bind.local_key, None)
+            grain[_bare(bind.query_field)] = labels.get(str(key)) if key not in {None, ""} else None
+        bucket = tuple(sorted(grain.items()))
+        buckets.setdefault(bucket, []).append({**row, "grain": grain})
+    merged: list[dict[str, Any]] = []
+    for rows in buckets.values():
+        nums = [Decimal(str(item["value"])) for item in rows if item.get("value") is not None]
+        aggregation = compiled.aggregation
+        if not nums:
+            value = None
+        elif aggregation in {"SUM", "COUNT"}:
+            value = sum(nums, Decimal(0))
+        elif aggregation == "MIN":
+            value = min(nums)
+        elif aggregation == "MAX":
+            value = max(nums)
+        else:
+            raise AnalysisError("OPERATOR_NOT_SUPPORTED")
+        merged.append(
+            {
+                **rows[0],
+                "value": None if value is None else format(value, "f"),
+            }
+        )
+    return tuple(merged)
+
+
+def _empty_result(plan: PlanRef, digest: str) -> QueryResult:
+    return QueryResult(
+        result_id=uuid.uuid4().hex,
+        plan_id=plan.plan_id,
+        release_digest=digest,
+        values=(),
+        scope={
+            "populationCount": 0,
+            "observedCount": 0,
+            "missingCount": 0,
+            "complete": True,
+            "reason": "EMPTY_POPULATION",
+        },
+        mapping_fields=(),
+        evidence=EvidenceTable(columns=(), rows=()),
+    )
+
+
 def _execute_one(service: _Context, plan: PlanRef, tenant: str) -> QueryResult:
-    compiled = _compile(service, plan.query, tenant)
+    query = _materialize_bind_filters(service, plan.query, tenant)
+    if query is None:
+        return _empty_result(plan, service.bundle.digest)
+    compiled = _compile(service, query, tenant)
     rows, counts, comparison, evidence_rows, truncated = _run(service, compiled, tenant)
     values = tuple(
         {
@@ -950,6 +1355,18 @@ def _execute_one(service: _Context, plan: PlanRef, tenant: str) -> QueryResult:
         }
         for row in rows
     )
+    group_binds = [item for item in compiled.bind_joins if item.filter_atom is None]
+    if group_binds:
+        keys: list[str] = []
+        for row in values:
+            for bind in group_binds:
+                ident = (row.get("grain") or {}).get(bind.local_key)
+                if ident not in {None, ""}:
+                    keys.append(str(ident))
+        labels: dict[str, str | None] = {}
+        for bind in group_binds:
+            labels.update(_lookup_bind_properties(service, bind, sorted(set(keys)), tenant))
+        values = _apply_bind_groups(compiled, values, labels)
     values, evidence = _decorate_labels(service, compiled, tenant, values, evidence_rows)
     evidence = evidence.model_copy(
         update={"truncated": truncated, "row_count": counts["population"]}
@@ -1029,12 +1446,16 @@ def prepare_analysis(
 
 
 def execute_analysis(
-    bundle: CompiledBundle, plan: PlanRef, tenant: str, provider: Any
+    bundle: CompiledBundle,
+    plan: PlanRef,
+    tenant: str,
+    provider: Any,
+    bind_provider: Any | None = None,
 ) -> QueryResult:
     expected = prepare_analysis(bundle, plan.query, tenant, provider)
     if plan.release_digest != bundle.digest or expected != plan.compiled_digest:
         raise AnalysisError("PLAN_INVALID")
-    context = _Context(bundle, provider)
+    context = _Context(bundle, provider, bind_provider or provider)
     try:
         results = [
             _execute_one(
@@ -1119,7 +1540,7 @@ def analysis_subjects(
     )
     sql = f"SELECT {compiled.identity_col} AS identity" + (", " + projection if projection else "")
     sql += (
-        f" FROM {compiled.table} WHERE {' AND '.join(where)} "
+        f" FROM {compiled.from_sql} WHERE {' AND '.join(where)} "
         f"ORDER BY {compiled.identity_col} LIMIT 5"
     )
     try:

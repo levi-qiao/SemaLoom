@@ -7,12 +7,12 @@ import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from semaloom.core.action import ActionExecution, ActionPlan
+from semaloom.core.action import ActionExecution, ActionPlan, ActionStatus
 from semaloom.core.bundle import CompiledBundle
 from semaloom.runtime.auth import RequestActor, authorize_query
 
@@ -208,7 +208,7 @@ class ActionService:
                 return ActionExecution(
                     execution_id=str(existing.execution_id),
                     plan_id=plan_id,
-                    status=str(existing.status),
+                    status=cast(ActionStatus, str(existing.status)),
                     payload_digest=str(existing.payload_digest),
                     external_ref=(
                         None if existing.external_ref is None else str(existing.external_ref)
@@ -262,7 +262,7 @@ class ActionService:
         return ActionExecution(
             execution_id=str(row.execution_id),
             plan_id=str(row.plan_id),
-            status=str(row.status),
+            status=cast(ActionStatus, str(row.status)),
             payload_digest=str(row.payload_digest),
             external_ref=None if row.external_ref is None else str(row.external_ref),
         )

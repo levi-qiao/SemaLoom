@@ -6,10 +6,10 @@
 
 1. **事实层是表，接入层一次绑定。** 一张事实表对应一条 ObjectType Mapping：宽表用 `propertyColumns` 列出列；EAV/科目表用同一 Mapping 的粒度列（含科目码）加金额列。不为每个科目、每列金额复制 Mapping。
 2. **业务层是补充语言，不是目录穷举。** Domain pack 维护 ObjectType、身份、Link、需要判断的 Rule/Claim/Policy，以及少量 Metric **词条**（稳定 ID、中文名、别名、口径、可选 `select`）。词条指向对象上已映射的数值槽，不重复声明 grain/unit/表列。表里有、但业务从未命名的码，不必写进本体。
-3. **Metric 仍是编译 IR。** 作者写紧凑词条；Compiler 从对象属性/Mapping 继承 `valueType`、`unit`、`grain`、`population`，并合成 Runtime 已认识的 Metric Mapping。`fetch_metric`、SemanticQuery、Rule 输入、Chat 发现继续使用 Metric ID。
+3. **Metric 是查询面一级公民，作者面是编译 IR / 可选词条。** 作者写紧凑词条（或依赖默认 `{objectType}.{property}`）；Compiler 从对象属性/Mapping 继承 `valueType`、`unit`、`grain`、`population`，并合成 Runtime 已认识的 Metric Mapping。`fetch_metric`、SemanticQuery、Rule 输入、Chat 发现**必须**继续使用稳定 Metric ID——这与 LookML measure / MetricFlow metric 的查询入口同级，不是「取消指标」。禁止把「非物理种类」误读成「Agent 不要用 Metric」。
 4. **公式不进目录。** 来源已算好的数只映射。只有 SemaLoom 必须计算、并作为业务结论使用的，才写 Rule；`outputMetric` 仍是派生词条，不写物理 Mapping。
-5. **带单位的属性是测量槽。** `Property.unit` 标记计量字段。对象点查默认不读取这些槽，避免把 EAV 多行误当成实体 1:1 属性。宽表上的金额就是对象属性；Compiler 自动生成查询用 Metric IR。Studio 不为指标提供独立配置页。
-6. **合计不是本体。** SUM/AVG 等是 SemanticQuery 的算子，adapter 编译成参数化 SQL 函数。Agent 和 UI 只传语义属性 ID 与运算名，不传 SQL。
+5. **带单位的属性是测量槽。** `Property.unit` 标记计量字段。对象点查默认不读取这些槽，避免把 EAV 多行误当成实体 1:1 属性。宽表上的金额就是对象属性；Compiler 自动生成查询用 Metric IR。Studio 不为指标提供独立配置页；可选词条在实体属性语境维护。
+6. **合计不是本体。** SUM/AVG 等是 SemanticQuery 的算子，adapter 编译成参数化 SQL 函数。Agent 和 UI 只传语义 Metric/属性 ID 与运算名，不传 SQL。
 
 ## 作者形状
 

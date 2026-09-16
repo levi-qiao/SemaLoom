@@ -27,6 +27,13 @@ def test_search_exposes_meaning_and_ambiguity_without_physical_bindings() -> Non
     assert metric["unit"] == "CNY" and metric["perspective"] == "TAX_RETURN"
     assert "taxYear" in metric["grain"]
     assert "physical" not in metric and "sourceId" not in metric
+    assert metric["analysisCapabilities"]["collectionJoin"] is False
+    link = service.describe("tax.filingTaxpayer", ANALYST)
+    assert link["analysisCapabilities"] == {
+        "pointLookup": True,
+        "keyedFind": True,
+        "collectionJoin": False,
+    }
     with pytest.raises(KeyError):
         service.describe("tax.reportedIncome.pg", ANALYST)
     with pytest.raises(KeyError):
@@ -68,6 +75,16 @@ def test_discovery_http_pins_tenant_bundle_and_does_not_expose_unknown_ids() -> 
     headers = {"Authorization": "Bearer tenant-a-analyst"}
     own = client.get("/v0.1/describe", params={"semanticId": "tax.Taxpayer"}, headers=headers)
     assert own.status_code == 200 and own.json()["releaseDigest"] == changed.bundle.digest
+    link = client.get(
+        "/v0.1/describe", params={"semanticId": "tax.filingTaxpayer"}, headers=headers
+    )
+    assert link.status_code == 200
+    assert link.json()["analysisCapabilities"]["collectionJoin"] is False
+    search = client.get("/v0.1/search", params={"q": "申报纳税人"}, headers=headers)
+    assert search.status_code == 200
+    found = next(item for item in search.json()["candidates"] if item["id"] == "tax.filingTaxpayer")
+    assert found["analysisCapabilities"]["pointLookup"] is True
+    assert "physical" not in found
     other = client.get(
         "/v0.1/describe",
         params={"semanticId": "tax.Taxpayer"},

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
+
+from semaloom.core.wire import wire_config
 
 ActionStatus = Literal[
     "PLANNED",
@@ -26,36 +28,26 @@ ActionStatus = Literal[
 
 
 class ActionPlan(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        validate_by_name=True,
-    )
+    model_config = wire_config()
 
-    plan_id: str = Field(alias="planId")
-    action_id: str = Field(alias="actionId")
-    action_version: str = Field(alias="actionVersion")
+    plan_id: str
+    action_id: str
+    action_version: str
     tenant: str
     actor: str
     target: dict[str, str]
     parameters: dict[str, str]
     digest: str
-    release_digest: str = Field(alias="releaseDigest")
-    expires_at: str = Field(alias="expiresAt")
-    expected_effect: str = Field(alias="expectedEffect")
+    release_digest: str
+    expires_at: str
+    expected_effect: str
 
 
 class ActionExecution(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        validate_by_name=True,
-    )
+    model_config = wire_config()
 
-    execution_id: str = Field(alias="executionId")
-    plan_id: str = Field(alias="planId")
+    execution_id: str
+    plan_id: str
     status: ActionStatus
-    payload_digest: str = Field(alias="payloadDigest")
-    external_ref: str | None = Field(default=None, alias="externalRef")
+    payload_digest: str
+    external_ref: str | None = None

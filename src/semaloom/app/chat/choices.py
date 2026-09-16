@@ -6,20 +6,23 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Iterable
 from typing import Any
 
 from semaloom.app.chat.confidence import score_answer
 from semaloom.app.chat.intent import TurnIntent
 from semaloom.app.chat.presentation import attach_lineage
 from semaloom.app.chat.store import ChatStore
-from semaloom.app.chat.summary import semantic_summary
+from semaloom.app.chat.summary import capability_message, semantic_summary
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.semantic_query import (
+    AggregationOp,
     ChoiceError,
     ChoiceOption,
     ChoiceQuestion,
     ChoiceSubmit,
     ComparisonExpr,
+    ComparisonOp,
     FilterAtom,
     FilterGroup,
     GroupByItem,
@@ -38,7 +41,36 @@ from semaloom.runtime.analysis import AnalysisError, execute, prepare
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
 
-_AGG = {"mean": "AVG", "sum": "SUM", "min": "MIN", "max": "MAX", "count": "COUNT"}
+_AGG: dict[str, AggregationOp] = {
+    "mean": "AVG",
+    "sum": "SUM",
+    "min": "MIN",
+    "max": "MAX",
+    "count": "COUNT",
+}
+_CMP: dict[str, ComparisonOp] = {
+    "shareOfTotal": "SHARE_OF_TOTAL",
+    "percentAboveMean": "RELATIVE_TO_MEAN",
+    "outperforms": "STRICT_PEER",
+}
+
+
+def _one_link_name_field(
+    bundle: CompiledBundle, object_type: str, prefer: str | None = None
+) -> str | None:
+    matches: list[str] = []
+    for link in bundle.links:
+        if link.source != object_type or link.cardinality != "ONE":
+            continue
+        target = next((item for item in bundle.object_types if item.id == link.target), None)
+        if target is None or not any(prop.id == "name" for prop in target.properties):
+            continue
+        field = f"{target.id}.name"
+        haystack = f"{target.id} {target.label or ''}".casefold()
+        if prefer and prefer in haystack:
+            return field
+        matches.append(field)
+    return matches[0] if len(matches) == 1 else None
 
 
 def _year_property(bundle: CompiledBundle, metric_ids: set[str] | frozenset[str]) -> str | None:
@@ -77,19 +109,23 @@ def query_from_intent(intent: TurnIntent, bundle: CompiledBundle) -> SemanticQue
     comparison = None
     if intent.comparison and len(metrics) == 1:
         comparison = ComparisonExpr(
-            op={
-                "shareOfTotal": "SHARE_OF_TOTAL",
-                "percentAboveMean": "RELATIVE_TO_MEAN",
-                "outperforms": "STRICT_PEER",
-            }[intent.comparison],
+            op=_CMP[intent.comparison],
             metric=metrics[0].id,
             direction=intent.direction,
         )
     group_by: tuple[GroupByItem, ...] = ()
-    if intent.breakdown and metrics:
+    if (intent.breakdown or intent.group_label) and metrics:
         metric = next((item for item in bundle.metrics if item.id == metrics[0].id), None)
-        if metric is not None and metric.population is not None:
-            group_by = (GroupByItem(id=metric.population.unit_property),)
+        if metric is not None:
+            linked = (
+                _one_link_name_field(bundle, metric.object_type, intent.group_prefer)
+                if intent.group_label
+                else None
+            )
+            if linked:
+                group_by = (GroupByItem(id=linked),)
+            elif metric.population is not None:
+                group_by = (GroupByItem(id=metric.population.unit_property),)
     return SemanticQuery(
         api_version="semaloom/v0.1",
         metrics=metrics,
@@ -177,9 +213,12 @@ def _years_for(service: QueryService, metric_id: str, tenant: str) -> list[int]:
     if not callable(handler):
         return []
     try:
-        return list(handler(service.bundle, metric_id, tenant))
+        years = handler(service.bundle, metric_id, tenant)
     except Exception:
         return []
+    if not isinstance(years, Iterable) or isinstance(years, (str, bytes)):
+        return []
+    return [int(year) for year in years]
 
 
 def _apply_defaults(
@@ -196,10 +235,15 @@ def _apply_defaults(
     if query.group_by and not intent.breakdown:
         updates["group_by"] = ()
         assumptions.append({"slot": "grain", "id": "total", "reason": "USER_DID_NOT_ASK_BREAKDOWN"})
-    elif intent.breakdown and not query.group_by and query.metrics:
+    elif (intent.breakdown or intent.group_label) and not query.group_by and query.metrics:
         metric = next((item for item in bundle.metrics if item.id == query.metrics[0].id), None)
-        if metric is not None and metric.population is not None:
-            updates["group_by"] = (GroupByItem(id=metric.population.unit_property),)
+        group_id = None
+        if metric is not None and intent.group_label:
+            group_id = _one_link_name_field(bundle, metric.object_type, intent.group_prefer)
+        if group_id is None and metric is not None and metric.population is not None:
+            group_id = metric.population.unit_property
+        if group_id:
+            updates["group_by"] = (GroupByItem(id=group_id),)
     year_field = _year_property(bundle, {item.id for item in query.metrics})
     if (
         year_field
@@ -404,14 +448,39 @@ def prepare_turn(
     payload["originalQuestion"] = message
     payload["releaseDigest"] = service.bundle.digest
     payload["assumptions"] = assumptions
+    if prepared.status == "UNSUPPORTED":
+        text = capability_message(prepared.capability or prepared.error_message)
+        payload.update(
+            {
+                "status": "UNSUPPORTED",
+                "kind": "unsupported",
+                "answerReady": True,
+                "textOrigin": "ENGINE",
+                "text": text,
+                "errorCode": prepared.capability or prepared.error_code or "OPERATOR_NOT_SUPPORTED",
+            }
+        )
+        return payload
     if prepared.status == "READY" and prepared.plan is not None:
         try:
             result = execute(service, prepared.plan, actor)
         except AnalysisError as exc:
+            if exc.code == "PROVIDER_UNAVAILABLE":
+                return {
+                    "status": "SOURCE_ERROR",
+                    "errorCode": exc.code,
+                    "retryable": True,
+                    "releaseDigest": service.bundle.digest,
+                }
+            text = capability_message(exc.code)
             return {
-                "status": "SOURCE_ERROR" if exc.code == "PROVIDER_UNAVAILABLE" else "UNSUPPORTED",
+                "status": "UNSUPPORTED",
+                "kind": "unsupported",
+                "answerReady": True,
+                "textOrigin": "ENGINE",
+                "text": text,
                 "errorCode": exc.code,
-                "retryable": exc.code == "PROVIDER_UNAVAILABLE",
+                "retryable": False,
                 "releaseDigest": service.bundle.digest,
             }
         completed = _completed_payload(service, actor, message, semantic, result, assumptions)
@@ -477,16 +546,27 @@ def _persist_prepared(
     follow_question = str(prepared.get("originalQuestion") or original)
     if prepared.get("answerReady"):
         refreshed = {**row, "query_state": {**query_state, "originalQuestion": follow_question}}
+        unsupported = prepared.get("status") == "UNSUPPORTED"
+        kind = "unsupported" if unsupported else "answer"
+        evidence_result = prepared.get("result") or (
+            {
+                "status": prepared.get("status"),
+                "errorCode": prepared.get("errorCode"),
+                "capability": prepared.get("capability"),
+            }
+            if unsupported
+            else {}
+        )
         answer = attach_lineage(
             {
-                "kind": "answer",
+                "kind": kind,
                 "textOrigin": "ENGINE",
                 "text": prepared.get("text") or "已按发布口径完成计算。",
                 "evidence": [
                     {
                         "id": "e1",
                         "tool": "prepare_semantic_query",
-                        "result": prepared.get("result") or {},
+                        "result": evidence_result,
                     }
                 ],
                 "releaseDigest": service.bundle.digest,
@@ -504,6 +584,7 @@ def _persist_prepared(
         )
         prepared["evidence"] = answer["evidence"]
         prepared["textOrigin"] = "ENGINE"
+        prepared["kind"] = kind
     elif prepared.get("status") == "NEEDS_INPUT":
         store.save_pending(actor, row, pending_out, query_state, follow_question)
     return prepared

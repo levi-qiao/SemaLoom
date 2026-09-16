@@ -6,12 +6,13 @@ permissions and arbitrary plan patches are not request inputs.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from semaloom.core.model import ValueType
 from semaloom.core.values import scalar_value
+from semaloom.core.wire import wire_config
 
 PREPARE_STATUSES = ("READY", "NEEDS_INPUT", "UNSUPPORTED", "SOURCE_ERROR")
 PrepareStatus = Literal["READY", "NEEDS_INPUT", "UNSUPPORTED", "SOURCE_ERROR"]
@@ -76,16 +77,11 @@ class ChoiceError(ValueError):
 
 
 class _Frozen(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        validate_by_name=True,
-    )
+    model_config = wire_config()
 
 
 class TypedValue(_Frozen):
-    value_type: ValueType = Field(alias="valueType")
+    value_type: ValueType
     value: str | int | bool | tuple[str | int | bool, ...]
 
     @model_validator(mode="after")
@@ -148,7 +144,7 @@ class MetricRef(_Frozen):
 
 class GroupByItem(_Frozen):
     id: str
-    time_grain: TimeGrain | None = Field(default=None, alias="timeGrain")
+    time_grain: TimeGrain | None = None
 
 
 class OrderByItem(_Frozen):
@@ -218,12 +214,12 @@ def with_choice_exits(
 
 
 class ChoiceQuestion(_Frozen):
-    question_id: str = Field(alias="questionId")
+    question_id: str
     revision: int = Field(ge=1)
     slot: str
     prompt: str
     reason: str
-    multi_select: bool = Field(default=False, alias="multiSelect")
+    multi_select: bool = False
     options: tuple[ChoiceOption, ...]
 
     @model_validator(mode="after")
@@ -242,30 +238,30 @@ class ChoiceQuestion(_Frozen):
 
 
 class ChoiceSubmit(_Frozen):
-    question_id: str = Field(alias="questionId")
+    question_id: str
     revision: int = Field(ge=1)
-    option_ids: tuple[str, ...] = Field(alias="optionIds", min_length=1, max_length=4)
-    other_text: str | None = Field(default=None, alias="otherText", max_length=400)
+    option_ids: tuple[str, ...] = Field(min_length=1, max_length=4)
+    other_text: str | None = Field(default=None, max_length=400)
 
 
 class Decision(_Frozen):
     slot: str
-    option_id: str = Field(alias="optionId")
+    option_id: str
     choice: SemanticChoice
-    question_id: str = Field(alias="questionId")
+    question_id: str
     revision: int
 
 
 class SemanticQuery(_Frozen):
-    api_version: Literal["semaloom/v0.1"] = Field(alias="apiVersion")
+    api_version: Literal["semaloom/v0.1"]
     metrics: tuple[MetricRef, ...] = Field(default=(), max_length=8)
-    group_by: tuple[GroupByItem, ...] = Field(default=(), alias="groupBy", max_length=8)
+    group_by: tuple[GroupByItem, ...] = Field(default=(), max_length=8)
     filters: FilterAtom | FilterGroup | None = None
-    order_by: tuple[OrderByItem, ...] = Field(default=(), alias="orderBy")
+    order_by: tuple[OrderByItem, ...] = ()
     limit: int | None = Field(default=None, ge=1, le=1000)
     comparison: ComparisonExpr | None = None
-    missing_policy: MissingPolicy | None = Field(default=None, alias="missingPolicy")
-    evidence_limit: int = Field(default=50, ge=1, le=50, alias="evidenceLimit")
+    missing_policy: MissingPolicy | None = None
+    evidence_limit: int = Field(default=50, ge=1, le=50)
     decisions: tuple[Decision, ...] = ()
 
     @model_validator(mode="after")
@@ -283,10 +279,10 @@ class SemanticQuery(_Frozen):
 
 
 class PlanRef(_Frozen):
-    plan_id: str = Field(alias="planId")
-    release_digest: str = Field(alias="releaseDigest")
+    plan_id: str
+    release_digest: str
     query: SemanticQuery
-    compiled_digest: str = Field(alias="compiledDigest")
+    compiled_digest: str
 
 
 class EvidenceColumn(_Frozen):
@@ -298,15 +294,15 @@ class EvidenceTable(_Frozen):
     columns: tuple[EvidenceColumn, ...]
     rows: tuple[tuple[str, ...], ...]
     truncated: bool = False
-    row_count: int | None = Field(default=None, alias="rowCount")
+    row_count: int | None = None
 
 
 class PrepareResult(_Frozen):
     status: PrepareStatus
     plan: PlanRef | None = None
     question: ChoiceQuestion | None = None
-    error_code: str | None = Field(default=None, alias="errorCode")
-    error_message: str | None = Field(default=None, alias="errorMessage")
+    error_code: str | None = None
+    error_message: str | None = None
     retryable: bool = False
     capability: str | None = None
 
@@ -329,27 +325,27 @@ class PrepareResult(_Frozen):
 
 
 class QuerySessionState(_Frozen):
-    conversation_id: str = Field(alias="conversationId")
-    tenant_id: str = Field(alias="tenantId")
-    actor_id: str = Field(alias="actorId")
-    release_digest: str = Field(alias="releaseDigest")
-    original_question: str = Field(alias="originalQuestion")
+    conversation_id: str
+    tenant_id: str
+    actor_id: str
+    release_digest: str
+    original_question: str
     query: SemanticQuery
-    pending_question: ChoiceQuestion | None = Field(default=None, alias="pendingQuestion")
-    plan_id: str | None = Field(default=None, alias="planId")
-    result_id: str | None = Field(default=None, alias="resultId")
-    question_revision: int = Field(default=0, alias="questionRevision")
+    pending_question: ChoiceQuestion | None = None
+    plan_id: str | None = None
+    result_id: str | None = None
+    question_revision: int = 0
 
 
 class QueryResult(_Frozen):
-    result_id: str = Field(alias="resultId")
-    plan_id: str = Field(alias="planId")
-    release_digest: str = Field(alias="releaseDigest")
+    result_id: str
+    plan_id: str
+    release_digest: str
     values: tuple[dict[str, Any], ...]
     scope: dict[str, Any]
-    mapping_fields: tuple[dict[str, Any], ...] = Field(alias="mappingFields")
+    mapping_fields: tuple[dict[str, Any], ...]
     evidence: EvidenceTable
-    source_activities: tuple[dict[str, Any], ...] = Field(default=(), alias="sourceActivities")
+    source_activities: tuple[dict[str, Any], ...] = ()
 
 
 def _append_filter(existing: FilterAtom | FilterGroup | None, atom: FilterAtom) -> FilterGroup:
@@ -401,12 +397,13 @@ def merge_decision(
         elif choice.kind == "AGGREGATION":
             if choice.id not in SUPPORTED_AGGREGATIONS:
                 raise ChoiceError("UNKNOWN_OPTION")
-            metrics = [item.model_copy(update={"aggregation": choice.id}) for item in metrics]
+            aggregation = cast(AggregationOp, choice.id)
+            metrics = [item.model_copy(update={"aggregation": aggregation}) for item in metrics]
         elif choice.kind == "COMPARISON":
             if choice.id not in SUPPORTED_COMPARISONS or not metrics:
                 raise ChoiceError("UNKNOWN_OPTION")
             comparison = ComparisonExpr(
-                op=choice.id,
+                op=cast(ComparisonOp, choice.id),
                 metric=metrics[0].id,
                 subject=comparison.subject if comparison else None,
             )

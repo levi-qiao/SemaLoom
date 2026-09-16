@@ -129,6 +129,7 @@ export function coveringObjectMapping(
   );
 }
 
+/** Optional Metric vocabulary entry (aliases / select / label). Not a physical Mapping class. */
 export function makeMetric(
   objectType: DraftDocument,
   local: string,

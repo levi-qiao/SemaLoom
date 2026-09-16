@@ -5,6 +5,9 @@
   objectType: procurement.Order
   property: amount
   label: 订单金额
+  aliases:
+    - 采购金额
+    - 订单总额
 
 - apiVersion: semaloom/v0.1
   kind: Metric

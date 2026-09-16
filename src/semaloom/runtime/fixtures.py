@@ -249,7 +249,9 @@ def _load_orders(engine: Engine) -> None:
             text(
                 """
                 INSERT INTO proc_organization(tenant_id, organization_id, name, approval_limit)
-                VALUES ('tenant-a', 'ORG-A', 'Org A', 5000.00)
+                VALUES
+                    ('tenant-a', 'ORG-A', 'Org A', 5000.00),
+                    ('tenant-a', 'ORG-B', 'Org B', 8000.00)
                 """
             )
         )
@@ -260,7 +262,11 @@ def _load_orders(engine: Engine) -> None:
                     tenant_id, order_id, organization_id, supplier_id,
                     amount, quantity, status
                 )
-                VALUES ('tenant-a', 'PO-001', 'ORG-A', 'SUP-1', 1200.00, 3, 'OPEN')
+                VALUES
+                    ('tenant-a', 'PO-001', 'ORG-A', 'SUP-1', 1200.00, 3, 'OPEN'),
+                    ('tenant-a', 'PO-002', 'ORG-A', 'SUP-1', 800.00, 2, 'OPEN'),
+                    ('tenant-a', 'PO-003', 'ORG-B', 'SUP-2', 500.00, 1, 'OPEN'),
+                    ('tenant-a', 'PO-004', 'ORG-B', 'SUP-3', 100.00, 1, 'CLOSED')
                 """
             )
         )
@@ -276,6 +282,7 @@ def _load_suppliers(engine: Engine) -> None:
                     tenant_id TEXT NOT NULL,
                     supplier_id TEXT NOT NULL,
                     name TEXT,
+                    region TEXT,
                     PRIMARY KEY (tenant_id, supplier_id)
                 )
                 """
@@ -284,8 +291,10 @@ def _load_suppliers(engine: Engine) -> None:
         conn.execute(
             text(
                 """
-                INSERT INTO proc_supplier(tenant_id, supplier_id, name)
-                VALUES ('tenant-a', 'SUP-1', 'Supplier One')
+                INSERT INTO proc_supplier(tenant_id, supplier_id, name, region)
+                VALUES
+                    ('tenant-a', 'SUP-1', 'Supplier One', 'EAST'),
+                    ('tenant-a', 'SUP-2', 'Supplier Two', 'WEST')
                 """
             )
         )

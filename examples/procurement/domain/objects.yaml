@@ -33,6 +33,9 @@
     - id: name
       label: 名称
       valueType: STRING
+    - id: region
+      label: 区域
+      valueType: STRING
 
 - apiVersion: semaloom/v0.1
   kind: ObjectType

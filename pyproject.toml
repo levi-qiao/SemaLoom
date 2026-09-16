@@ -106,6 +106,16 @@ packages = ["semaloom"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
+[tool.pyright]
+include = ["src/semaloom"]
+exclude = ["src/semaloom/app/static"]
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]
+typeCheckingMode = "standard"
+reportIncompatibleVariableOverride = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-q"]

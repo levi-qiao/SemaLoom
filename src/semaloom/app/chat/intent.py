@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from semaloom.core.bundle import CompiledBundle
 
@@ -21,12 +21,14 @@ class TurnIntent:
     comparison: str | None
     operation: str | None
     multiple_years: bool
-    direction: str
+    direction: Literal["higher", "lower"]
     exclude_allowed: bool
     metric_ids: frozenset[str]
     candidates: tuple[str, ...]
     clarify_comparison: bool
     breakdown: bool
+    group_label: bool
+    group_prefer: str | None
 
     @classmethod
     def read(cls, message: str, bundle: CompiledBundle) -> TurnIntent:
@@ -105,9 +107,19 @@ class TurnIntent:
             breakdown=bool(
                 re.search(
                     r"各(?:企业|公司|对象|家)|每(?:家|户|个对象)|逐[个家项]|明细|"
-                    r"分组|按(?:企业|公司|对象|sku)",
+                    r"分组|按(?:企业|公司|供应商|组织|对象|sku)",
                     text,
                 )
+            ),
+            group_label=bool(re.search(r"按(?:企业|公司|供应商|组织)名称|按名称", text)),
+            group_prefer=(
+                "supplier"
+                if "供应商" in text
+                else "organization"
+                if "组织" in text
+                else "company"
+                if re.search(r"企业|公司", text)
+                else None
             ),
         )
 

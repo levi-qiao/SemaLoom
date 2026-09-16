@@ -6,14 +6,15 @@
 
 ## Implementation conventions
 
-- 后端使用 Python + FastAPI，单个 `pyproject.toml`、`src/semaloom/` 包与 `uv.lock`。已验证组合：Python 3.13（`.python-version` 与 `requires-python = ">=3.13"`）、Ruff、mypy、pytest。不并行维护第二套类型检查器。
+- 后端使用 Python + FastAPI，单个 `pyproject.toml`、`src/semaloom/` 包与 `uv.lock`。已验证组合：Python 3.13（`.python-version` 与 `requires-python = ">=3.13"`）、Ruff、mypy、pytest。IDE 的 Pyright/basedpyright 通过 `[tool.pyright]` 对齐同一套源码与 `.venv`，不是第二套 CI 类型检查器。
+- 公开 JSON 使用 camelCase：Pydantic 模型用 `wire_config()` / `alias_generator=to_camel`。Python 构造函数只写字段名（`result_id=`）。禁止 `Field(alias=...)`，否则 Pyright 会把 JSON 名当成唯一构造参数。线名不是 `to_camel(field)` 时用 `validation_alias` + `serialization_alias`。
 - 依赖通过 uv 锁定，在仓库根 `.venv` 中运行：已有锁文件时使用 `uv sync --frozen`；命令通过 `uv run` 或 `.venv/bin/python` 执行。禁止 Conda、系统 pip、`pip --user` 或修改其他项目环境。
 - 业务定义放领域包；物理 Mapping、Action Binding 与协议代码放独立接入层。新增业务/协议提交需附 core 与公共 Compiler 无特判改动的证据；同一业务换来源通过接入契约测试。
 - Core 通过显式参数注入依赖；纯模型可用标准库数据类，输入校验使用 Pydantic。公开契约不暴露 FastAPI、SQLAlchemy 或厂商 SDK 对象；不为隔离 Pydantic 机械复制整套 DTO。
 - 金额使用 `decimal.Decimal`，显式数值 context、精度和舍入策略；从字符串构造，拒绝非有限值和隐式 float。规则使用有界 typed expression IR 的受限解释器，禁止 `eval/exec`。
 - JSON Schema 使用 draft 2020-12，YAML 使用 1.2 语义与安全解析。诊断码、字段名和语义 ID 使用英文，业务标签和文档允许中文。
 - 测试围绕外部接口和可观察行为。数据库语义使用 PostgreSQL 集成测试，不以 SQLite 替代验收；OpenAPI 使用可控制失败与重放的模拟服务。
-- 自动化检查：`uv sync --frozen` 后执行 `uv run ruff format --check .`、`uv run ruff check .`、`uv run mypy`、`uv run pytest`。覆盖契约正反例、包 import 方向及集成行为；CI 见 `.github/workflows/ci.yml`。
+- 自动化检查：`uv sync --frozen` 后执行 `uv run pytest`。pytest 会话开始时运行 Ruff、mypy、禁止 `Field(alias=)`，并在 `frontend/node_modules` 存在时运行 `pnpm check`（`tsc --noEmit`）。跳过静态检查：`uv run pytest --no-static` 或 `SEMALOOM_NO_STATIC=1`。覆盖契约正反例、包 import 方向及集成行为；CI 见 `.github/workflows/ci.yml`。前端 job 仍单独跑 `pnpm check` 与打包产物核对。
 - 接入 adapter 与 Action 恢复任务随同一个应用进程启动和停止，部署入口统一；不要求额外 worker、队列或查询服务。依赖放在项目环境，遵循实际 manifest/lockfile，禁止 home-level 项目依赖目录。
 - 本地 PostgreSQL 使用 Compose（`docker compose up -d --wait`）或等价的 Homebrew `postgresql@16`（`127.0.0.1:5432`，角色 `semaloom`，库 `semaloom_{tax,orders,suppliers,meta}`）。禁止对 `semaloom_samples` / `semaloom_sample_meta` 或远端库运行会清空 fixture 的测试。公共 quickstart 只使用合成数据。
 

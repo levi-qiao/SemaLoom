@@ -1,6 +1,6 @@
 # Semantic Contract v0.1
 
-当前只读入口补充：`GET /v0.1/describe?semanticId=...` 返回业务定义与 releaseDigest，Mapping/接入/授权配置不属于发现资源；未知 ID 返回 404。`GET /v0.1/search?q=...&limit=...` 按 ID/标签/描述匹配，返回 candidates、requiresSelection、hasMore 和 releaseDigest，limit 为 1–50、默认 20，q 为非空且最多 200 字符。多候选不得擅自选口径。当前仅粗粒度角色授权，细粒度与历史版本仍待关闭。
+当前只读入口补充：`GET /v0.1/describe?semanticId=...` 返回业务定义与 releaseDigest，Mapping/接入/授权配置不属于发现资源；未知 ID 返回 404。`GET /v0.1/search?q=...&limit=...` 按 ID/标签/描述匹配，返回 candidates、requiresSelection、hasMore 和 releaseDigest，limit 为 1–50、默认 20，q 为非空且最多 200 字符。Link 与 Metric 的发现投影含 `analysisCapabilities`：`collectionJoin` 为 true 仅当已声明 FORWARD ONE 且两端同一 PostgreSQL 来源；Link 另有 `pointLookup` / `keyedFind`；Metric 的 `sameTableCollection` 仅在已声明 `population` 时为 true。多候选不得擅自选口径。当前仅粗粒度角色授权，细粒度与历史版本仍待关闭。
 
 Query/Claim/上述发现入口接受显式 Bearer，或复用 Studio 服务端会话；cookie POST 复用 Origin/CSRF 校验，错误 Bearer 不回退 cookie，会话撤销和业务角色仍生效。Metric Observation 的 unit/valueType 来自所固定 release 的 Metric 定义。本项不改变 Action 的认证与批准绑定，也不构成生产 JWT/MCP 实现。
 
@@ -26,9 +26,12 @@ T01 负责正式 DSL/API 结构，T02–T06 完善运行行为，T09 完善 Stud
 
 ObjectIdentity = trusted tenant + ObjectType ID + 声明顺序/规范化后的 identity keys。PK 是来源定位，不能自动替代跨系统业务身份。跨系统身份对应必须显式 Mapping。
 
-观测事实来自已映射的对象测量槽（带 `unit` 的数值属性）。Metric 不是本体建模种类：Compiler 从带单位的数值属性与 Object Mapping 生成查询 IR（稳定 ID 默认为 `{objectType}.{property}`；可选词条只用于业务别名或 EAV 科目名）。作者不必重复 grain/unit/表列。合计、平均是 Query 算子，由 adapter 编译为参数化 SQL，请求不得携带 SQL。派生计算用 Rule/`outputMetric`，不在本体穷举公式。
+观测事实来自已映射的对象测量槽（带 `unit` 的数值属性）。
 
-编译后的 Metric MUST 具备 valueType、维度、grain、unit 和聚合行为，供 Query/Rule 使用。
+**Metric 双层含义（必须同时成立）**：
+
+1. **查询面一级公民**：编译后的 Metric 有稳定 ID，是 Query、Rule 输入、SemanticQuery、发现与 Chat 的入口；MUST 具备 valueType、维度、grain、unit 和聚合行为。
+2. **作者面非物理种类**：不为每个科目/金额列新建本体类或 Mapping。Compiler 从带单位属性与 Object Mapping 生成查询 IR（默认 ID `{objectType}.{property}`）；可选词条只补业务别名、口径或 EAV `select`。作者不必重复 grain/unit/表列。合计、平均是 Query 算子，由 adapter 编译为参数化 SQL，请求不得携带 SQL。派生用 Rule/`outputMetric`，不在本体穷举公式。Studio 不为指标提供独立配置页；词条在实体「属性与来源」语境维护。见 [ADR-0012](../adr/0012-facts-and-business-vocabulary.md)。
 
 V0.1 指标查询先支持精确 grain 点查，所有必需维度必须绑定。聚合默认 `NONE`，明确声明支持的维度聚合以后才开放；收入可能按月份求和，资产余额通常不能沿时间求和，比率不能直接求平均。表达式、分组和任意 ad-hoc JOIN 不进入 v0.1 Query。
 
@@ -37,6 +40,8 @@ V0.1 指标查询先支持精确 grain 点查，所有必需维度必须绑定�
 Perspective 是 grain 的一部分。只有实际业务等价才批准 alias；“营业收入”“销售收入”“主营业务收入”不能仅凭相似度配置成同义词。口径含义发生变化时引入新 ID 或兼容性声明，不能保证任何政策变化都只改 Mapping。
 
 Link MUST 声明方向、源/目标类型、身份绑定、基数（ONE/MANY）、支持的遍历和安全范围。反向遍历不是自动获得的能力。路径长度和 fan-out 受第 7 节预算控制，超限则终止，不能截断后继续声称完整。
+
+**Link 与分析能力边界**：声明式 Link 支撑对象/指标点查与有界跨源键查找（第 7 节）。SemanticQuery 集合分析可沿**已声明、FORWARD、基数 ONE 的 PostgreSQL Link** 对关联对象属性分组或筛选：同一来源 MUST 下推 LEFT JOIN；不同 PostgreSQL 来源 MUST 由引擎按 `Link.identity` 抽键、分批对齐（bind-join），调用方不得提交 JOIN 表达式或键列表。一对多、非 PostgreSQL 目标、多跳或未声明路径 MUST 返回明确 `UNSUPPORTED`。键数超预算 MUST 返回 `BUDGET_EXCEEDED`。缺失的关联对象保留为分组空值，不得用 INNER JOIN 丢行冒充不存在。
 
 ## 3. Mapping 与来源选择
 
@@ -312,7 +317,7 @@ Chat metadata 与业务来源分开；运行进程、时间、工具数量及输
 
 ## 集合统计与浏览器来源表格增补
 
-`Metric.population` 可选声明 unitProperty、yearProperty、description；Compiler 验证统计单位存在、年度为 INTEGER、单对象身份及支持的 grain。`POST /v0.1/analyze` 与 `analyze_population` 接受 metric、year、精确 filters、operation（mean/sum/min/max/count）、missingPolicy（reject/exclude）和可选 comparison（identity 或 filters 二选一、operation、direction）。操作、分母、完整性、错误语义见 [分析质量](../analysis-quality.md)。无声明、重复统计单位、超限、来源故障和期间不符拒绝；缺失默认不计算，不自动当零。50 为完整集合上限，不能以分页截断计算总体。接口不接受 SQL、URL 或 caller 权限。
+`Metric.population` 可选声明 unitProperty、yearProperty、description；Compiler 验证统计单位存在、年度为 INTEGER、单对象身份及支持的 grain。集合分析的主入口是 SemanticQuery（Chat：`prepare_semantic_query`；HTTP：`POST /v0.1/semantic-query/prepare` 与 execute）。`POST /v0.1/analyze`（原 `analyze_population`）为**已废弃兼容入口**，仅翻译到同一 SemanticQuery 链，不得当作第二条统计引擎；新集成禁止依赖它。操作、分母、完整性、错误语义以 [分析质量](../analysis-quality.md) 与 [主责收口](../semantic-query-closure.md) 为准。无声明、重复统计单位、超限、来源故障和期间不符拒绝；缺失默认不计算，不自动当零。**50 是每个指标证据明细的分页上限，不是总体聚合的对象数上限**；达到结果分组预算须明确要求缩小范围，不能截断后判断不存在。接口不接受 SQL、URL 或 caller 权限。
 
 Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实际 Mapping 引用的资源与字段投影，无凭证/连接字符串；不进入模型消息。访问仍需当前 Studio 模型查看/来源权限，历史同样过滤，字段列表明确是映射定义，不代表每列都被读取。原先五个只读工具扩展为六个，原有路由保持兼容。
 
@@ -329,13 +334,13 @@ Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实�
 
 可组合分析的公共输入是 `SemanticQuery`（`semaloom.core.semantic_query`），不是 SQL。`prepare` 状态为 `READY`、`NEEDS_INPUT`、`UNSUPPORTED`、`SOURCE_ERROR`。选择题选项含 option id、业务标签、说明和服务器持有的类型化选择；提交只含 option id。会话恢复见 `QuerySessionState`。证据以表格返回口径、数量/分母、来源 Mapping 字段；50 只限制明细分页。
 
-首版仅同源 PostgreSQL。算子清单、能力拒绝和选型证据见 [ADR-0011](../adr/0011-semantic-query-planner.md)。样例：[直接计算](samples/semantic-query-direct.json)、[两轮选择后计算](samples/semantic-query-two-round.json)。`analyze_population` 仍为兼容入口，Q1 将其翻译到同一执行链；本增补不把产品迁移标为已完成。
+首版仅同源 PostgreSQL。算子清单、能力拒绝和选型证据见 [ADR-0011](../adr/0011-semantic-query-planner.md)。样例：[直接计算](samples/semantic-query-direct.json)、[两轮选择后计算](samples/semantic-query-two-round.json)。`POST /v0.1/analyze`（`analyze_population`）为已废弃兼容入口，仅翻译到同一执行链；Chat 与新 Agent 集成不得再注册该工具。
 
 不引入调用方 SQL、权限或任意计划补丁。`SOURCE_ERROR` 与用户需要选择的信息分开；`UNSUPPORTED` 用于清单外算子。用户选择不能把 NULL 当零，也不能把 Rule UNKNOWN 写成通过。
 
 ### 主责复验增补：组合结果与澄清
 
-当前实现与未闭合目标以 [主责收口](../semantic-query-closure.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺年度/缺聚合仍返回选择题。Chat 在唯一指标已识别时可用来源最新年度和可加性合计作答，并在回答中标注假设与置信度；这不是用户已提交的选择，也不把模型自报 confidence 当正确性证明。规则检查只用于评分，不阻止回答。未要求明细时不默认按对象分组。多年度以类型化筛选表达，统计单位按声明年度组合检查。跨表 Link 集合查询和多指标联合排序/比较尚不支持，不能静默退化。
+当前实现与未闭合目标以 [主责收口](../semantic-query-closure.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺年度/缺聚合仍返回选择题。Chat 在唯一指标已识别时可用来源最新年度和可加性合计作答，并在回答中标注假设与置信度；这不是用户已提交的选择，也不把模型自报 confidence 当正确性证明。规则检查只用于评分，不阻止回答。未要求明细时不默认按对象分组。多年度以类型化筛选表达，统计单位按声明年度组合检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
 
 ChoiceKind 增加 AGGREGATION、COMPARISON、FILTER、OTHER；FILTER 的 predicate 由服务器保留。选择题必须同时提供 OTHER 与 ABORT。前端点选 option id；OTHER 在卡片内提交 `otherText`，服务端并入原问题再解释。歧义指标、比较口径、比较主体和同字段冲突 EQ 仍用选择式澄清。模型不能提交 decisions，不能改写用于校验的原始问题。明确缺失拒绝不能被模型排除策略覆盖。失败保留 pending，保存答案/清除 pending 原子完成。
 
@@ -343,7 +348,7 @@ ChoiceKind 增加 AGGREGATION、COMPARISON、FILTER、OTHER；FILTER 的 predica
 
 ### Chat 本体发现与说明（2026-09-15）
 
-Chat 网关提供 `list_semantics({offset?,limit?})`：offset 为非负整数，limit 为 1–50，默认 20。从已认证 actor 可发现的固定 release 读取业务定义，按语义 ID 排序；返回 `definitions / hasMore / nextOffset / releaseDigest`，不暴露 Mapping 或来源凭证。它是 Chat 工具，不新增公开 HTTP/MCP 路由。目录范围标记为 `DECLARED_MODEL_NOT_SOURCE_OBSERVATIONS`；定义存在不证明实例存在、年度覆盖或连接可用。
+Chat 网关提供 `list_semantics({offset?,limit?})`：offset 为非负整数，limit 为 1–50，默认 20。从已认证 actor 可发现的固定 release 读取业务定义，按语义 ID 排序；返回 `definitions / hasMore / nextOffset / releaseDigest`，不暴露 Mapping 或来源凭证。Link 与 Metric 条目与 HTTP describe/search 共用同一发现投影，含 `analysisCapabilities`（`collectionJoin` 仅对已声明 ONE 同源 Link 为 true）。它是 Chat 工具，不新增公开 HTTP/MCP 路由。目录范围标记为 `DECLARED_MODEL_NOT_SOURCE_OBSERVATIONS`；定义存在不证明实例存在、年度覆盖或连接可用。
 
 `present_answer.kind=explanation` 仅引用本轮 `list_semantics/search_semantics/describe_semantic` 的证据；缺失/伪造引用或混入实例事实证据被拒绝。兼容旧 host 对纯定义证据提交的 `answer`，服务器将其降为 `explanation`，`textOrigin=AI`，绝不标为引擎事实。当前数值/比较请求约束仍然适用；不能靠更换 kind 绕过计算。定量结果和规则结论继续由引擎生成，选择式澄清行为不变。
 

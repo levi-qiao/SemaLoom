@@ -401,4 +401,5 @@ def test_no_second_stats_engine_or_parallel_choice_state_machine(warehouse: Any)
     assert "ctx.ui.select" not in plugin
     prompt = (ROOT / "src/semaloom/app/chat/system_prompt.txt").read_text(encoding="utf-8")
     assert "prepare_semantic_query" in prompt
-    assert "analyze_population" not in prompt
+    assert prompt.count("analyze_population") == 1
+    assert "已废弃的 analyze_population" in prompt
