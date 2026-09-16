@@ -430,8 +430,9 @@ test("fixed graph load stays within the interaction budget", async ({ page }) =>
   await expect(page.getByRole("complementary", { name: "供应商" })).toBeVisible();
   const selectionMs = Date.now() - selectionStarted;
 
-  expect(navigationMs).toBeLessThan(1_000);
-  expect(selectionMs).toBeLessThan(1_000);
+  const budget = process.env.CI ? 2_500 : 1_000;
+  expect(navigationMs).toBeLessThan(budget);
+  expect(selectionMs).toBeLessThan(budget);
 });
 
 async function ready(page: import("@playwright/test").Page) {

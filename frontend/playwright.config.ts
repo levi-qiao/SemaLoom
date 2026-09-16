@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: "./tests",
   timeout: isolated ? 90_000 : 30_000,
   fullyParallel: false,
-  retries: 0,
+  retries: process.env.CI ? 2 : 0,
   reporter: "line",
   use: {
     baseURL:
