@@ -46,52 +46,82 @@ export function isOpenApi(value: unknown): boolean {
   return text(value) === "openapi";
 }
 
-export function emptyMappingPhysical(provider: string, identityKey: string): Record<string, unknown> {
+export function defaultMappingCapabilities(provider: string): string[] {
+  return provider === "openapi"
+    ? ["POINT_READ"]
+    : ["POINT_READ", "COLLECTION_READ", "EQUI_JOIN"];
+}
+
+function identityList(value: string | string[]): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values.filter(Boolean);
+}
+
+export function emptyMappingPhysical(
+  provider: string,
+  identityKey: string | string[],
+): Record<string, unknown> {
+  const identities = identityList(identityKey);
+  const primary = identities[0] ?? "id";
   if (provider === "openapi") {
+    const identityParameters = Object.fromEntries(identities.map((key) => [key, key]));
+    const identityPointers = Object.fromEntries(identities.map((key) => [key, `/${key}`]));
     return {
       method: "GET",
       path: "",
       operationId: "",
-      identityParameter: identityKey,
-      identityPointer: `/${identityKey}`,
-      grainPointers: { [identityKey]: `/${identityKey}` },
+      identityParameter: primary,
+      identityPointer: `/${primary}`,
+      identityParameters,
+      identityPointers,
+      grainPointers: { ...identityPointers },
       propertyPointers: {},
     };
   }
+  const identityColumns = Object.fromEntries(identities.map((key) => [key, ""]));
   return {
     table: "",
     tenantColumn: "tenant_id",
     identityColumn: "",
-    grainColumns: { [identityKey]: "" },
+    identityColumns,
+    grainColumns: { ...identityColumns },
     propertyColumns: {},
   };
 }
 
 export function emptyMetricPhysical(
   provider: string,
-  identityKey: string,
+  identityKey: string | string[],
   grain: string[],
 ): Record<string, unknown> {
-  const dims = grain.length ? grain : [identityKey];
+  const identities = identityList(identityKey);
+  const primary = identities[0] ?? "id";
+  const dims = grain.length ? grain : identities.length ? identities : [primary];
   if (provider === "openapi") {
     const grainPointers: Record<string, string> = {};
     for (const dim of dims) grainPointers[dim] = `/${dim}`;
+    const identityParameters = Object.fromEntries(identities.map((key) => [key, key]));
+    const identityPointers = Object.fromEntries(identities.map((key) => [key, `/${key}`]));
     return {
       method: "GET",
       path: "",
       operationId: "",
-      identityParameter: identityKey,
-      identityPointer: `/${identityKey}`,
+      identityParameter: primary,
+      identityPointer: `/${primary}`,
+      identityParameters,
+      identityPointers,
       valuePointer: "/value",
       grainPointers,
     };
   }
   const grainColumns: Record<string, string> = {};
   for (const dim of dims) grainColumns[dim] = "";
+  const identityColumns = Object.fromEntries(identities.map((key) => [key, ""]));
   return {
     table: "",
     tenantColumn: "tenant_id",
     identityColumn: "",
+    identityColumns,
     valueColumn: "",
     grainColumns,
     filters: {},
@@ -138,7 +168,7 @@ export function makeMetric(
   propertyId?: string,
 ): DraftDocument {
   const namespace = objectType.id.split(".")[0] ?? "domain";
-  const identity = String(array(objectType.identityKeys)[0] ?? "id");
+  const identities = array(objectType.identityKeys).map(String).filter(Boolean);
   const property = propertyId || text(measureProperties(objectType)[0]?.id);
   const document: DraftDocument = {
     apiVersion: "semaloom/v0.1",
@@ -157,7 +187,7 @@ export function makeMetric(
   } else {
     document.valueType = "DECIMAL";
     document.unit = unit.trim();
-    document.grain = [identity];
+    document.grain = identities.length ? identities : ["id"];
   }
   return document;
 }
