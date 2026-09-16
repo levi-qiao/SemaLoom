@@ -16,6 +16,13 @@ import {
 import { cardinalityHint, cardinalityLabel, namespaceLabel, publishedExecutionHint } from "./labels";
 import { MappingEditor, makeMappingDocument } from "./MappingEditor";
 import { PropertyMappingSheet } from "./PropertyMappingSheet";
+import {
+  AboutSidePanel,
+  ActionsSidePanel,
+  RelationsSidePanel,
+  RulesSidePanel,
+  SheetHelp,
+} from "./EntitySidePanels";
 import type { DraftDocument, SourceProfileSummary } from "./types";
 
 type Tab = "about" | "properties" | "relations" | "rules" | "actions";
@@ -274,15 +281,28 @@ export function EntityEditor({
       {tab === "about" ? (
         <div className="entity-sheet">
           <div className="entity-sheet-main">
-            <label className="form-field"><span>显示名称</span>
-              <input aria-label="显示名称" value={text(document.label)} onChange={(event) => replace({ ...document, label: event.target.value })} />
-            </label>
+            <div className="form-grid">
+              <label className="form-field"><span>显示名称</span>
+                <input aria-label="显示名称" value={text(document.label)} onChange={(event) => replace({ ...document, label: event.target.value })} />
+              </label>
+              <label className="form-field"><span>语义 ID</span>
+                <input value={document.id} readOnly disabled className="is-readonly" />
+              </label>
+            </div>
             <label className="form-field"><span>描述（给 AI 和同事看）</span>
               <textarea rows={4} aria-label="实体描述" value={text(document.description)} onChange={(event) => replace({ ...document, description: event.target.value || undefined })} placeholder="这个实体是什么、何时使用、和哪些系统有关" />
             </label>
             <p className="mapping-hint">语义 ID：{document.id}（稳定英文标识，不能靠改显示名称替换）</p>
           </div>
-          {quick ? null : <div className="entity-sheet-side"><SheetHelp title="概况" body="名称给人和 AI 看；语义 ID 一旦发布就不要改。属性和表字段的对应在「属性与来源」。" /></div>}
+          {quick ? null : (
+            <div className="entity-sheet-side">
+              <AboutSidePanel
+                document={document}
+                documents={documents}
+                onOpenEntity={onOpenEntity}
+              />
+            </div>
+          )}
         </div>
       ) : null}
       {tab === "properties" && quick ? (
@@ -319,7 +339,12 @@ export function EntityEditor({
             )) : <p className="empty">还没有关系。可用表单添加，不必只靠图谱拖拽。</p>}
           </div>
           <div className="entity-sheet-side">
-            <SheetHelp title="关系" body="这里配置实体之间的业务关系。左侧两列表单，右侧说明，和「属性与来源」同一套分栏。" />
+            <RelationsSidePanel
+              document={document}
+              documents={documents}
+              links={links}
+              onOpenEntity={onOpenEntity}
+            />
           </div>
         </div>
       ) : null}
@@ -341,7 +366,11 @@ export function EntityEditor({
           </div>
           {quick ? null : (
             <div className="entity-sheet-side">
-              <SheetHelp title="判断" body="判断引用属性或指标。先在「属性与来源」把字段对上，再写判断。" />
+              <RulesSidePanel
+                document={document}
+                documents={documents}
+                rules={rules}
+              />
             </div>
           )}
         </div>
@@ -349,6 +378,7 @@ export function EntityEditor({
       {tab === "actions" && !quick ? (
         <div className="entity-sheet">
           <div className="entity-sheet-main">
+            <p className="mapping-hint">受控操作会调用外部系统写接口。所有写操作必须通过前置审批和执行对账。</p>
             {actions.length ? actions.map((action) => (
               <article className="bind-card" key={action.id}>
                 <strong>{text(action.label) || action.id}</strong>
@@ -360,7 +390,12 @@ export function EntityEditor({
             )) : <p className="empty">这个实体还没有会改业务系统的操作。</p>}
           </div>
           <div className="entity-sheet-side">
-            <SheetHelp title="操作" body="操作会改变业务系统。前提判断在「判断」里配置。" />
+            <ActionsSidePanel
+              document={document}
+              documents={documents}
+              actions={actions}
+              rules={rules}
+            />
           </div>
         </div>
       ) : null}
@@ -495,13 +530,4 @@ export async function loadDeleteImpacts(entityId: string, documents: DraftDocume
 
 function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return <button className={active ? "chip active" : "chip"} onClick={onClick} aria-pressed={active}>{label}</button>;
-}
-
-function SheetHelp({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="sheet-help">
-      <strong>{title}</strong>
-      <p>{body}</p>
-    </div>
-  );
 }
