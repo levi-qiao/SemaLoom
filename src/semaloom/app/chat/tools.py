@@ -39,7 +39,7 @@ class SemanticTools:
         self.query, self.actor = query, actor
         self.user_message = user_message
         self.evidence: dict[str, dict[str, Any]] = {}
-        self.identities: set[tuple[str, str, str]] = set()
+        self.identities: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
         self.answer: dict[str, Any] | None = None
         self.pending: dict[str, Any] | None = None
         self.calls = 0
@@ -87,10 +87,10 @@ class SemanticTools:
                 "description": "Browse the current authorized ontology: objects, metrics, links "
                 "and rules. Use for open questions about what can be asked. Follow nextOffset "
                 "for more. Definitions describe configured meanings, NOT actual available rows. "
-                "Link and Metric documents include analysisCapabilities: collectionJoin is true "
-                "only for declared ONE links on the same PostgreSQL source (group/filter by the "
-                "related object's attributes). Otherwise Links are for point lookup and keyed "
-                "find.",
+                "Link and Metric documents include analysisCapabilities derived from approved "
+                "mapping capabilities: pointLookup requires POINT_READ, keyedFind requires "
+                "COLLECTION_READ, and collectionJoin requires a declared ONE link whose mappings "
+                "advertise EQUI_JOIN.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -231,8 +231,8 @@ class SemanticTools:
             request = ObjectSearchRequest.model_validate(args)
             result = self.query.find_objects(request, self.actor)
             for obj in result["objects"]:
-                for key, value in obj["identity"].items():
-                    self.identities.add((request.object_type, key, str(value)))
+                identity = {str(key): str(value) for key, value in obj["identity"].items()}
+                self.identities.add((request.object_type, _identity_tuple(identity)))
             return result
         if name == "prepare_semantic_query":
             from semaloom.app.chat.choices import prepare_turn, query_from_intent
@@ -400,11 +400,17 @@ class SemanticTools:
 
     def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
         obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
-        if obj is None or len(obj.identity_keys) != 1:
+        if obj is None or not obj.identity_keys:
             raise ValueError("UNSUPPORTED_IDENTITY")
-        for key in obj.identity_keys:
-            if (object_type, key, str(bindings.get(key))) not in self.identities:
-                raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
+        if not set(obj.identity_keys) <= set(bindings):
+            raise ValueError("UNSUPPORTED_IDENTITY")
+        identity = {key: str(bindings[key]) for key in obj.identity_keys}
+        if (object_type, _identity_tuple(identity)) not in self.identities:
+            raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
+
+
+def _identity_tuple(identity: dict[str, str]) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted(identity.items()))
 
 
 SYSTEM_PROMPT = Path(__file__).with_name("system_prompt.txt").read_text()
