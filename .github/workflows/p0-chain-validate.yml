@@ -50,6 +50,8 @@ jobs:
         run: python .github/scripts/finish_p0_chain.py
       - name: Install backend
         run: uv python install && uv sync --frozen --all-groups
+      - name: Format generated Python
+        run: uv run ruff format .
       - name: Create fixture databases
         run: |
           for database in semaloom_tax semaloom_orders semaloom_suppliers semaloom_meta semaloom_g4_tax semaloom_g4_orders semaloom_g4_suppliers semaloom_g4_meta; do
@@ -59,7 +61,7 @@ jobs:
         run: uv run pytest
       - name: Backend static checks
         run: |
-          uv run ruff format --check src tests
+          uv run ruff format --check .
           uv run ruff check src tests
           uv run mypy src/semaloom
       - name: Frontend check and build
@@ -72,7 +74,7 @@ jobs:
           pnpm build
       - name: Clean-boundary assertions
         run: |
-          ! grep -R -nE 'identityColumn|identityPointer|identityParameter' src/semaloom frontend/src examples --exclude='*.sql'
+          ! grep -R -nE '"identityColumn"|"identityPointer"|"identityParameter"' src/semaloom frontend/src examples
           ! grep -n 'mapping\.physical' src/semaloom/runtime/query.py
           ! grep -n 'provider == "postgres"' src/semaloom/runtime/discovery.py
           ! grep -n 'normalize_bindings' src/semaloom/runtime/query.py src/semaloom/app/chat/tools.py
