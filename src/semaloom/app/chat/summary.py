@@ -44,44 +44,52 @@ def semantic_summary(
     rows: list[str] = []
     headline = _headline(labels, result)
     if headline:
-        rows.append(headline)
-    rows.append("筛选范围：" + _filter_description(query.filters) + "。")
-    scopes = result.scope.get("metrics", {})
-    for ref in query.metrics:
-        scope = scopes.get(ref.id, result.scope)
-        rows.append(
-            f"{labels[ref.id]}：范围内 {scope.get('populationCount')} 个对象，"
-            f"有效 {scope.get('observedCount')} 个，缺失 {scope.get('missingCount')} 个。"
-        )
-        if scope.get("reason"):
-            rows.append("无法确定数值：" + scope["reason"] + "。缺失不当零。")
-    for value in result.values:
-        grain = "；".join(
-            (
-                f"{key} = {value.get('labels', {}).get(key)}（{item}）"
-                if value.get("labels", {}).get(key)
-                else f"{key} = {item}"
+        rows.append(f"### 📊 计算结论\n\n**{headline}**")
+
+    breakdown_values = [v for v in result.values if v.get("grain")]
+    if breakdown_values:
+        breakdown_rows = []
+        for value in breakdown_values:
+            grain = "；".join(
+                (
+                    f"{key} = {value.get('labels', {}).get(key)}（{item}）"
+                    if value.get("labels", {}).get(key)
+                    else f"{key} = {item}"
+                )
+                for key, item in value.get("grain", {}).items()
             )
-            for key, item in value.get("grain", {}).items()
-        )
-        operation = OPERATIONS[
-            {"SUM": "sum", "AVG": "mean", "MIN": "min", "MAX": "max", "COUNT": "count"}[
-                value["aggregation"]
+            operation = OPERATIONS[
+                {"SUM": "sum", "AVG": "mean", "MIN": "min", "MAX": "max", "COUNT": "count"}[
+                    value["aggregation"]
+                ]
             ]
-        ]
-        display_value = value["value"] if value["value"] is not None else "未知"
-        rows.append(
-            f"{labels[value['metric']]}{('（' + grain + '）') if grain else ''}，"
-            f"{operation}：{display_value} {value['unit']}。"
-        )
+            display_value = value["value"] if value["value"] is not None else "未知"
+            metric_label = labels.get(value["metric"], value["metric"])
+            grain_suffix = f"（{grain}）" if grain else ""
+            breakdown_rows.append(
+                f"- {metric_label}{grain_suffix}，{operation}：`{display_value} {value['unit']}`。"
+            )
+        if breakdown_rows:
+            rows.append("#### 分组明细\n\n" + "\n".join(breakdown_rows))
+    elif not headline:
+        for value in result.values:
+            operation = OPERATIONS[
+                {"SUM": "sum", "AVG": "mean", "MIN": "min", "MAX": "max", "COUNT": "count"}[
+                    value["aggregation"]
+                ]
+            ]
+            display_value = value["value"] if value["value"] is not None else "未知"
+            metric_label = labels.get(value["metric"], value["metric"])
+            rows.append(f"{metric_label}，{operation}：{display_value} {value['unit']}。")
+
     comparison = result.scope.get("comparison")
     if comparison:
         if comparison.get("value") is None:
             rows.append("比较无法确定：" + str(comparison.get("reason")) + "。")
         else:
             rows.append(
-                f"{COMPARISONS[comparison['operation']]}：{comparison['value']}%。"
-                f"分子 {comparison['numerator']}，分母 {comparison['denominator']}。"
+                f"**比较分析**：{COMPARISONS[comparison['operation']]} `{comparison['value']}%`"
+                f"（分子 {comparison['numerator']}，分母 {comparison['denominator']}）。"
             )
             if query.comparison and query.comparison.op == "STRICT_PEER":
                 rows.append(
@@ -89,12 +97,27 @@ def semantic_summary(
                     if query.comparison.direction == "lower"
                     else "按越大越好比较。"
                 )
-    rows.append(
-        "缺失处理："
+
+    scope_lines = ["• 筛选范围：" + _filter_description(query.filters) + "。"]
+    scopes = result.scope.get("metrics", {})
+    for ref in query.metrics:
+        scope = scopes.get(ref.id, result.scope)
+        scope_lines.append(
+            f"• {labels[ref.id]}：范围内 {scope.get('populationCount')} 个对象，"
+            f"有效 {scope.get('observedCount')} 个，缺失 {scope.get('missingCount')} 个。"
+        )
+        if scope.get("reason"):
+            scope_lines.append("无法确定数值：" + scope["reason"] + "。缺失不当零。")
+    scope_lines.append(
+        "• 缺失处理："
         + ("按用户选择排除缺失。" if query.missing_policy == "exclude" else "存在缺失则不计算。")
     )
     if assumptions:
-        rows.append("系统默认：" + "；".join(_assumption_line(item) for item in assumptions) + "。")
+        scope_lines.append(
+            "• 系统默认：" + "；".join(_assumption_line(item) for item in assumptions) + "。"
+        )
+    rows.append("#### 📐 口径与范围说明\n\n" + "\n".join(scope_lines))
+
     if confidence:
         rows.append(
             f"置信度：{confidence['label']}（{confidence['score']}）。"
@@ -128,41 +151,104 @@ def _assumption_line(item: dict[str, str]) -> str:
     return item.get("reason") or item["slot"]
 
 
-def _pairs(value: dict[str, Any]) -> str:
-    return "；".join(f"{key} = {item}" for key, item in value.items()) or "无额外筛选"
-
-
 def evidence_summary(evidence: list[dict[str, Any]]) -> str:
     """Only engine facts enter definitive prose; free model prose cannot assert truth."""
-    lines: list[str] = []
+    import json
+
+    sections: list[str] = []
+
+    # 1. Claims / Rules checks
+    claims_rows: list[str] = []
     for entry in evidence:
         result = entry["result"]
         for claim_result in [result, *result.get("checks", [])]:
             claim = claim_result.get("claim")
             if claim:
-                lines.append(
-                    f"命题 {claim.get('claimId')}：{claim.get('truth')}。"
-                    f"原因：{_pairs({'原因码': claim.get('reasonCodes', [])})}。"
+                truth = claim.get("truth", "UNKNOWN")
+                claim_id = claim.get("claimId")
+                status_icon = "✅" if truth == "TRUE" else "❌" if truth == "FALSE" else "⚠️"
+                status_desc = (
+                    "规则校验通过"
+                    if truth == "TRUE"
+                    else "规则校验存在差异/未通过"
+                    if truth == "FALSE"
+                    else "规则状态未知"
+                )
+                reason_codes = claim.get("reasonCodes", [])
+                reasons_str = (
+                    "；".join(str(r) for r in reason_codes) if reason_codes else "无异常原因码"
+                )
+                claims_rows.append(
+                    f"- {status_icon} **{status_desc}**（`{claim_id}`：**{truth}**）\n"
+                    f"  - 核验说明：{reasons_str}"
                 )
             elif claim_result.get("error"):
-                lines.append(f"规则未完成：{claim_result['error']}。不能判断为通过。")
+                claims_rows.append(
+                    f"- ⚠️ **规则未完成**（`{claim_result.get('claimId', '未知')}`）："
+                    f"{claim_result['error']}。不能判断为通过。"
+                )
+    if claims_rows:
+        sections.append("### ⚖️ 业务规则与命题核验\n\n" + "\n".join(claims_rows))
+
+    # 2. Observations
+    obs_rows: list[str] = []
+    for entry in evidence:
+        result = entry["result"]
         for observation in result.get("observations", []):
             observed = observation.get("value") if observation.get("kind") == "PRESENT" else "未知"
             if observation.get("valueType") == "OBJECT":
                 observed = "属性见证据表"
-            lines.append(
-                f"{observation.get('target')}：{observed} "
-                f"{observation.get('unit') or ''}（{observation.get('kind')}；"
-                f"{observation.get('reason') or '见证据'}）。"
-            )
+            elif isinstance(observed, str) and observed.startswith("{"):
+                try:
+                    parsed = json.loads(observed)
+                    observed = ", ".join(f"{k}: {v}" for k, v in parsed.items())
+                except Exception:
+                    pass
+            target = observation.get("target")
+            unit = f" {observation.get('unit')}" if observation.get("unit") else ""
+            kind = observation.get("kind", "")
+            reason = observation.get("reason") or "来源已观测"
+            obs_rows.append(f"- **{target}**：`{observed}{unit}` （状态：`{kind}` · {reason}）")
+    if obs_rows:
+        sections.append("### 🔍 事实观测与指标数据\n\n" + "\n".join(obs_rows))
+
+    # 3. Objects
+    obj_sections: list[str] = []
+    seen_object_identities: set[tuple[str, str]] = set()
+    for entry in evidence:
+        result = entry["result"]
         if "objects" in result:
-            lines.append(
-                f"本次找到 {len(result['objects'])} 条匹配记录，具体身份与属性见证据表。"
-                + ("还有未展示记录。" if result.get("hasMore") else "结果限于当前授权和筛选范围。")
-            )
-    if not lines:
+            objs = result["objects"]
+            obj_type = result.get("objectType", "业务对象")
+            new_objs = []
+            for obj in objs:
+                ident_key = (obj_type, json.dumps(obj.get("identity", {}), sort_keys=True))
+                if ident_key not in seen_object_identities:
+                    seen_object_identities.add(ident_key)
+                    new_objs.append(obj)
+            if not new_objs:
+                continue
+            limit_hint = "还有未展示记录" if result.get("hasMore") else "全量已授权记录"
+            obj_lines = [f"### 📋 {obj_type}（检索到 {len(new_objs)} 项记录 · {limit_hint}）\n"]
+            for obj in new_objs[:10]:
+                ident_str = ", ".join(f"{k}={v}" for k, v in obj.get("identity", {}).items())
+                props = obj.get("properties", {})
+                props_display = [
+                    f"**{k}**: `{v}`"
+                    for k, v in props.items()
+                    if k not in obj.get("identity", {}) and v is not None
+                ]
+                props_text = " · ".join(props_display) if props_display else "无额外属性"
+                obj_lines.append(f"- 🔹 **`{ident_str}`** — {props_text}")
+            obj_sections.append("\n".join(obj_lines))
+    if obj_sections:
+        sections.extend(obj_sections)
+
+    if not sections:
         raise ValueError("FACTUAL_EVIDENCE_REQUIRED")
-    lines.append(
-        "以上为来源观测和已定义规则的结果；UNKNOWN 不等于 FALSE，规则成立不自动代表业务合规。"
+
+    sections.append(
+        "> ℹ️ **口径与审计说明**：以上结论来自系统已发布的不可变语义模型、来源观测与已审核规则引擎；"
+        "UNKNOWN 不等于 FALSE，规则成立不自动代表业务合规。"
     )
-    return "\n\n".join(lines)
+    return "\n\n".join(sections)

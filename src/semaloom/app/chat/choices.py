@@ -170,12 +170,15 @@ def _apply_intent(
 
 
 def _years_for(service: QueryService, metric_id: str, tenant: str) -> list[int]:
+    metric = next((m for m in service.bundle.metrics if m.id == metric_id), None)
+    if metric is None or not getattr(metric, "population", None):
+        return []
     handler = getattr(service.provider, "analysis_years", None)
     if not callable(handler):
         return []
     try:
         return list(handler(service.bundle, metric_id, tenant))
-    except (AnalysisError, ConnectionError, OSError):
+    except Exception:
         return []
 
 
@@ -292,6 +295,11 @@ def _completed_payload(
 _DEFINITION = re.compile(
     r"是什么|什么意思|含义|有哪些|能问什么|怎么用|如何使用|规则和适用范围|介绍一下|定义"
 )
+_COMPLEX_QUERY = re.compile(
+    r"谁|哪个|前[0-9一二两三四五六七八九十]+|最高|最低|最大|最小|最少|偏高|偏低|"
+    r"为什么|如何|怎样|怎么样|风险|原因|影响|预测|趋势|如果|假如|"
+    r"且|并且|以及|和.*一起|分布|排行|清单|明细|状况|是否|一致|对比|分析|延误|异常|差额|违规|超额"
+)
 
 
 def try_direct_turn(
@@ -299,7 +307,7 @@ def try_direct_turn(
 ) -> dict[str, Any] | None:
     """Answer or ask from ontology intent without a model when the question is structured."""
     text = message.strip()
-    if not text or _DEFINITION.search(text):
+    if not text or _DEFINITION.search(text) or _COMPLEX_QUERY.search(text):
         return None
     intent = TurnIntent.read(text, service.bundle)
     if not (intent.metric_ids or intent.candidates):

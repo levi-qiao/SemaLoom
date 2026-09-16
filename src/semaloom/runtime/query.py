@@ -239,26 +239,33 @@ class QueryService:
         filters = {
             k: scalar_value(str(v), definitions[k].value_type) for k, v in request.filters.items()
         }
-        candidates = [
+        filter_fields = set(request.filters) | set(obj.identity_keys)
+        search_candidates = [
             m
             for m in self.bundle.mappings
-            if m.target == obj.id and fields <= _mapped_object_fields(m)
+            if m.target == obj.id and filter_fields <= _mapped_object_fields(m)
         ]
+        best_match = [m for m in search_candidates if fields <= _mapped_object_fields(m)]
+        candidates = best_match if best_match else search_candidates
+        if len(candidates) > 1:
+            auth = [m for m in candidates if m.completeness == "AUTHORITATIVE"]
+            if len(auth) == 1:
+                candidates = auth
         if len(candidates) > 1:
             measure_ids = {prop.id for prop in obj.properties if prop.unit}
             identity = set(obj.identity_keys)
             requested = fields - identity
             if requested:
-                candidates = [
-                    item for item in candidates if requested <= _mapped_object_fields(item)
-                ]
+                by_req = [item for item in candidates if requested <= _mapped_object_fields(item)]
+                if len(by_req) == 1:
+                    candidates = by_req
             else:
                 descriptive = [
                     item
                     for item in candidates
                     if _descriptive_object_fields(item, measure_ids, identity)
                 ]
-                if descriptive:
+                if len(descriptive) == 1:
                     candidates = descriptive
         if len(candidates) != 1:
             raise ValueError("AMBIGUOUS_MAPPING" if candidates else "NO_MAPPING")
@@ -266,13 +273,26 @@ class QueryService:
         search = getattr(self.provider, "search_objects", None)
         if not callable(search):
             raise ValueError("SEARCH_NOT_SUPPORTED")
+        primary_fields = fields & _mapped_object_fields(mapping)
         page = search(
             mapping,
             tenant=actor.tenant,
             filters=filters,
-            properties=tuple(sorted(fields)),
+            properties=tuple(sorted(primary_fields)),
             limit=request.limit,
         )
+        unmapped = fields - _mapped_object_fields(mapping)
+        if unmapped and hasattr(self.provider, "fetch_object"):
+            for prop in unmapped:
+                sec_m, _ = self._object_mapping_for_property(obj.id, prop)
+                if sec_m:
+                    for row in page.rows:
+                        id_key = str(row.get(obj.identity_keys[0]))
+                        sec_res = self.provider.fetch_object(
+                            sec_m, tenant=actor.tenant, identity_value=id_key
+                        )
+                        if sec_res.values and prop in sec_res.values:
+                            row[prop] = sec_res.values[prop]
         records = []
         seen: set[str] = set()
         for row in page.rows:
