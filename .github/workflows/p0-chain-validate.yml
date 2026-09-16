@@ -226,7 +226,27 @@ jobs:
             createdb --host 127.0.0.1 --username semaloom "$database"
           done
       - name: Backend tests
-        run: uv run pytest
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q --tb=short 2>&1 | tee /tmp/p0-ci.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "stage=backend-tests"
+              echo "run=$GITHUB_RUN_ID"
+              echo "commit=$GITHUB_SHA"
+              echo
+              tail -n 500 /tmp/p0-ci.log
+            } > .github/p0-ci-failure.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/p0-ci-failure.txt
+            git commit -m "chore: persist p0 CI failure diagnostics"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            exit "$status"
+          fi
       - name: Backend static checks
         run: |
           uv run ruff format --check .
@@ -252,7 +272,7 @@ jobs:
           test -f tests/test_composite_identity_chain.py
       - name: Commit validated implementation
         run: |
-          rm -f .github/scripts/finish_p0_chain.py .github/workflows/p0-chain-validate.yml
+          rm -f .github/p0-ci-failure.txt .github/scripts/finish_p0_chain.py .github/workflows/p0-chain-validate.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
