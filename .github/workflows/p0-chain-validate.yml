@@ -1,4 +1,4 @@
-name: P0 Full Chain Validation
+name: P0 Clean Cut Validation
 
 on:
   push:
@@ -9,12 +9,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: p0-chain-${{ github.ref }}
+  group: p0-clean-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   apply-test-build:
-    if: ${{ !contains(github.event.head_commit.message, '[p0-chain-complete]') }}
+    if: ${{ contains(github.event.head_commit.message, '[run-p0-clean]') && !contains(github.event.head_commit.message, '[p0-chain-complete]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: frontend/.node-version
-      - name: Apply full-chain patch
+      - name: Apply clean-cut migration
         run: python .github/scripts/finish_p0_chain.py
       - name: Install backend
         run: uv python install && uv sync --frozen --all-groups
@@ -59,6 +59,7 @@ jobs:
         run: uv run pytest
       - name: Backend static checks
         run: |
+          uv run ruff format --check src tests
           uv run ruff check src tests
           uv run mypy src/semaloom
       - name: Frontend check and build
@@ -69,11 +70,14 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm check
           pnpm build
-      - name: Boundary assertions
+      - name: Clean-boundary assertions
         run: |
+          ! grep -R -nE 'identityColumn|identityPointer|identityParameter' src/semaloom frontend/src examples --exclude='*.sql'
+          ! grep -n 'mapping\.physical' src/semaloom/runtime/query.py
           ! grep -n 'provider == "postgres"' src/semaloom/runtime/discovery.py
-          ! grep -n 'len(obj.identity_keys) != 1' src/semaloom/app/chat/tools.py
-          ! grep -n 'identity: str$' src/semaloom/app/http.py
+          ! grep -n 'normalize_bindings' src/semaloom/runtime/query.py src/semaloom/app/chat/tools.py
+          ! grep -n 'identity: str' src/semaloom/app/http.py src/semaloom/runtime/studio.py
+          test -f src/semaloom/compiler/mapping_ir.py
           test -f tests/test_composite_identity_chain.py
       - name: Commit validated implementation
         run: |
@@ -81,5 +85,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "feat: complete capability and composite identity chain [p0-chain-complete]"
+          git commit -m "feat: complete capability IR and composite identity chain [p0-chain-complete]"
           git push origin HEAD:feat/p0-capability-composite-identity
