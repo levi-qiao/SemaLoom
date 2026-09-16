@@ -1,0 +1,15 @@
+name: P0 Refactor Bootstrap
+
+on:
+  push:
+    branches:
+      - feat/p0-capability-composite-identity
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ready
