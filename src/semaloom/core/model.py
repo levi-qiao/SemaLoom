@@ -12,6 +12,7 @@ from semaloom.core.wire import wire_config
 ValueType = Literal["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME"]
 Cardinality = Literal["ONE", "MANY"]
 Aggregation = Literal["NONE", "SUM", "MAX", "MIN"]
+MappingCapability = Literal["POINT_READ", "COLLECTION_READ", "EQUI_JOIN"]
 PolicyEnd = str | None
 
 
@@ -186,6 +187,7 @@ class MappingDef(_Doc):
     perspective: str | None = None
     expected_cardinality: Cardinality
     completeness: Literal["AUTHORITATIVE", "PARTIAL"] = "PARTIAL"
+    capabilities: tuple[MappingCapability, ...] = ("POINT_READ",)
     physical: dict[str, Any]
 
 
