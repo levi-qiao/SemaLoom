@@ -6,6 +6,7 @@ import unicodedata
 from typing import Any
 
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.model import MappingCapability
 from semaloom.runtime.auth import RequestActor, authorize_query
 
 
@@ -77,15 +78,23 @@ class SemanticDiscovery:
         }
 
 
-def _postgres_object_mapping(bundle: CompiledBundle, object_type_id: str) -> Any:
+def _capable_object_mapping(
+    bundle: CompiledBundle, object_type_id: str, capability: MappingCapability
+) -> Any:
     matches = [
         item
         for item in bundle.mappings
-        if item.target == object_type_id and item.provider == "postgres"
+        if item.target == object_type_id and capability in item.capabilities
     ]
     if len(matches) != 1:
         return None
     return matches[0]
+
+
+def _object_has_capability(
+    bundle: CompiledBundle, object_type_id: str, capability: MappingCapability
+) -> bool:
+    return _capable_object_mapping(bundle, object_type_id, capability) is not None
 
 
 def _link_collection_join(
@@ -93,8 +102,8 @@ def _link_collection_join(
 ) -> bool:
     if cardinality != "ONE":
         return False
-    source_mapping = _postgres_object_mapping(bundle, source)
-    target_mapping = _postgres_object_mapping(bundle, target)
+    source_mapping = _capable_object_mapping(bundle, source, "EQUI_JOIN")
+    target_mapping = _capable_object_mapping(bundle, target, "EQUI_JOIN")
     return source_mapping is not None and target_mapping is not None
 
 
@@ -102,15 +111,18 @@ def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle
     """Project the current collection-analysis boundary onto discovery documents."""
     kind = document.get("kind")
     if kind == "Link":
+        source = str(document.get("source") or "")
+        target = str(document.get("target") or "")
         return {
             **document,
             "analysisCapabilities": {
-                "pointLookup": True,
-                "keyedFind": True,
+                "pointLookup": _object_has_capability(bundle, source, "POINT_READ")
+                and _object_has_capability(bundle, target, "POINT_READ"),
+                "keyedFind": _object_has_capability(bundle, target, "COLLECTION_READ"),
                 "collectionJoin": _link_collection_join(
                     bundle,
-                    str(document.get("source") or ""),
-                    str(document.get("target") or ""),
+                    source,
+                    target,
                     str(document.get("cardinality") or ""),
                 ),
             },
@@ -120,7 +132,8 @@ def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle
         return {
             **document,
             "analysisCapabilities": {
-                "sameTableCollection": document.get("population") is not None,
+                "sameTableCollection": document.get("population") is not None
+                and _object_has_capability(bundle, object_type, "COLLECTION_READ"),
                 "collectionJoin": any(
                     _link_collection_join(bundle, link.source, link.target, link.cardinality)
                     for link in bundle.links
