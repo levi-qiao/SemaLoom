@@ -28,6 +28,7 @@
   provider: postgres
   expectedCardinality: ONE
   completeness: PARTIAL
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: sample_taxpayer
     tenantColumn: tenant_id
@@ -46,6 +47,7 @@
   provider: postgres
   expectedCardinality: ONE
   completeness: PARTIAL
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: sample_declaration
     tenantColumn: tenant_id
@@ -71,6 +73,7 @@
   provider: postgres
   expectedCardinality: ONE
   completeness: PARTIAL
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: sample_audit_report
     tenantColumn: tenant_id
@@ -92,6 +95,7 @@
   provider: postgres
   expectedCardinality: ONE
   completeness: PARTIAL
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: sample_audit_factor
     tenantColumn: tenant_id
@@ -115,6 +119,7 @@
   provider: postgres
   expectedCardinality: ONE
   completeness: PARTIAL
+  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: sample_declaration_line
     tenantColumn: tenant_id
@@ -135,6 +140,7 @@
   provider: openapi
   expectedCardinality: ONE
   completeness: PARTIAL
+  capabilities: [POINT_READ]
   physical:
     operationId: getSampleAuditReview
     method: GET
