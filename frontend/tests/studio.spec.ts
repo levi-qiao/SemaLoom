@@ -47,6 +47,13 @@ test("model, source and definition workflow is complete", async ({ page }) => {
   await expect(page.getByRole("complementary", { name: "Orders PostgreSQL" })).toBeVisible();
   await expect(page.locator(".schema-list strong", { hasText: "proc_order" })).toBeVisible();
 
+  await page.getByRole("button", { name: "实体" }).click();
+  await page.getByRole("button", { name: new RegExp(entityName) }).click();
+  await page.getByRole("button", { name: "删除此实体" }).click();
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await page.getByRole("button", { name: "草稿保存" }).click();
+  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+
   expect(browserErrors).toEqual([]);
 });
 
@@ -82,6 +89,11 @@ test("chinese entity create keeps identity after save and reload", async ({ page
   await page.getByRole("button", { name: /属性与来源/ }).click();
   await expect(page.getByLabel("属性 ID").first()).toHaveValue(/Id$/);
   await expect(page.getByLabel("属性 ID").nth(1)).toHaveValue("locationCode");
+
+  await page.getByRole("button", { name: "删除此实体" }).click();
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await page.getByRole("button", { name: "草稿保存" }).click();
+  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
 });
 
 test("source verification does not overwrite in-progress connection edits", async ({ page }) => {
@@ -284,36 +296,33 @@ test("studio views share shell density and do not overflow", async ({ page }) =>
 
 test("entity mapping preview shows sample rows and switches table versus api", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/studio/?view=objects&entity=finance.ReviewCase");
-  await expect(page.getByRole("complementary", { name: "年度财务分析样本" })).toBeVisible({ timeout: 15_000 });
+  await page.goto("/studio/?view=objects&entity=procurement.Order");
+  await expect(page.getByRole("complementary", { name: "采购订单" })).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: /属性与来源/ }).click();
-  await expect(page.getByLabel("数据表")).toHaveValue("sample_financial_review");
+  await expect(page.getByLabel("数据表")).toHaveValue("proc_order");
   const preview = page.locator(".mapping-preview");
-  await expect(preview.getByRole("button", { name: "绑定 id" })).toBeVisible();
+  await expect(preview.getByRole("button", { name: "绑定 order_id" })).toBeVisible();
   await expect(preview.locator("tbody td").first()).not.toHaveText(/样本行暂时读不到|选择表或接口后/, { timeout: 15_000 });
   const previewBox = await preview.boundingBox();
   expect(previewBox?.width ?? 0).toBeGreaterThan(400);
 
-  await page.goto("/studio/?view=objects&entity=finance.AuditReport");
-  await expect(page.getByRole("complementary", { name: "审计报告" })).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("button", { name: /属性与来源/ }).click();
-  await expect(page.getByRole("button", { name: /sample_audit_report/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /mock\/audit-review/ })).toBeVisible();
-  await page.getByRole("button", { name: /mock\/audit-review/ }).click();
-  await expect(page.getByLabel("接口", { exact: true })).toHaveValue("/mock/audit-review");
-  await page.getByRole("button", { name: /sample_audit_report/ }).click();
-  await expect(page.getByLabel("数据表")).toHaveValue("sample_audit_report");
+  await expect(page.getByRole("button", { name: /proc_order/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /order-risk/ })).toBeVisible();
+  await page.getByRole("button", { name: /order-risk/ }).click();
+  await expect(page.getByLabel("接口", { exact: true })).toHaveValue("/order-risk");
+  await page.getByRole("button", { name: /proc_order/ }).click();
+  await expect(page.getByLabel("数据表")).toHaveValue("proc_order");
   await expect(page.getByText(/属性来自 2 张表\/接口/)).toBeVisible();
 });
 
 test("entity tabs share a two-column sheet and prompt join keys", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/studio/?view=objects&entity=finance.AuditReport");
-  await expect(page.getByRole("complementary", { name: "审计报告" })).toBeVisible({ timeout: 15_000 });
+  await page.goto("/studio/?view=objects&entity=procurement.Order");
+  await expect(page.getByRole("complementary", { name: "采购订单" })).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: /属性与来源/ }).click();
   await expect(page.locator(".entity-sheet").first()).toBeVisible();
   await expect(page.getByText(/属性来自 2 张表\/接口/)).toBeVisible();
-  await expect(page.getByLabel("sample_audit_report reportId 关联键").first()).toHaveValue("id");
+  await expect(page.getByLabel("proc_order orderId 关联键").first()).toHaveValue("order_id");
   const propertyMain = await page.locator(".entity-sheet-main").first().boundingBox();
   const propertySide = await page.locator(".entity-sheet-side").first().boundingBox();
   expect(propertyMain && propertySide).toBeTruthy();

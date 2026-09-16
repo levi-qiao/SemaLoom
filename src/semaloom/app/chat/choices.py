@@ -219,13 +219,14 @@ def _apply_defaults(
                 {"slot": "year", "id": str(existing_year), "reason": "LATEST_AVAILABLE_YEAR"}
             )
     if query.metrics and intent.operation is None and "AGGREGATION" not in decided:
-        if any(item.aggregation is None or item.aggregation != "SUM" for item in query.metrics):
+        if any(item.aggregation is None for item in query.metrics):
             updates["metrics"] = tuple(
-                item.model_copy(update={"aggregation": "SUM"}) for item in query.metrics
+                item.model_copy(update={"aggregation": item.aggregation or "SUM"})
+                for item in query.metrics
             )
-        assumptions.append(
-            {"slot": "aggregation", "id": "SUM", "reason": "ADDITIVE_MEASURE_DEFAULT"}
-        )
+            assumptions.append(
+                {"slot": "aggregation", "id": "SUM", "reason": "ADDITIVE_MEASURE_DEFAULT"}
+            )
     return query.model_copy(update=updates) if updates else query, assumptions
 
 
@@ -301,14 +302,7 @@ def try_direct_turn(
     if not text or _DEFINITION.search(text):
         return None
     intent = TurnIntent.read(text, service.bundle)
-    if not (
-        intent.metric_ids
-        or intent.candidates
-        or intent.clarify_comparison
-        or intent.operation
-        or intent.year
-        or intent.breakdown
-    ):
+    if not (intent.metric_ids or intent.candidates):
         return None
     return prepare_turn(service, actor, text)
 

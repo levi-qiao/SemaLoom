@@ -146,14 +146,22 @@ function FlowBoard({
   }, [topology, layoutVersion, fitView, direction]);
 
   const displayedNodes = useMemo(() => flowNodes.map(node => ({ ...node, selected: node.id === selected })), [flowNodes, selected]);
-  const flowEdges: FlowEdge[] = useMemo(() => edges.filter(edge => layout?.routes.has(edge.id)).map(edge => {
+  const flowEdges: FlowEdge[] = useMemo(() => edges.map(edge => {
     const active = edge.id === selectedEdge;
     const color = active ? "#285f7d" : "#768692";
+    const sourcePos = layout?.positions.get(edge.source) ?? { x: 0, y: 0 };
+    const targetPos = layout?.positions.get(edge.target) ?? { x: 240, y: 0 };
+    const route = layout?.routes.get(edge.id) ?? {
+      points: [{ x: sourcePos.x + 200, y: sourcePos.y + 32 }, { x: targetPos.x, y: targetPos.y + 32 }],
+      label: { x: (sourcePos.x + targetPos.x) / 2, y: (sourcePos.y + targetPos.y) / 2 },
+      width: 60,
+      height: 24,
+    };
     return {
       id: edge.id, source: edge.source, target: edge.target,
       sourceHandle: "right", targetHandle: "left", type: "entity", selected: active,
       label: relationLabel(edge),
-      data: { route: layout!.routes.get(edge.id), sourcePosition: layout!.positions.get(edge.source), targetPosition: layout!.positions.get(edge.target), onSelect: () => onSelectEdge(edge.id) },
+      data: { route, sourcePosition: sourcePos, targetPosition: targetPos, onSelect: () => onSelectEdge(edge.id) },
       markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color },
       style: { stroke: color, strokeWidth: active ? 2.4 : 1.5 },
     };
@@ -266,15 +274,26 @@ function RoutedEdge({ id, source, target, markerEnd, style, label, data }: EdgeP
   const sourceNode = useInternalNode(source), targetNode = useInternalNode(target);
   if (!sourceNode || !targetNode || !data?.route) return null;
   const route = data.route as Route;
-  const originA = data.sourcePosition as { x: number; y: number }, originB = data.targetPosition as { x: number; y: number };
-  const a = sourceNode.internals.positionAbsolute, b = targetNode.internals.positionAbsolute;
+  const originA = (data.sourcePosition as { x: number; y: number } | undefined) ?? { x: 0, y: 0 };
+  const originB = (data.targetPosition as { x: number; y: number } | undefined) ?? { x: 0, y: 0 };
+  const a = sourceNode.internals?.positionAbsolute ?? originA;
+  const b = targetNode.internals?.positionAbsolute ?? originB;
   const moved = a.x !== originA.x || a.y !== originA.y || b.x !== originB.x || b.y !== originB.y;
-  let path = route.points.map((point, index) => `${index ? "L" : "M"} ${point.x},${point.y}`).join(" ");
-  let x = route.label.x + route.width / 2, y = route.label.y + route.height / 2;
-  if (moved) {
+  let path = (route.points && route.points.length >= 2)
+    ? route.points.map((point, index) => `${index ? "L" : "M"} ${point.x},${point.y}`).join(" ")
+    : `M ${originA.x + 200},${originA.y + 32} L ${originB.x},${originB.y + 32}`;
+  let x = (route.label?.x ?? 0) + (route.width ?? 60) / 2, y = (route.label?.y ?? 0) + (route.height ?? 24) / 2;
+  if (moved || !route.points || route.points.length < 2) {
     // React Flow previews manual moves; ELK remains the sole automatic layout owner.
-    [path, x, y] = getSmoothStepPath({ sourceX: a.x + (sourceNode.measured.width ?? 200), sourceY: a.y + (sourceNode.measured.height ?? 64) / 2,
-      targetX: b.x, targetY: b.y + (targetNode.measured.height ?? 64) / 2, sourcePosition: Position.Right, targetPosition: Position.Left, borderRadius: 0 });
+    [path, x, y] = getSmoothStepPath({
+      sourceX: a.x + (sourceNode.measured?.width ?? 200),
+      sourceY: a.y + (sourceNode.measured?.height ?? 64) / 2,
+      targetX: b.x,
+      targetY: b.y + (targetNode.measured?.height ?? 64) / 2,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      borderRadius: 0,
+    });
   }
   return <>
     <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style}/>

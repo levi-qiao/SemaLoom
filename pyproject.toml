@@ -92,6 +92,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 "src/semaloom/runtime/analysis.py" = ["E501", "RUF001"]
 "tests/test_chat_choices.py" = ["RUF001"]
+"tests/test_semantic_closure.py" = ["RUF001"]
 
 [tool.ruff.format]
 quote-style = "double"

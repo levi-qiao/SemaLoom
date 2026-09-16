@@ -192,9 +192,7 @@ def test_save_failure_keeps_pending_choice_retryable(
     row = store.create(ACTOR, population_query.bundle.digest)
     pending = prepare_turn(population_query, ACTOR, "收入多少？")
     assert pending["status"] == "NEEDS_INPUT"
-    store.save_pending(
-        ACTOR, row, pending["question"], {"query": pending["query"]}, "收入多少？"
-    )
+    store.save_pending(ACTOR, row, pending["question"], {"query": pending["query"]}, "收入多少？")
     question = pending["question"]
     metric_opt = next(
         item["id"] for item in question["options"] if item["choice"]["kind"] == "METRIC"

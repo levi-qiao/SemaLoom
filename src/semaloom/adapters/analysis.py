@@ -299,14 +299,10 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     extra_sql = ""
     if unit_col and unit_col != identity_col:
         extra_sql += f", {unit_col} AS unit_id"
-    obj = next(
-        (item for item in service.bundle.object_types if item.id == metric.object_type), None
-    )
-    if obj is not None:
-        for prop in _display_name_fields(obj):
-            column = projection.get(prop.id)
-            if column and column not in {identity_col, value_col, unit_col}:
-                extra_sql += f', {column} AS "{prop.id}"'
+    for prop in _display_name_fields(obj):
+        column = projection.get(prop.id)
+        if column and column not in {identity_col, value_col, unit_col}:
+            extra_sql += f', {column} AS "{prop.id}"'
     evidence_sql = (
         f"SELECT {identity_col} AS identity, {value_col} AS value{extra_sql} FROM {table} "
         f"WHERE {' AND '.join(where)} ORDER BY {identity_col} LIMIT {int(query.evidence_limit)}"

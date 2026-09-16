@@ -1,0 +1,13 @@
+- apiVersion: semaloom/v0.1
+  kind: Link
+  id: tax.filingTaxpayer
+  version: "1.0.0"
+  label: 申报纳税人
+  description: 纳税申报记录所属的纳税人主体。
+  source: tax.Filing
+  target: tax.Taxpayer
+  cardinality: ONE
+  identity:
+    source: taxpayerId
+    target: taxpayerId
+  traversal: FORWARD

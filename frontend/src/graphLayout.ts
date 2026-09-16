@@ -36,11 +36,25 @@ export async function layoutGraph(nodes: Node[], edges: Edge[], direction: "RIGH
   const positions = new Map((result.children ?? []).map(node => [node.id, { x: node.x ?? 0, y: node.y ?? 0 }]));
   const routes = new Map<string, Route>();
   for (const edge of result.edges ?? []) {
-    const section = edge.sections?.[0], label = edge.labels?.[0];
-    if (!section || !label || label.x === undefined || label.y === undefined) throw new Error("Incomplete graph layout");
+    const section = edge.sections?.[0];
+    const sourcePos = positions.get(edge.sources[0]) ?? { x: 0, y: 0 };
+    const targetPos = positions.get(edge.targets[0]) ?? { x: 240, y: 0 };
+    const points = section
+      ? [section.startPoint, ...(section.bendPoints ?? []), section.endPoint]
+      : [
+          { x: sourcePos.x + 200, y: sourcePos.y + 32 },
+          { x: targetPos.x, y: targetPos.y + 32 },
+        ];
+    const label = edge.labels?.[0];
+    const labelX = (label?.x !== undefined) ? label.x : (points[0].x + points[points.length - 1].x) / 2 - 30;
+    const labelY = (label?.y !== undefined) ? label.y : (points[0].y + points[points.length - 1].y) / 2 - 15;
+    const width = label?.width ?? 60;
+    const height = label?.height ?? 24;
     routes.set(edge.id, {
-      points: [section.startPoint, ...(section.bendPoints ?? []), section.endPoint],
-      label: { x: label.x, y: label.y }, width: label.width!, height: label.height!,
+      points,
+      label: { x: labelX, y: labelY },
+      width,
+      height,
     });
   }
   return { positions, routes };

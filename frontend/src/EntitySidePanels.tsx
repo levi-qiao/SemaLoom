@@ -59,10 +59,10 @@ export function AboutSidePanel({
           在租户及对象类型内唯一标识一个对象。同名字段不构成相同身份，跨源查询严格通过主键与声明的关系对齐。
         </p>
         <div className="ontology-badge-row">
-          {identityKeys.map((key) => (
-            <span key={key} className="ontology-badge primary">🔑 {key}</span>
-          ))}
-          <span className="ontology-badge code">{document.id}</span>
+          <span className="ontology-badge primary">
+            {identityKeys.length ? `🔑 主键已定义 (${identityKeys.length})` : "🔑 暂缺主键"}
+          </span>
+          <span className="ontology-badge code">域：{document.id.split(".")[0]}</span>
         </div>
       </div>
 
@@ -141,7 +141,7 @@ export function AboutSidePanel({
         <ul className="ontology-checklist">
           <li className={identityKeys.length ? "is-ok" : "is-warn"}>
             <span className="check-mark">{identityKeys.length ? "✓" : "!"}</span>
-            <span>业务身份键：{identityKeys.length ? `已指定（${identityKeys.join("、")}）` : "未配置业务主键"}</span>
+            <span>业务身份键：{identityKeys.length ? `已指定 ${identityKeys.length} 个主键字段` : "未配置业务主键"}</span>
           </li>
           <li className={mappings.length ? "is-ok" : "is-warn"}>
             <span className="check-mark">{mappings.length ? "✓" : "!"}</span>

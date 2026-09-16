@@ -133,11 +133,15 @@ jobs:
   harness:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: harness
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: frontend/.node-version
       - run: corepack enable
-      - run: corepack pnpm --dir harness install --frozen-lockfile --ignore-scripts
-      - run: corepack pnpm --dir harness test
+      - run: corepack install
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm test

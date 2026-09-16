@@ -26,7 +26,8 @@ def peek_source_rows(
 ) -> dict[str, Any]:
     """Bounded tenant-scoped row peek for mapping UI. Identifiers must match the catalog."""
     catalog = introspect_source(provider, url)
-    resources = catalog.get("resources") if isinstance(catalog.get("resources"), list) else []
+    raw_resources = catalog.get("resources")
+    resources: list[Any] = raw_resources if isinstance(raw_resources, list) else []
     table_name = require_ident(table, field="table")
     schema_name = require_ident(schema, field="schema") if schema else None
     match = next(
