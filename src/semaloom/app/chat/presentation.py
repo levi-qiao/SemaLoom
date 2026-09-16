@@ -12,13 +12,66 @@ from semaloom.runtime.studio import mapping_summary
 
 def attach_lineage(answer: dict[str, Any], bundle: CompiledBundle) -> dict[str, Any]:
     result = deepcopy(answer)
+    metric_ids = {m.id for m in bundle.metrics}
     for evidence in result.get("evidence", []):
-        mapping_ids = _mapping_ids(evidence["result"])
-        metric_ids = {m.id for m in bundle.metrics}
+        d = evidence.get("result", {})
+        mapping_ids = _mapping_ids(d)
+
+        if isinstance(d, dict) and "definitions" in d and isinstance(d["definitions"], list):
+            for doc in d["definitions"]:
+                if isinstance(doc, dict):
+                    _enrich_definition_sources(doc, bundle, metric_ids)
+        elif isinstance(d, dict) and "id" in d and "kind" in d:
+            _enrich_definition_sources(d, bundle, metric_ids)
+
         evidence["lineage"] = [
             mapping_summary(m, metric_ids) for m in bundle.mappings if m.id in mapping_ids
         ]
     return result
+
+
+def _enrich_definition_sources(
+    doc: dict[str, Any], bundle: CompiledBundle, metric_ids: set[str]
+) -> None:
+    doc_id = doc.get("id")
+    if not doc_id:
+        return
+    kind = doc.get("kind")
+    sources: list[dict[str, Any]] = []
+
+    if kind == "Action":
+        for b in bundle.action_bindings:
+            if b.action == doc_id:
+                path = str(b.physical.get("path") or "")
+                method = str(b.physical.get("method") or "POST").upper()
+                sources.append(
+                    {
+                        "type": "actionBinding",
+                        "id": b.id,
+                        "sourceId": b.source_id,
+                        "provider": b.provider,
+                        "resource": f"{method} {path}".strip() if path else method,
+                        "operation": b.physical.get("operationId"),
+                        "method": method,
+                        "path": path,
+                        "idempotent": b.idempotent,
+                        "reconcilable": b.reconcilable,
+                    }
+                )
+    elif kind in {"ObjectType", "Metric"}:
+        for m in bundle.mappings:
+            if m.target == doc_id or m.object_type == doc_id:
+                sources.append(mapping_summary(m, metric_ids))
+    elif kind == "Rule":
+        rule_obj = next((r for r in bundle.rules if r.id == doc_id), None)
+        if rule_obj:
+            input_ids = {spec.metric or spec.object_type for spec in rule_obj.inputs}
+            for m in bundle.mappings:
+                if m.target in input_ids or m.object_type in input_ids:
+                    sources.append(mapping_summary(m, metric_ids))
+
+    if sources:
+        doc["sources"] = sources
 
 
 def visible_answer(answer: dict[str, Any], actor: RequestActor) -> dict[str, Any]:
@@ -46,7 +99,7 @@ def without_physical_metadata(value: Any) -> Any:
         return {
             key: without_physical_metadata(item)
             for key, item in value.items()
-            if key not in {"lineage", "mappingFields"}
+            if key not in {"lineage", "mappingFields", "sources"}
         }
     if isinstance(value, list):
         return [without_physical_metadata(item) for item in value]

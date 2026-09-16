@@ -2845,8 +2845,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   background: #ffffff;
   border: 1px solid var(--border);
   border-radius: 12px;
-  width: min(100%, 640px);
-  max-height: 80vh;
+  width: min(100%, 700px);
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
@@ -2919,6 +2919,264 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .evidence-modal-body th {
   width: 140px;
+}
+
+.evidence-inspect-card {
+  background: #f8fafc;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--control-radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.inspect-section-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.inspect-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.inspect-callout {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #eff6ff;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #1e40af;
+}
+
+.inspect-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.inspect-tag {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.inspect-kv-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 8px 0;
+  font-size: 12.5px;
+}
+
+.kv-label {
+  width: 96px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.kv-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.kv-value code {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.rule-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.rule-chip code {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.rule-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rule-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  margin-left: auto;
+}
+
+.evidence-type-badge {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #334155;
+}
+
+.badge-required {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.badge-optional {
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Source Lineage Card */
+.source-lineage-card {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.source-lineage-card .inspect-section-title {
+  color: #166534;
+}
+
+.source-item {
+  background: #ffffff;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+
+.source-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.source-badge-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-provider-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #166534;
+  color: #ffffff;
+}
+
+.source-resource {
+  font-size: 11px;
+  font-family: var(--mono);
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #0f172a;
+}
+
+.source-prop {
+  margin-top: 6px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-flags {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.flag-tag {
+  font-size: 11px;
+  color: #166534;
+  font-weight: 500;
+}
+
+.source-fields-table {
+  margin-top: 8px;
+}
+
+.role-tag {
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: var(--text-secondary);
+}
+
+.inspect-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
+.evidence-inspect-tech {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--control-radius);
+  font-size: 11.5px;
+  background: #ffffff;
+}
+
+.evidence-inspect-tech summary {
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  user-select: none;
+}
+
+.evidence-inspect-tech summary:hover {
+  color: var(--text);
 }
 
 /* Choice Question Component */
