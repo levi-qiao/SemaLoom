@@ -189,7 +189,7 @@ def test_object_link_cycle_is_allowed() -> None:
             "source": "procurement.Supplier",
             "target": "procurement.Order",
             "cardinality": "MANY",
-            "identity": {"source": "supplierId", "target": "supplierId"},
+            "identity": [{"source": "supplierId", "target": "supplierId"}],
         }
     )
     result = compile_documents(docs)
@@ -207,7 +207,7 @@ def test_missing_link_identity_is_rejected() -> None:
             "source": "procurement.Order",
             "target": "procurement.Supplier",
             "cardinality": "ONE",
-            "identity": {"source": "missing", "target": "supplierId"},
+            "identity": [{"source": "missing", "target": "supplierId"}],
         }
     )
     result = compile_documents(docs)

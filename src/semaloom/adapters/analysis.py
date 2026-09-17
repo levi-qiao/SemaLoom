@@ -225,6 +225,12 @@ _BIND_KEY_LIMIT = 1000
 _BIND_BATCH = 50
 
 
+def _single_link_pair(link: LinkDef) -> Any:
+    if len(link.identity) != 1:
+        raise AnalysisError("LINK_ANALYSIS_UNSUPPORTED")
+    return link.identity[0]
+
+
 def _one_link_join(
     service: _Context, source_id: str, field: str, source_physical: str
 ) -> _ResolvedLink | None:
@@ -269,7 +275,7 @@ def _bind_from_resolved(resolved: _ResolvedLink, query_field: str) -> _BindJoin:
         link=resolved.link,
         target=resolved.target,
         mapping=resolved.mapping,
-        local_key=resolved.link.identity.source,
+        local_key=_single_link_pair(resolved.link).source,
         remote_field=resolved.field,
         query_field=query_field,
     )
@@ -331,7 +337,7 @@ def _rewrite_bind_joins(
             groups.append(item)
             continue
         binds.append(_bind_from_resolved(resolved, item.id))
-        key = resolved.link.identity.source
+        key = _single_link_pair(resolved.link).source
         if key not in seen_keys:
             groups.append(GroupByItem(id=key))
             seen_keys.add(key)
@@ -447,13 +453,18 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
                 target_mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
             )
             target_projection = _projection(target_mapping)
-            source_col = projection.get(link.identity.source)
-            target_col = target_projection.get(link.identity.target)
-            if source_col is None or target_col is None:
-                raise AnalysisError("NO_PATH")
+            join_predicates = []
+            for pair in link.identity:
+                source_col = projection.get(pair.source)
+                target_col = target_projection.get(pair.target)
+                if source_col is None or target_col is None:
+                    raise AnalysisError("NO_PATH")
+                join_predicates.append(
+                    f"{alias}.{require_ident(target_col, field='column')} = {source_col}"
+                )
             from_sql += (
                 f" LEFT JOIN {target_table} AS {alias} ON {alias}.{target_tenant} = :tenant"
-                f" AND {alias}.{require_ident(target_col, field='column')} = {source_col}"
+                + "".join(f" AND {predicate}" for predicate in join_predicates)
             )
             join_tables.add(target_table)
             target_types = {prop.id: prop.value_type for prop in target.properties}
@@ -1016,11 +1027,10 @@ def _link_labels(
     for link in service.bundle.links:
         if link.source != source.id or link.cardinality != "ONE":
             continue
-        ids = {
-            str(item)
-            for item in field_ids.get(link.identity.source, set())
-            if item not in {"", "None"}
-        }
+        if len(link.identity) != 1:
+            continue
+        pair = link.identity[0]
+        ids = {str(item) for item in field_ids.get(pair.source, set()) if item not in {"", "None"}}
         if not ids:
             continue
         target = _object_type(service.bundle, link.target)
@@ -1036,7 +1046,7 @@ def _link_labels(
         if target_mapping.source_id != source_mapping.source_id:
             continue
         projection = _projection(target_mapping)
-        identity_col = projection.get(link.identity.target)
+        identity_col = projection.get(pair.target)
         if identity_col is None:
             continue
         tenant_col = require_ident(
@@ -1073,7 +1083,7 @@ def _link_labels(
                 str(row[alias]) for alias in aliases if row.get(alias) not in {None, ""}
             ).strip()
             if ident and name:
-                found[(link.identity.source, ident)] = name
+                found[(pair.source, ident)] = name
     return found
 
 
@@ -1210,7 +1220,7 @@ def _lookup_bind_identities(service: _Context, bind: _BindJoin, tenant: str) -> 
     column = projection.get(bind.remote_field)
     if column is None:
         raise AnalysisError("NO_MAPPING")
-    identity = projection.get(bind.link.identity.target)
+    identity = projection.get(_single_link_pair(bind.link).target)
     if identity is None:
         raise AnalysisError("NO_MAPPING")
     tenant_col = require_ident(
@@ -1252,7 +1262,7 @@ def _lookup_bind_properties(
         return found
     projection = _projection(bind.mapping)
     column = projection.get(bind.remote_field)
-    identity = projection.get(bind.link.identity.target)
+    identity = projection.get(_single_link_pair(bind.link).target)
     if identity is None:
         raise AnalysisError("NO_MAPPING")
     tenant_col = require_ident(

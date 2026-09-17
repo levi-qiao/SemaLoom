@@ -333,14 +333,32 @@ class QueryService:
                 ),
                 status="FAILED",
             )
+        target_fields = tuple(pair.target for pair in link.identity)
+        if len(target_fields) != len(target_obj.identity_keys) or set(target_fields) != set(
+            target_obj.identity_keys
+        ):
+            return EvidenceEnvelope(
+                request_id=request_id,
+                release_digest=self.bundle.digest,
+                observations=(),
+                diagnostics=(
+                    Diagnostic(
+                        code="INVALID_LINK_IDENTITY",
+                        path=link_id,
+                        message="link identity does not cover the target object identity",
+                    ),
+                ),
+                status="FAILED",
+            )
         source_identity_value: IdentityValue = {
             key: source_identity[key] for key in source_obj.identity_keys
         }
-        source_mapping, source_error = self._object_mapping_for_property(
-            link.source, link.identity.source
+        source_fields = tuple(pair.source for pair in link.identity)
+        source_mapping, source_error = self._object_mapping_for_properties(
+            link.source, source_fields
         )
-        target_mapping, target_error = self._object_mapping_for_property(
-            link.target, link.identity.target
+        target_mapping, target_error = self._object_mapping_for_properties(
+            link.target, target_obj.identity_keys
         )
         if source_mapping is None or target_mapping is None:
             error = source_error or target_error or "NO_MAPPING"
@@ -366,92 +384,96 @@ class QueryService:
             observed_at=source_read.observed_at,
             authorization_ref=decision.decision_id,
         )
-        if source_read.kind == "UNAVAILABLE":
-            reason = source_read.reason or "PROVIDER_ERROR"
-            return EvidenceEnvelope(
-                request_id=request_id,
-                release_digest=self.bundle.digest,
-                observations=(Observation(kind="UNAVAILABLE", target=link.target, reason=reason),),
-                source_activities=(source_activity,),
-                diagnostics=(Diagnostic(code=reason, path=link_id, message="source read failed"),),
-                status="FAILED",
-            )
-        key = (
-            source_read.values.get(link.identity.source) if source_read.kind == "PRESENT" else None
-        )
-        keys = [] if key is None else [str(key)]
-        observations: list[Observation] = []
-        activities: list[SourceActivity] = [source_activity]
-        diagnostics: list[Diagnostic] = []
-        if tuple(target_obj.identity_keys) != (link.identity.target,):
-            diagnostics.append(
-                Diagnostic(
-                    code="COMPOSITE_LINK_IDENTITY_NOT_DECLARED",
-                    path=link_id,
-                    message="link must identify every target identity component",
-                )
+        if source_read.kind != "PRESENT":
+            reason = source_read.reason or (
+                "NOT_FOUND" if source_read.kind == "MISSING" else "PROVIDER_ERROR"
             )
             return EvidenceEnvelope(
                 request_id=request_id,
                 release_digest=self.bundle.digest,
-                observations=(),
-                source_activities=tuple(activities),
-                diagnostics=tuple(diagnostics),
-                status="FAILED",
-            )
-        for key in keys:
-            target_identity: IdentityValue = {link.identity.target: key}
-            target_read = self.provider.fetch_object(
-                target_mapping, tenant=actor.tenant, identity_value=target_identity
-            )
-            observed = Observation(
-                kind=target_read.kind,
-                target=link.target,
-                bindings=target_identity,
-                value=(
-                    str(target_read.values.get("name") or key)
-                    if target_read.kind == "PRESENT"
-                    else None
+                observations=(
+                    Observation(kind=source_read.kind, target=link.target, reason=reason),
                 ),
-                reason=target_read.reason,
-                mapping_id=target_mapping.id,
-                source_id=target_mapping.source_id,
-                observed_at=target_read.observed_at,
+                source_activities=(source_activity,),
+                diagnostics=(
+                    (Diagnostic(code=reason, path=link_id, message="source read failed"),)
+                    if source_read.kind == "UNAVAILABLE"
+                    else ()
+                ),
+                status="FAILED" if source_read.kind == "UNAVAILABLE" else "SUCCEEDED",
             )
-            observations.append(observed)
-            if target_read.kind == "UNAVAILABLE":
-                diagnostics.append(
-                    Diagnostic(
-                        code=target_read.reason or "PROVIDER_ERROR",
-                        path=link_id,
-                        message="target read failed",
-                    )
+
+        target_values: IdentityValue = {}
+        for pair in link.identity:
+            value = source_read.values.get(pair.source)
+            if value is None:
+                return EvidenceEnvelope(
+                    request_id=request_id,
+                    release_digest=self.bundle.digest,
+                    observations=(
+                        Observation(
+                            kind="MISSING", target=link.target, reason="LINK_IDENTITY_MISSING"
+                        ),
+                    ),
+                    source_activities=(source_activity,),
+                    status="SUCCEEDED",
                 )
-            activities.append(
-                SourceActivity(
-                    activity_id=uuid.uuid4().hex,
-                    mapping_id=target_mapping.id,
-                    source_id=target_mapping.source_id,
-                    query_digest=_digest({"link": link_id, "key": key, "tenant": actor.tenant}),
-                    observed_at=target_read.observed_at,
-                    authorization_ref=decision.decision_id,
+            target_values[pair.target] = value
+        target_identity: IdentityValue = {
+            key: target_values[key] for key in target_obj.identity_keys
+        }
+        target_read = self.provider.fetch_object(
+            target_mapping, tenant=actor.tenant, identity_value=target_identity
+        )
+        target_activity = SourceActivity(
+            activity_id=uuid.uuid4().hex,
+            mapping_id=target_mapping.id,
+            source_id=target_mapping.source_id,
+            query_digest=_digest(
+                {"link": link_id, "targetIdentity": target_identity, "tenant": actor.tenant}
+            ),
+            observed_at=target_read.observed_at,
+            authorization_ref=decision.decision_id,
+        )
+        observation = Observation(
+            kind=target_read.kind,
+            target=link.target,
+            bindings=target_identity,
+            value=(
+                str(
+                    target_read.values.get("name")
+                    or " / ".join(str(target_identity[key]) for key in target_obj.identity_keys)
                 )
+                if target_read.kind == "PRESENT"
+                else None
+            ),
+            reason=target_read.reason,
+            mapping_id=target_mapping.id,
+            source_id=target_mapping.source_id,
+            observed_at=target_read.observed_at,
+        )
+        diagnostics = (
+            (
+                Diagnostic(
+                    code=target_read.reason or "PROVIDER_ERROR",
+                    path=link_id,
+                    message="target read failed",
+                ),
             )
+            if target_read.kind == "UNAVAILABLE"
+            else ()
+        )
         return EvidenceEnvelope(
             request_id=request_id,
             release_digest=self.bundle.digest,
-            observations=tuple(observations),
-            source_activities=tuple(activities),
-            diagnostics=tuple(diagnostics),
-            status=(
-                "FAILED"
-                if any(item.kind == "UNAVAILABLE" for item in observations)
-                else "SUCCEEDED"
-            ),
+            observations=(observation,),
+            source_activities=(source_activity, target_activity),
+            diagnostics=diagnostics,
+            status="FAILED" if target_read.kind == "UNAVAILABLE" else "SUCCEEDED",
             extras={
                 "sourceSourceId": source_mapping.source_id,
                 "targetSourceId": target_mapping.source_id,
-                "keys": keys,
+                "targetIdentity": target_identity,
             },
         )
 
@@ -672,19 +694,25 @@ class QueryService:
             (),
         )
 
-    def _object_mapping_for_property(
-        self, object_type: str, property_id: str
+    def _object_mapping_for_properties(
+        self, object_type: str, property_ids: tuple[str, ...]
     ) -> tuple[MappingDef | None, str | None]:
+        required = set(property_ids)
         candidates = [
             mapping
             for mapping in self.bundle.mappings
-            if mapping.target == object_type and property_id in _mapped_object_fields(mapping)
+            if mapping.target == object_type and required <= _mapped_object_fields(mapping)
         ]
         if len(candidates) == 1:
             return candidates[0], None
         if len(candidates) > 1:
             return None, "AMBIGUOUS_MAPPING"
         return None, "NO_MAPPING"
+
+    def _object_mapping_for_property(
+        self, object_type: str, property_id: str
+    ) -> tuple[MappingDef | None, str | None]:
+        return self._object_mapping_for_properties(object_type, (property_id,))
 
     def _mapping_for_target(
         self, target: str, perspective: str | None

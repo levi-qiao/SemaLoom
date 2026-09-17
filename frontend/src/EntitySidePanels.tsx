@@ -207,13 +207,13 @@ export function RelationsSidePanel({
         {links.length ? (
           <div className="relation-flow-stack">
             {links.map((link) => {
-              const identity = object(link.identity);
+              const identityPairs = array(link.identity) as Record<string, unknown>[];
               const isSource = text(link.source) === currentId;
               const otherId = isSource ? text(link.target) : text(link.source);
               const otherDoc = documents.find((d) => d.id === otherId && d.kind === "ObjectType");
               const otherLabel = text(otherDoc?.label) || otherId;
-              const sourceKey = text(identity.source) || "id";
-              const targetKey = text(identity.target) || "id";
+              const sourceKey = identityPairs.map((pair) => text(pair.source)).filter(Boolean).join(" + ") || "id";
+              const targetKey = identityPairs.map((pair) => text(pair.target)).filter(Boolean).join(" + ") || "id";
               const card = text(link.cardinality) || "ONE";
 
               return (

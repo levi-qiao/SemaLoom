@@ -140,8 +140,8 @@ def studio_graph(bundle: CompiledBundle) -> dict[str, Any]:
             "source": item.source,
             "target": item.target,
             "cardinality": item.cardinality,
-            "sourceKey": item.identity.source,
-            "targetKey": item.identity.target,
+            "sourceKey": " + ".join(pair.source for pair in item.identity),
+            "targetKey": " + ".join(pair.target for pair in item.identity),
         }
         for item in bundle.links
     ]

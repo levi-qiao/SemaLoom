@@ -706,45 +706,70 @@ def _check_links(
 ) -> None:
     object_index = _index(objects)
     for link in links:
-        if link.source not in object_index:
+        source = object_index.get(link.source)
+        target = object_index.get(link.target)
+        if source is None:
             diagnostics.append(
                 Diagnostic(code="DANGLING_REF", path=f"{link.id}.source", message=link.source)
             )
-        if link.target not in object_index:
+        if target is None:
             diagnostics.append(
                 Diagnostic(code="DANGLING_REF", path=f"{link.id}.target", message=link.target)
             )
-        if not link.identity.source or not link.identity.target:
-            diagnostics.append(
-                Diagnostic(
-                    code="MISSING_LINK_IDENTITY",
-                    path=link.id,
-                    message="link identity keys are required",
-                )
-            )
+        if source is None or target is None:
             continue
-        source = object_index.get(link.source)
-        target = object_index.get(link.target)
-        if source is not None and link.identity.source not in {
-            prop.id for prop in source.properties
-        }:
+
+        source_types = {prop.id: prop.value_type for prop in source.properties}
+        target_types = {prop.id: prop.value_type for prop in target.properties}
+        source_fields = [pair.source for pair in link.identity]
+        target_fields = [pair.target for pair in link.identity]
+        if len(source_fields) != len(set(source_fields)) or len(target_fields) != len(
+            set(target_fields)
+        ):
             diagnostics.append(
                 Diagnostic(
                     code="MISSING_LINK_IDENTITY",
-                    path=f"{link.id}.identity.source",
-                    message=link.identity.source,
+                    path=f"{link.id}.identity",
+                    message="link identity fields must be unique",
                 )
             )
-        if target is not None and link.identity.target not in {
-            prop.id for prop in target.properties
-        }:
+        if len(target_fields) != len(target.identity_keys) or set(target_fields) != set(
+            target.identity_keys
+        ):
             diagnostics.append(
                 Diagnostic(
                     code="MISSING_LINK_IDENTITY",
-                    path=f"{link.id}.identity.target",
-                    message=link.identity.target,
+                    path=f"{link.id}.identity",
+                    message="link identity must cover every target identity key exactly once",
                 )
             )
+        for index, pair in enumerate(link.identity):
+            if pair.source not in source_types:
+                diagnostics.append(
+                    Diagnostic(
+                        code="MISSING_LINK_IDENTITY",
+                        path=f"{link.id}.identity.{index}.source",
+                        message=pair.source,
+                    )
+                )
+                continue
+            if pair.target not in target_types:
+                diagnostics.append(
+                    Diagnostic(
+                        code="MISSING_LINK_IDENTITY",
+                        path=f"{link.id}.identity.{index}.target",
+                        message=pair.target,
+                    )
+                )
+                continue
+            if source_types[pair.source] != target_types[pair.target]:
+                diagnostics.append(
+                    Diagnostic(
+                        code="TYPE_MISMATCH",
+                        path=f"{link.id}.identity.{index}",
+                        message="linked identity fields must have the same value type",
+                    )
+                )
 
 
 def _check_rules(

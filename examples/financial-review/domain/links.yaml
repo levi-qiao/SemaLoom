@@ -6,8 +6,8 @@
   source: finance.TaxReturn
   target: finance.Company
   identity:
-    source: companyId
-    target: companyId
+    - source: companyId
+      target: companyId
   cardinality: ONE
   traversal: FORWARD
 - apiVersion: semaloom/v0.1
@@ -18,8 +18,8 @@
   source: finance.AuditReport
   target: finance.Company
   identity:
-    source: companyId
-    target: companyId
+    - source: companyId
+      target: companyId
   cardinality: ONE
   traversal: FORWARD
 - apiVersion: semaloom/v0.1
@@ -30,8 +30,8 @@
   source: finance.AuditReport
   target: finance.TaxReturn
   identity:
-    source: returnId
-    target: returnId
+    - source: returnId
+      target: returnId
   cardinality: ONE
   traversal: FORWARD
 - apiVersion: semaloom/v0.1
@@ -42,8 +42,8 @@
   source: finance.AuditFactor
   target: finance.AuditReport
   identity:
-    source: reportId
-    target: reportId
+    - source: reportId
+      target: reportId
   cardinality: ONE
   traversal: FORWARD
 - apiVersion: semaloom/v0.1
@@ -54,8 +54,8 @@
   source: finance.ReturnLine
   target: finance.TaxReturn
   identity:
-    source: returnId
-    target: returnId
+    - source: returnId
+      target: returnId
   cardinality: ONE
   traversal: FORWARD
 - apiVersion: semaloom/v0.1
@@ -66,8 +66,8 @@
   source: finance.ReviewCase
   target: finance.Company
   identity:
-    source: companyId
-    target: companyId
+    - source: companyId
+      target: companyId
   cardinality: ONE
   traversal: FORWARD
 - apiVersion: semaloom/v0.1
@@ -78,8 +78,8 @@
   source: finance.ReviewCase
   target: finance.TaxReturn
   identity:
-    source: returnId
-    target: returnId
+    - source: returnId
+      target: returnId
   cardinality: ONE
   traversal: FORWARD
 - apiVersion: semaloom/v0.1
@@ -90,7 +90,7 @@
   source: finance.ReviewCase
   target: finance.AuditReport
   identity:
-    source: reportId
-    target: reportId
+    - source: reportId
+      target: reportId
   cardinality: ONE
   traversal: FORWARD
