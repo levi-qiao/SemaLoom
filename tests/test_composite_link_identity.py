@@ -209,7 +209,7 @@ def test_discovery_does_not_advertise_collection_join_for_composite_links() -> N
 
 
 def test_studio_emitted_pair_array_covers_every_target_identity_key() -> None:
-    """Graph/dialog create must emit pair arrays covering target identityKeys (not first-key scalar)."""
+    """Studio create emits pair arrays covering every target identity key."""
     docs = documents()
     link = next(item for item in docs if item["kind"] == "Link")
     target = next(item for item in docs if item["id"] == "demo.Account")
