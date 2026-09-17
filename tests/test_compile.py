@@ -180,6 +180,15 @@ def test_rule_cycle_is_rejected() -> None:
 
 def test_object_link_cycle_is_allowed() -> None:
     docs = _load(PROCUREMENT)
+    supplier = next(
+        item
+        for item in docs
+        if item.get("kind") == "ObjectType" and item.get("id") == "procurement.Supplier"
+    )
+    supplier["properties"] = [
+        *supplier["properties"],
+        {"id": "orderId", "valueType": "STRING"},
+    ]
     docs.append(
         {
             "apiVersion": "semaloom/v0.1",
@@ -189,7 +198,7 @@ def test_object_link_cycle_is_allowed() -> None:
             "source": "procurement.Supplier",
             "target": "procurement.Order",
             "cardinality": "MANY",
-            "identity": [{"source": "supplierId", "target": "supplierId"}],
+            "identity": [{"source": "orderId", "target": "orderId"}],
         }
     )
     result = compile_documents(docs)

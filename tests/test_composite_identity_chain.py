@@ -220,6 +220,44 @@ def test_query_studio_and_ai_share_exact_composite_identity() -> None:
         )
 
 
+def test_ai_object_identity_rejects_extra_components() -> None:
+    bundle = _bundle()
+    provider = FakeProvider()
+    tools = SemanticTools(QueryService(bundle, provider), ACTOR)
+    tools.call(
+        "find_objects",
+        {
+            "objectType": "demo.Entry",
+            "filters": {"name": "Journal entry"},
+            "properties": ["name"],
+        },
+    )
+    with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
+        tools.call(
+            "semantic_query",
+            {
+                "apiVersion": "semaloom/v0.1",
+                "select": [
+                    {
+                        "objectType": "demo.Entry",
+                        "identity": {
+                            "ledger": "0L",
+                            "entryId": "E-1",
+                            "extra": "x",
+                        },
+                        "properties": ["name"],
+                    }
+                ],
+                "context": {
+                    "businessPeriod": {
+                        "from": "2024-01-01",
+                        "to": "2025-01-01",
+                    }
+                },
+            },
+        )
+
+
 def test_frontend_editor_has_no_legacy_identity_mapping_fields() -> None:
     editor = (ROOT / "frontend/src/MappingEditor.tsx").read_text()
     forbidden = (

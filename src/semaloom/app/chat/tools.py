@@ -315,7 +315,7 @@ class SemanticTools:
                 if item.metric:
                     self._metric_identity(MetricSelect(metric=item.metric, bindings=body.bindings))
                 elif item.object_type:
-                    self._identity(item.object_type, body.bindings)
+                    self._identity_from_bindings(item.object_type, body.bindings)
             claim, observations, diagnostics, digest, activities = evaluate_claim_with_evidence(
                 self.query.bundle,
                 self.query,
@@ -396,13 +396,17 @@ class SemanticTools:
         metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
         if metric is None:
             raise ValueError("UNKNOWN_METRIC")
-        self._identity(metric.object_type, selection.bindings)
+        self._identity_from_bindings(metric.object_type, selection.bindings)
+
+    def _identity_from_bindings(self, object_type: str, bindings: dict[str, Any]) -> None:
+        obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
+        if obj is None or not obj.identity_keys or not set(obj.identity_keys) <= set(bindings):
+            raise ValueError("UNSUPPORTED_IDENTITY")
+        self._identity(object_type, {key: bindings[key] for key in obj.identity_keys})
 
     def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
         obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
-        if obj is None or not obj.identity_keys:
-            raise ValueError("UNSUPPORTED_IDENTITY")
-        if not set(obj.identity_keys) <= set(bindings):
+        if obj is None or not obj.identity_keys or set(bindings) != set(obj.identity_keys):
             raise ValueError("UNSUPPORTED_IDENTITY")
         identity = {key: str(bindings[key]) for key in obj.identity_keys}
         if (object_type, _identity_tuple(identity)) not in self.identities:
