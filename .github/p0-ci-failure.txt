@@ -1,6 +1,6 @@
 stage=backend-tests
-run=35164154604
-commit=9a1205bfce1c0c80174962c3c707980b4c32c3a2
+run=35164745217
+commit=1f06c25be2f1b13816e09c1fcee8aeaedc9691aa
 
 static: /home/runner/work/SemaLoom/SemaLoom/.venv/bin/python -m ruff format --check .
 155 files already formatted
@@ -9,117 +9,57 @@ All checks passed!
 static: /home/runner/work/SemaLoom/SemaLoom/.venv/bin/python -m mypy
 Success: no issues found in 69 source files
 static: skip frontend tsc (frontend/node_modules missing)
-................................F..........................F............ [ 23%]
-.......F......................F.F....................................... [ 46%]
-..........s.......x.................FFF................................. [ 69%]
-.....................F.................................................. [ 93%]
-........FF..FF.......                                                    [100%]
+........................................................................ [ 23%]
+...........................F............................................ [ 46%]
+..........s.......x...................F................................. [ 69%]
+........................................................................ [ 93%]
+.....................                                                    [100%]
 =================================== FAILURES ===================================
-_____ test_conflicting_identity_aliases_are_rejected_before_query_or_claim _____
-tests/test_business_analysis.py:340: in test_conflicting_identity_aliases_are_rejected_before_query_or_claim
-    with pytest.raises(EvaluationError, match="conflicting identity aliases"):
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-E   Failed: DID NOT RAISE EvaluationError
-_______ test_link_and_metric_discovery_exposes_collection_join_boundary ________
-tests/test_chat_discovery.py:31: in test_link_and_metric_discovery_exposes_collection_join_boundary
-    assert link["analysisCapabilities"] == {
-E   AssertionError: assert {'pointLookup...nJoin': False} == {'pointLookup...nJoin': False}
+____________________ test_compiler_emits_neutral_mapping_ir ____________________
+tests/test_composite_identity_chain.py:123: in test_compiler_emits_neutral_mapping_ir
+    assert mapping.grain_fields == ("ledger", "entryId")
+E   AssertionError: assert ('entryId', 'ledger') == ('ledger', 'entryId')
 E     
-E     Omitting 2 identical items, use -vv to show
-E     Differing items:
-E     {'pointLookup': False} != {'pointLookup': True}
-E     
-E     Full diff:
-E       {
-E     -     'pointLookup': True,
-E     ?                    ^^^
-E     +     'pointLookup': False,
-E     ?                    ^^^^
-E           'keyedFind': True,
-E           'collectionJoin': False,
-E       }
-__________________ test_field_reorder_does_not_change_digest ___________________
-tests/test_compile.py:72: in test_field_reorder_does_not_change_digest
-    assert first.bundle.digest == second.bundle.digest
-E   AssertionError: assert '8b288c7901c0...4f3c8bc549b10' == 'c6ed38ef770d...8c0ba60a21939'
-E     
-E     - c6ed38ef770d909d48573622907e4d461e198f45b6824a6b3ea8c0ba60a21939
-E     + 8b288c7901c0ba0034ce7c700b538614d003cd4f2f68894293e4f3c8bc549b10
-_____ test_search_exposes_meaning_and_ambiguity_without_physical_bindings ______
-tests/test_discovery.py:32: in test_search_exposes_meaning_and_ambiguity_without_physical_bindings
-    assert link["analysisCapabilities"] == {
-E   AssertionError: assert {'pointLookup...nJoin': False} == {'pointLookup...nJoin': False}
-E     
-E     Omitting 2 identical items, use -vv to show
-E     Differing items:
-E     {'pointLookup': False} != {'pointLookup': True}
-E     
-E     Full diff:
-E       {
-E     -     'pointLookup': True,
-E     ?                    ^^^
-E     +     'pointLookup': False,
-E     ?                    ^^^^
-E           'keyedFind': True,
-E           'collectionJoin': False,
-E       }
-____ test_discovery_http_pins_tenant_bundle_and_does_not_expose_unknown_ids ____
-tests/test_discovery.py:86: in test_discovery_http_pins_tenant_bundle_and_does_not_expose_unknown_ids
-    assert found["analysisCapabilities"]["pointLookup"] is True
-E   assert False is True
-________________________ test_api_object_failure_matrix ________________________
-tests/test_openapi_provider.py:146: in test_api_object_failure_matrix
-    assert (result.kind, result.reason) == (kind, reason)
-E   AssertionError: assert ('UNAVAILABLE...ALID_MAPPING') == ('MISSING', 'NO_ROW')
-E     
-E     At index 0 diff: 'UNAVAILABLE' != 'MISSING'
+E     At index 0 diff: 'entryId' != 'ledger'
 E     
 E     Full diff:
 E       (
-E     -     'MISSING',
-E     -     'NO_ROW',
-E     +     'UNAVAILABLE',
-E     +     'INVALID_MAPPING',
+E     +     'entryId',
+E           'ledger',
+E     -     'entryId',
 E       )
-___________________ test_api_null_property_and_exact_decimal ___________________
-tests/test_openapi_provider.py:178: in test_api_null_property_and_exact_decimal
-    assert null_result.kind == "PRESENT"
-E   AssertionError: assert 'UNAVAILABLE' == 'PRESENT'
-E     
-E     - PRESENT
-E     + UNAVAILABLE
 __________ test_api_caller_filters_cannot_override_tenant_or_identity __________
-tests/test_openapi_provider.py:226: in test_api_caller_filters_cannot_override_tenant_or_identity
+tests/test_openapi_provider.py:230: in test_api_caller_filters_cannot_override_tenant_or_identity
     result = OpenApiReadProvider({"api": _client(handler)}).fetch_metric(
-E   TypeError: OpenApiReadProvider.fetch_metric() got an unexpected keyword argument 'extra_filters'
-___________________ test_claim_true_false_unknown_and_error ____________________
-tests/test_runtime_pg.py:128: in test_claim_true_false_unknown_and_error
-    true_claim, _, _, _ = _claim(services, taxpayerId="TAXPAYER-A", year=2024)
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-E   TypeError: _claim() got an unexpected keyword argument 'taxpayerId'. Did you mean 'taxpayer'?
-_________ test_studio_session_csrf_origin_capabilities_and_revocation __________
-tests/test_studio_control_plane.py:300: in test_studio_session_csrf_origin_capabilities_and_revocation
-    assert sample_forbidden.status_code == 403
-E   assert 422 == 403
-E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
-_______________ test_studio_mapping_preview_reads_draft_mapping ________________
-tests/test_studio_control_plane.py:319: in test_studio_mapping_preview_reads_draft_mapping
-    assert present.status_code == 200
-E   assert 422 == 200
-E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
-____ test_legacy_workspace_is_archived_and_migrated_to_canonical_documents _____
-tests/test_studio_control_plane.py:438: in test_legacy_workspace_is_archived_and_migrated_to_canonical_documents
-    assert snapshot.candidate_digest == services.bundle.digest
-E   AssertionError: assert 'b1f178b7dc58...058d857d34791' == '8b288c7901c0...4f3c8bc549b10'
+src/semaloom/adapters/openapi.py:105: in fetch_metric
+    outcome = self._get(
+src/semaloom/adapters/openapi.py:193: in _get
+    response = client.get(path, params=params)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/httpx/_client.py:1053: in get
+    return self.request(
+.venv/lib/python3.13/site-packages/httpx/_client.py:825: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/httpx/_client.py:914: in send
+    response = self._send_handling_auth(
+.venv/lib/python3.13/site-packages/httpx/_client.py:942: in _send_handling_auth
+    response = self._send_handling_redirects(
+.venv/lib/python3.13/site-packages/httpx/_client.py:979: in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/httpx/_client.py:1014: in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/httpx/_transports/mock.py:24: in handle_request
+    response = self.handler(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+tests/test_openapi_provider.py:224: in handler
+    assert request.url.params["orderId"] == "PO-001"
+E   AssertionError: assert 'PO-999' == 'PO-001'
 E     
-E     - 8b288c7901c0ba0034ce7c700b538614d003cd4f2f68894293e4f3c8bc549b10
-E     + b1f178b7dc5886b8598797443c4a49b7a86d7149c473e06ecc5058d857d34791
-________ test_metric_document_save_reload_impacts_and_revision_conflict ________
-tests/test_studio_control_plane.py:517: in test_metric_document_save_reload_impacts_and_revision_conflict
-    assert saved.status_code == 200, saved.text
-E   AssertionError: {"detail":{"code":"INVALID_DRAFT","diagnostics":[{"code":"LEGACY_MAPPING_FIELD","path":"tax.g2DraftMetric.tax_pg.physical","message":"remove legacy identity fields: identityColumn","severity":"error"}]}}
-E   assert 422 == 200
-E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+E     - PO-001
+E     + PO-999
 =============================== warnings summary ===============================
 .venv/lib/python3.13/site-packages/fastapi/testclient.py:1
   /home/runner/work/SemaLoom/SemaLoom/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
@@ -131,67 +71,17 @@ E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
-FAILED tests/test_business_analysis.py::test_conflicting_identity_aliases_are_rejected_before_query_or_claim - Failed: DID NOT RAISE EvaluationError
-FAILED tests/test_chat_discovery.py::test_link_and_metric_discovery_exposes_collection_join_boundary - AssertionError: assert {'pointLookup...nJoin': False} == {'pointLookup...nJoin': False}
+FAILED tests/test_composite_identity_chain.py::test_compiler_emits_neutral_mapping_ir - AssertionError: assert ('entryId', 'ledger') == ('ledger', 'entryId')
   
-  Omitting 2 identical items, use -vv to show
-  Differing items:
-  {'pointLookup': False} != {'pointLookup': True}
-  
-  Full diff:
-    {
-  -     'pointLookup': True,
-  ?                    ^^^
-  +     'pointLookup': False,
-  ?                    ^^^^
-        'keyedFind': True,
-        'collectionJoin': False,
-    }
-FAILED tests/test_compile.py::test_field_reorder_does_not_change_digest - AssertionError: assert '8b288c7901c0...4f3c8bc549b10' == 'c6ed38ef770d...8c0ba60a21939'
-  
-  - c6ed38ef770d909d48573622907e4d461e198f45b6824a6b3ea8c0ba60a21939
-  + 8b288c7901c0ba0034ce7c700b538614d003cd4f2f68894293e4f3c8bc549b10
-FAILED tests/test_discovery.py::test_search_exposes_meaning_and_ambiguity_without_physical_bindings - AssertionError: assert {'pointLookup...nJoin': False} == {'pointLookup...nJoin': False}
-  
-  Omitting 2 identical items, use -vv to show
-  Differing items:
-  {'pointLookup': False} != {'pointLookup': True}
-  
-  Full diff:
-    {
-  -     'pointLookup': True,
-  ?                    ^^^
-  +     'pointLookup': False,
-  ?                    ^^^^
-        'keyedFind': True,
-        'collectionJoin': False,
-    }
-FAILED tests/test_discovery.py::test_discovery_http_pins_tenant_bundle_and_does_not_expose_unknown_ids - assert False is True
-FAILED tests/test_openapi_provider.py::test_api_object_failure_matrix - AssertionError: assert ('UNAVAILABLE...ALID_MAPPING') == ('MISSING', 'NO_ROW')
-  
-  At index 0 diff: 'UNAVAILABLE' != 'MISSING'
+  At index 0 diff: 'entryId' != 'ledger'
   
   Full diff:
     (
-  -     'MISSING',
-  -     'NO_ROW',
-  +     'UNAVAILABLE',
-  +     'INVALID_MAPPING',
+  +     'entryId',
+        'ledger',
+  -     'entryId',
     )
-FAILED tests/test_openapi_provider.py::test_api_null_property_and_exact_decimal - AssertionError: assert 'UNAVAILABLE' == 'PRESENT'
+FAILED tests/test_openapi_provider.py::test_api_caller_filters_cannot_override_tenant_or_identity - AssertionError: assert 'PO-999' == 'PO-001'
   
-  - PRESENT
-  + UNAVAILABLE
-FAILED tests/test_openapi_provider.py::test_api_caller_filters_cannot_override_tenant_or_identity - TypeError: OpenApiReadProvider.fetch_metric() got an unexpected keyword argument 'extra_filters'
-FAILED tests/test_runtime_pg.py::test_claim_true_false_unknown_and_error - TypeError: _claim() got an unexpected keyword argument 'taxpayerId'. Did you mean 'taxpayer'?
-FAILED tests/test_studio_control_plane.py::test_studio_session_csrf_origin_capabilities_and_revocation - assert 422 == 403
- +  where 422 = <Response [422 Unprocessable Entity]>.status_code
-FAILED tests/test_studio_control_plane.py::test_studio_mapping_preview_reads_draft_mapping - assert 422 == 200
- +  where 422 = <Response [422 Unprocessable Entity]>.status_code
-FAILED tests/test_studio_control_plane.py::test_legacy_workspace_is_archived_and_migrated_to_canonical_documents - AssertionError: assert 'b1f178b7dc58...058d857d34791' == '8b288c7901c0...4f3c8bc549b10'
-  
-  - 8b288c7901c0ba0034ce7c700b538614d003cd4f2f68894293e4f3c8bc549b10
-  + b1f178b7dc5886b8598797443c4a49b7a86d7149c473e06ecc5058d857d34791
-FAILED tests/test_studio_control_plane.py::test_metric_document_save_reload_impacts_and_revision_conflict - AssertionError: {"detail":{"code":"INVALID_DRAFT","diagnostics":[{"code":"LEGACY_MAPPING_FIELD","path":"tax.g2DraftMetric.tax_pg.physical","message":"remove legacy identity fields: identityColumn","severity":"error"}]}}
-assert 422 == 200
- +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+  - PO-001
+  + PO-999
