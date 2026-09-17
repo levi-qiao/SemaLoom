@@ -9,7 +9,7 @@ from semaloom.adapters.composite import CompositeReadProvider
 from semaloom.adapters.openapi import OpenApiReadProvider
 from semaloom.app.bootstrap import compile_examples
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import IdentityValue, ObjectRead
+from semaloom.core.provider import IdentityScalar, IdentityValue, ObjectRead
 from semaloom.core.results import (
     ObjectSelect,
     Observation,
@@ -40,7 +40,7 @@ class PgOrderProvider:
         *,
         tenant: str,
         identity_value: IdentityValue,
-        extra_filters: dict[str, str] | None = None,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Observation:
         raise AssertionError("metric access is not expected")
 
@@ -102,7 +102,9 @@ def test_query_composes_postgres_and_api_properties_with_evidence() -> None:
                     properties=("status", "deliveryRisk"),
                 ),
             ),
-            context=QueryContext(businessPeriod={"from": "2026-01-01", "to": "2027-01-01"}),
+            context=QueryContext(
+                businessPeriod={"from": "2026-01-01", "to": "2027-01-01"}
+            ),
         ),
         ACTOR,
     )
@@ -133,7 +135,10 @@ def test_api_object_failure_matrix() -> None:
             "CARDINALITY_VIOLATION",
         ),
         (
-            lambda request: httpx.Response(200, json={"orderId": "WRONG", "deliveryRisk": "LOW"}),
+            lambda request: httpx.Response(
+                200,
+                json={"orderId": "WRONG", "deliveryRisk": "LOW"},
+            ),
             "UNAVAILABLE",
             "IDENTITY_MISMATCH",
         ),
@@ -178,40 +183,65 @@ def test_api_null_property_and_exact_decimal() -> None:
                 )
             )
         }
-    ).fetch_object(_object_mapping(), tenant="tenant-a", identity_value={"orderId": "PO-001"})
+    ).fetch_object(
+        _object_mapping(),
+        tenant="tenant-a",
+        identity_value={"orderId": "PO-001"},
+    )
     assert null_result.kind == "PRESENT"
     assert null_result.values["deliveryRisk"] is None
 
     mapping = _object_mapping(valuePointer="/amount").model_copy(
-        update={"id": "procurement.orderAmount.apiTest", "target": "procurement.orderAmount"}
+        update={
+            "id": "procurement.orderAmount.apiTest",
+            "target": "procurement.orderAmount",
+        }
     )
     exact = OpenApiReadProvider(
         {
             "api": _client(
                 lambda request: httpx.Response(
-                    200, json={"orderId": "PO-001", "amount": "1234567890.0100"}
+                    200,
+                    json={"orderId": "PO-001", "amount": "1234567890.0100"},
                 )
             )
         }
-    ).fetch_metric(mapping, tenant="tenant-a", identity_value={"orderId": "PO-001"})
+    ).fetch_metric(
+        mapping,
+        tenant="tenant-a",
+        identity_value={"orderId": "PO-001"},
+    )
     assert (exact.kind, exact.value) == ("PRESENT", "1234567890.0100")
 
     inexact = OpenApiReadProvider(
         {
             "api": _client(
-                lambda request: httpx.Response(200, json={"orderId": "PO-001", "amount": 1.1})
+                lambda request: httpx.Response(
+                    200, json={"orderId": "PO-001", "amount": 1.1}
+                )
             )
         }
-    ).fetch_metric(mapping, tenant="tenant-a", identity_value={"orderId": "PO-001"})
+    ).fetch_metric(
+        mapping,
+        tenant="tenant-a",
+        identity_value={"orderId": "PO-001"},
+    )
     assert (inexact.kind, inexact.reason) == ("UNAVAILABLE", "INEXACT_NUMBER")
 
     non_finite = OpenApiReadProvider(
         {
             "api": _client(
-                lambda request: httpx.Response(200, json={"orderId": "PO-001", "amount": "NaN"})
+                lambda request: httpx.Response(
+                    200,
+                    json={"orderId": "PO-001", "amount": "NaN"},
+                )
             )
         }
-    ).fetch_metric(mapping, tenant="tenant-a", identity_value={"orderId": "PO-001"})
+    ).fetch_metric(
+        mapping,
+        tenant="tenant-a",
+        identity_value={"orderId": "PO-001"},
+    )
     assert (non_finite.kind, non_finite.reason) == (
         "UNAVAILABLE",
         "NON_FINITE_NUMBER",
@@ -225,7 +255,10 @@ def test_api_caller_filters_cannot_override_tenant_or_identity() -> None:
         return httpx.Response(200, json={"orderId": "PO-001", "amount": "1.00"})
 
     mapping = _object_mapping(valuePointer="/amount").model_copy(
-        update={"id": "procurement.orderAmount.apiTest", "target": "procurement.orderAmount"}
+        update={
+            "id": "procurement.orderAmount.apiTest",
+            "target": "procurement.orderAmount",
+        }
     )
     result = OpenApiReadProvider({"api": _client(handler)}).fetch_metric(
         mapping,
