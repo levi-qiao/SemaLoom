@@ -26,22 +26,13 @@ jobs:
 
           tools = Path("src/semaloom/app/chat/tools.py")
           text = tools.read_text()
-          replacements = (
-              (
-                  "        self._identity(metric.object_type, selection.bindings)\n",
-                  "        self._identity_from_bindings(metric.object_type, selection.bindings)\n",
-              ),
-              (
-                  "                    self._identity(item.object_type, body.bindings)\n",
-                  "                    self._identity_from_bindings(item.object_type, body.bindings)\n",
-              ),
-          )
-          for old, new in replacements:
-              if text.count(old) != 1:
-                  raise SystemExit(f"unexpected identity caller count: {old!r}")
-              text = text.replace(old, new, 1)
+          old_identity = '''    def _metric_identity(self, selection: MetricSelect) -> None:
+              metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
+              if metric is None:
+                  raise ValueError("UNKNOWN_METRIC")
+              self._identity(metric.object_type, selection.bindings)
 
-          old_identity = '''    def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
+          def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
               obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
               if obj is None or not obj.identity_keys:
                   raise ValueError("UNSUPPORTED_IDENTITY")
@@ -51,7 +42,13 @@ jobs:
               if (object_type, _identity_tuple(identity)) not in self.identities:
                   raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
           '''
-          new_identity = '''    def _identity_from_bindings(self, object_type: str, bindings: dict[str, Any]) -> None:
+          new_identity = '''    def _metric_identity(self, selection: MetricSelect) -> None:
+              metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
+              if metric is None:
+                  raise ValueError("UNKNOWN_METRIC")
+              self._identity_from_bindings(metric.object_type, selection.bindings)
+
+          def _identity_from_bindings(self, object_type: str, bindings: dict[str, Any]) -> None:
               obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
               if obj is None or not obj.identity_keys or not set(obj.identity_keys) <= set(bindings):
                   raise ValueError("UNSUPPORTED_IDENTITY")
@@ -67,7 +64,16 @@ jobs:
           '''
           if text.count(old_identity) != 1:
               raise SystemExit("canonical identity function block changed")
-          tools.write_text(text.replace(old_identity, new_identity, 1))
+          text = text.replace(old_identity, new_identity, 1)
+          old_claim = "                    self._identity(item.object_type, body.bindings)\n"
+          if text.count(old_claim) != 1:
+              raise SystemExit("claim identity caller changed")
+          text = text.replace(
+              old_claim,
+              "                    self._identity_from_bindings(item.object_type, body.bindings)\n",
+              1,
+          )
+          tools.write_text(text)
 
           compile_test = Path("tests/test_compile.py")
           text = compile_test.read_text()
