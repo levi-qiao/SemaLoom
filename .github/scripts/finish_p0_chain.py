@@ -286,7 +286,7 @@ patch(
 test_path = ROOT / "tests/test_composite_identity_chain.py"
 test_text = test_path.read_text()
 if "test_frontend_editor_has_no_legacy_identity_mapping_fields" not in test_text:
-    test_text += '''\n\ndef test_frontend_editor_has_no_legacy_identity_mapping_fields() -> None:\n    editor = (ROOT / "frontend/src/MappingEditor.tsx").read_text()\n    forbidden = (\n        "identityColumn",\n        "identityColumns",\n        "identityPointer",\n        "identityPointers",\n        "identityParameter",\n        "identityParameters",\n    )\n    assert all(token not in editor for token in forbidden)\n'''
+    test_text += '''\n\ndef test_frontend_editor_has_no_legacy_identity_mapping_fields() -> None:\n    editor = (ROOT / "frontend/src/MappingEditor.tsx").read_text()\n    forbidden = (\n        "identityColumn",\n        "identityColumns",\n        "identityPointer",\n        "identityPointers",\n        "identityParameter",\n    )\n    assert all(token not in editor for token in forbidden)\n'''
     test_path.write_text(test_text)
 
 editor_text = (ROOT / editor).read_text()
@@ -296,7 +296,6 @@ for token in (
     "identityPointer",
     "identityPointers",
     "identityParameter",
-    "identityParameters",
 ):
     if token in editor_text:
         raise SystemExit(f"legacy identity token remains in MappingEditor: {token}")
