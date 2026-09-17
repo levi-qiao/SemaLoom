@@ -89,3 +89,4 @@ jobs:
           git add -A
           git commit -m "feat: make link traversal composite-identity complete"
           git push origin HEAD:feat/p0-capability-composite-identity
+# rerun aligned helper
