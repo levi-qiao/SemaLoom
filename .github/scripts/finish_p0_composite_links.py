@@ -50,6 +50,89 @@ helper = '''    def _object_mapping_for_properties(
 '''
 p.write_text(text[:helper_start] + helper + text[helper_end:])
 
+# Analysis: same-source SQL joins use every identity pair. Cross-source bind materialization
+# remains intentionally scalar and fails explicitly for composite links instead of truncating.
+p = Path("src/semaloom/adapters/analysis.py")
+text = p.read_text()
+anchor = "_BIND_KEY_LIMIT = 1000\n_BIND_BATCH = 50\n"
+if anchor not in text:
+    raise SystemExit("analysis bind constants changed")
+text = text.replace(
+    anchor,
+    anchor
+    + '\n\ndef _single_link_pair(link: LinkDef):\n'
+    + '    if len(link.identity) != 1:\n'
+    + '        raise AnalysisError("LINK_ANALYSIS_UNSUPPORTED")\n'
+    + '    return link.identity[0]\n',
+    1,
+)
+text = text.replace(
+    "local_key=resolved.link.identity.source,",
+    "local_key=_single_link_pair(resolved.link).source,",
+)
+text = text.replace(
+    "key = resolved.link.identity.source",
+    "key = _single_link_pair(resolved.link).source",
+)
+old_join = '''            target_projection = _projection(target_mapping)
+            source_col = projection.get(link.identity.source)
+            target_col = target_projection.get(link.identity.target)
+            if source_col is None or target_col is None:
+                raise AnalysisError("NO_PATH")
+            from_sql += (
+                f" LEFT JOIN {target_table} AS {alias} ON {alias}.{target_tenant} = :tenant"
+                f" AND {alias}.{require_ident(target_col, field='column')} = {source_col}"
+            )'''
+new_join = '''            target_projection = _projection(target_mapping)
+            join_predicates = []
+            for pair in link.identity:
+                source_col = projection.get(pair.source)
+                target_col = target_projection.get(pair.target)
+                if source_col is None or target_col is None:
+                    raise AnalysisError("NO_PATH")
+                join_predicates.append(
+                    f"{alias}.{require_ident(target_col, field='column')} = {source_col}"
+                )
+            from_sql += (
+                f" LEFT JOIN {target_table} AS {alias} ON {alias}.{target_tenant} = :tenant"
+                + "".join(f" AND {predicate}" for predicate in join_predicates)
+            )'''
+if old_join not in text:
+    raise SystemExit("analysis same-source join block changed")
+text = text.replace(old_join, new_join)
+
+# Label decoration is best-effort; scalar links retain the optimization, composite links skip it.
+text = text.replace(
+    '''        ids = {
+            str(item)
+            for item in field_ids.get(link.identity.source, set())
+            if item not in {"", "None"}
+        }''',
+    '''        if len(link.identity) != 1:
+            continue
+        pair = link.identity[0]
+        ids = {
+            str(item)
+            for item in field_ids.get(pair.source, set())
+            if item not in {"", "None"}
+        }''',
+)
+text = text.replace(
+    "identity_col = projection.get(link.identity.target)",
+    "identity_col = projection.get(pair.target)",
+)
+text = text.replace(
+    "found[(link.identity.source, ident)] = name",
+    "found[(pair.source, ident)] = name",
+)
+text = text.replace(
+    "identity = projection.get(bind.link.identity.target)",
+    "identity = projection.get(_single_link_pair(bind.link).target)",
+)
+if "link.identity.source" in text or "link.identity.target" in text:
+    raise SystemExit("analysis scalar link identity residue remains")
+p.write_text(text)
+
 # Reuse the already-written tail for frontend, examples, tests and residue assertions.
 source = Path(".github/scripts/fix_p0_composite_links.py").read_text()
 marker = "# Frontend relation editor supports an arbitrary non-empty list of identity pairs."
