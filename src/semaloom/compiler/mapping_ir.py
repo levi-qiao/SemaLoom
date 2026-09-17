@@ -16,6 +16,7 @@ _LEGACY_IDENTITY_FIELDS = frozenset(
         "identityColumn",
         "identityColumns",
         "identityParameter",
+        "identityParameters",
         "identityPointer",
         "identityPointers",
     }
