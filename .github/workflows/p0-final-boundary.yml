@@ -26,45 +26,33 @@ jobs:
 
           tools = Path("src/semaloom/app/chat/tools.py")
           text = tools.read_text()
-          old_identity = '''    def _metric_identity(self, selection: MetricSelect) -> None:
-              metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
-              if metric is None:
-                  raise ValueError("UNKNOWN_METRIC")
-              self._identity(metric.object_type, selection.bindings)
-
-          def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
-              obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
-              if obj is None or not obj.identity_keys:
-                  raise ValueError("UNSUPPORTED_IDENTITY")
-              if not set(obj.identity_keys) <= set(bindings):
-                  raise ValueError("UNSUPPORTED_IDENTITY")
-              identity = {key: str(bindings[key]) for key in obj.identity_keys}
-              if (object_type, _identity_tuple(identity)) not in self.identities:
-                  raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
-          '''
-          new_identity = '''    def _metric_identity(self, selection: MetricSelect) -> None:
-              metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
-              if metric is None:
-                  raise ValueError("UNKNOWN_METRIC")
-              self._identity_from_bindings(metric.object_type, selection.bindings)
-
-          def _identity_from_bindings(self, object_type: str, bindings: dict[str, Any]) -> None:
-              obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
-              if obj is None or not obj.identity_keys or not set(obj.identity_keys) <= set(bindings):
-                  raise ValueError("UNSUPPORTED_IDENTITY")
-              self._identity(object_type, {key: bindings[key] for key in obj.identity_keys})
-
-          def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
-              obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
-              if obj is None or not obj.identity_keys or set(bindings) != set(obj.identity_keys):
-                  raise ValueError("UNSUPPORTED_IDENTITY")
-              identity = {key: str(bindings[key]) for key in obj.identity_keys}
-              if (object_type, _identity_tuple(identity)) not in self.identities:
-                  raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
-          '''
-          if text.count(old_identity) != 1:
-              raise SystemExit("canonical identity function block changed")
-          text = text.replace(old_identity, new_identity, 1)
+          start = text.index("    def _metric_identity(")
+          end = text.index("\ndef _identity_tuple", start)
+          methods = "\n".join(
+              [
+                  "    def _metric_identity(self, selection: MetricSelect) -> None:",
+                  "        metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)",
+                  "        if metric is None:",
+                  '            raise ValueError("UNKNOWN_METRIC")',
+                  "        self._identity_from_bindings(metric.object_type, selection.bindings)",
+                  "",
+                  "    def _identity_from_bindings(self, object_type: str, bindings: dict[str, Any]) -> None:",
+                  "        obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)",
+                  "        if obj is None or not obj.identity_keys or not set(obj.identity_keys) <= set(bindings):",
+                  '            raise ValueError("UNSUPPORTED_IDENTITY")',
+                  "        self._identity(object_type, {key: bindings[key] for key in obj.identity_keys})",
+                  "",
+                  "    def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:",
+                  "        obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)",
+                  "        if obj is None or not obj.identity_keys or set(bindings) != set(obj.identity_keys):",
+                  '            raise ValueError("UNSUPPORTED_IDENTITY")',
+                  "        identity = {key: str(bindings[key]) for key in obj.identity_keys}",
+                  "        if (object_type, _identity_tuple(identity)) not in self.identities:",
+                  '            raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")',
+                  "",
+              ]
+          )
+          text = text[:start] + methods + text[end:]
           old_claim = "                    self._identity(item.object_type, body.bindings)\n"
           if text.count(old_claim) != 1:
               raise SystemExit("claim identity caller changed")
@@ -77,99 +65,89 @@ jobs:
 
           compile_test = Path("tests/test_compile.py")
           text = compile_test.read_text()
-          old_cycle = '''def test_object_link_cycle_is_allowed() -> None:
-              docs = _load(PROCUREMENT)
-              docs.append(
-                  {
-                      "apiVersion": "semaloom/v0.1",
-                      "kind": "Link",
-                      "id": "procurement.supplierOrders",
-                      "version": "1.0.0",
-                      "source": "procurement.Supplier",
-                      "target": "procurement.Order",
-                      "cardinality": "MANY",
-                      "identity": [{"source": "supplierId", "target": "supplierId"}],
-                  }
-              )
-              result = compile_documents(docs)
-              assert result.ok, [item.model_dump() for item in result.diagnostics]
-          '''
-          new_cycle = '''def test_object_link_cycle_is_allowed() -> None:
-              docs = _load(PROCUREMENT)
-              supplier = next(
-                  item
-                  for item in docs
-                  if item.get("kind") == "ObjectType" and item.get("id") == "procurement.Supplier"
-              )
-              supplier["properties"] = [
-                  *supplier["properties"],
-                  {"id": "orderId", "valueType": "STRING"},
+          start = text.index("def test_object_link_cycle_is_allowed() -> None:")
+          end = text.index("\ndef test_missing_link_identity_is_rejected()", start)
+          cycle_test = "\n".join(
+              [
+                  "def test_object_link_cycle_is_allowed() -> None:",
+                  "    docs = _load(PROCUREMENT)",
+                  "    supplier = next(",
+                  "        item",
+                  "        for item in docs",
+                  '        if item.get("kind") == "ObjectType" and item.get("id") == "procurement.Supplier"',
+                  "    )",
+                  '    supplier["properties"] = [',
+                  '        *supplier["properties"],',
+                  '        {"id": "orderId", "valueType": "STRING"},',
+                  "    ]",
+                  "    docs.append(",
+                  "        {",
+                  '            "apiVersion": "semaloom/v0.1",',
+                  '            "kind": "Link",',
+                  '            "id": "procurement.supplierOrders",',
+                  '            "version": "1.0.0",',
+                  '            "source": "procurement.Supplier",',
+                  '            "target": "procurement.Order",',
+                  '            "cardinality": "MANY",',
+                  '            "identity": [{"source": "orderId", "target": "orderId"}],',
+                  "        }",
+                  "    )",
+                  "    result = compile_documents(docs)",
+                  "    assert result.ok, [item.model_dump() for item in result.diagnostics]",
+                  "",
               ]
-              docs.append(
-                  {
-                      "apiVersion": "semaloom/v0.1",
-                      "kind": "Link",
-                      "id": "procurement.supplierOrders",
-                      "version": "1.0.0",
-                      "source": "procurement.Supplier",
-                      "target": "procurement.Order",
-                      "cardinality": "MANY",
-                      "identity": [{"source": "orderId", "target": "orderId"}],
-                  }
-              )
-              result = compile_documents(docs)
-              assert result.ok, [item.model_dump() for item in result.diagnostics]
-          '''
-          if text.count(old_cycle) != 1:
-              raise SystemExit("link cycle test block changed")
-          compile_test.write_text(text.replace(old_cycle, new_cycle, 1))
+          )
+          compile_test.write_text(text[:start] + cycle_test + text[end:])
 
           identity_test = Path("tests/test_composite_identity_chain.py")
           text = identity_test.read_text()
           marker = "\n\ndef test_frontend_editor_has_no_legacy_identity_mapping_fields() -> None:\n"
-          extra_test = '''
-
-          def test_ai_object_identity_rejects_extra_components() -> None:
-              bundle = _bundle()
-              provider = FakeProvider()
-              tools = SemanticTools(QueryService(bundle, provider), ACTOR)
-              tools.call(
-                  "find_objects",
-                  {
-                      "objectType": "demo.Entry",
-                      "filters": {"name": "Journal entry"},
-                      "properties": ["name"],
-                  },
-              )
-              with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
-                  tools.call(
-                      "semantic_query",
-                      {
-                          "apiVersion": "semaloom/v0.1",
-                          "select": [
-                              {
-                                  "objectType": "demo.Entry",
-                                  "identity": {
-                                      "ledger": "0L",
-                                      "entryId": "E-1",
-                                      "extra": "x",
-                                  },
-                                  "properties": ["name"],
-                              }
-                          ],
-                          "context": {
-                              "businessPeriod": {
-                                  "from": "2024-01-01",
-                                  "to": "2025-01-01",
-                              }
-                          },
-                      },
-                  )
-          '''
           if marker not in text:
               raise SystemExit("composite identity test marker changed")
           if "def test_ai_object_identity_rejects_extra_components" not in text:
-              text = text.replace(marker, extra_test + marker, 1)
+              extra = "\n".join(
+                  [
+                      "",
+                      "",
+                      "def test_ai_object_identity_rejects_extra_components() -> None:",
+                      "    bundle = _bundle()",
+                      "    provider = FakeProvider()",
+                      "    tools = SemanticTools(QueryService(bundle, provider), ACTOR)",
+                      "    tools.call(",
+                      '        "find_objects",',
+                      "        {",
+                      '            "objectType": "demo.Entry",',
+                      '            "filters": {"name": "Journal entry"},',
+                      '            "properties": ["name"],',
+                      "        },",
+                      "    )",
+                      '    with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):',
+                      "        tools.call(",
+                      '            "semantic_query",',
+                      "            {",
+                      '                "apiVersion": "semaloom/v0.1",',
+                      '                "select": [',
+                      "                    {",
+                      '                        "objectType": "demo.Entry",',
+                      '                        "identity": {',
+                      '                            "ledger": "0L",',
+                      '                            "entryId": "E-1",',
+                      '                            "extra": "x",',
+                      "                        },",
+                      '                        "properties": ["name"],',
+                      "                    }",
+                      "                ],",
+                      '                "context": {',
+                      '                    "businessPeriod": {',
+                      '                        "from": "2024-01-01",',
+                      '                        "to": "2025-01-01",',
+                      "                    }",
+                      "                },",
+                      "            },",
+                      "        )",
+                  ]
+              )
+              text = text.replace(marker, extra + marker, 1)
           identity_test.write_text(text)
           PY
       - name: Validate focused backend changes
