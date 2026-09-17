@@ -22,7 +22,7 @@ def test_tenant_activation_changes_public_query_claim_and_studio() -> None:
     headers = {"Authorization": "Bearer tenant-a-analyst"}
     body = {
         "metric": "tax.reportedIncome",
-        "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+        "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
         "periodFrom": "2024-01-01",
         "periodTo": "2025-01-01",
     }

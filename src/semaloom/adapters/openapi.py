@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import IdentityValue, ObjectRead
+from semaloom.core.provider import IdentityScalar, IdentityValue, ObjectRead, ObjectSearch
 from semaloom.core.results import Observation
 
 
@@ -63,7 +63,10 @@ class OpenApiReadProvider:
                 source_id=mapping.source_id,
                 observed_at=observed,
             )
-        if any(str(_pointer(record, pointers[key])) != str(value) for key, value in identity_value.items()):
+        if any(
+            str(_pointer(record, pointers[key])) != str(value)
+            for key, value in identity_value.items()
+        ):
             return ObjectRead(
                 kind="UNAVAILABLE",
                 reason="IDENTITY_MISMATCH",
@@ -96,14 +99,14 @@ class OpenApiReadProvider:
         *,
         tenant: str,
         identity_value: IdentityValue,
-        extra_filters: dict[str, str] | None = None,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Observation:
         observed = _now()
         outcome = self._get(
             mapping,
             tenant=tenant,
             identity_value=identity_value,
-            extra_filters=extra_filters,
+            bindings=bindings,
         )
         if isinstance(outcome, str):
             return _metric_outcome(mapping, observed, outcome)
@@ -115,7 +118,10 @@ class OpenApiReadProvider:
             pointers = _identity_pointers(mapping, identity_value)
         except ValueError:
             return _metric_outcome(mapping, observed, "INVALID_MAPPING")
-        if any(str(_pointer(record, pointers[key])) != str(value) for key, value in identity_value.items()):
+        if any(
+            str(_pointer(record, pointers[key])) != str(value)
+            for key, value in identity_value.items()
+        ):
             return _metric_outcome(mapping, observed, "IDENTITY_MISMATCH")
         raw = _pointer(record, str(mapping.physical.get("valuePointer", "/value")))
         if raw is None:
@@ -152,7 +158,7 @@ class OpenApiReadProvider:
         *,
         tenant: str,
         identity_value: IdentityValue,
-        extra_filters: dict[str, str] | None = None,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Any | str:
         if str(mapping.physical.get("method", "GET")).upper() != "GET":
             return "READ_METHOD_REQUIRED"
@@ -165,16 +171,28 @@ class OpenApiReadProvider:
             or path.startswith("//")
         ):
             return "PROVIDER_NOT_CONFIGURED"
-        try:
-            identity_parameters = _identity_parameters(mapping, identity_value)
-        except ValueError:
+        parameter_bindings = mapping.physical.get("parameterBindings")
+        if not isinstance(parameter_bindings, dict):
             return "INVALID_MAPPING"
-        if "tenant" in identity_parameters.values():
-            return "INVALID_MAPPING"
-        params: dict[str, Any] = {**(extra_filters or {}), "tenant": tenant}
-        for semantic, value in identity_value.items():
-            parameter = identity_parameters[semantic]
-            if parameter == "tenant" or parameter in params and parameter != semantic:
+        params: dict[str, Any] = {
+            **dict(mapping.physical.get("fixedParameters") or {}),
+            "tenant": tenant,
+        }
+        binding_values = bindings or {}
+        if set(identity_value) & set(binding_values):
+            return "INVALID_BINDINGS"
+        semantic_values: dict[str, IdentityScalar] = {
+            **identity_value,
+            **binding_values,
+        }
+        for semantic, value in semantic_values.items():
+            parameter = parameter_bindings.get(semantic)
+            if (
+                not isinstance(parameter, str)
+                or not parameter
+                or parameter == "tenant"
+                or parameter in params
+            ):
                 return "INVALID_MAPPING"
             params[parameter] = value
         try:
@@ -191,6 +209,17 @@ class OpenApiReadProvider:
             return response.json()
         except ValueError:
             return "INVALID_RESPONSE"
+
+    def search_objects(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        filters: dict[str, Any],
+        properties: tuple[str, ...],
+        limit: int,
+    ) -> ObjectSearch:
+        return ObjectSearch(kind="UNAVAILABLE", reason="SEARCH_NOT_SUPPORTED", observed_at=_now())
 
     def close(self) -> None:
         for client in {*self._clients.values(), *self._dynamic_clients.values()}:
@@ -216,40 +245,15 @@ class OpenApiReadProvider:
         return self._clients.get(source_id)
 
 
-def _identity_parameters(mapping: MappingDef, identity_value: IdentityValue) -> dict[str, str]:
-    if not identity_value:
-        raise ValueError("identity must not be empty")
-    explicit = mapping.physical.get("identityParameters")
-    explicit_parameters = explicit if isinstance(explicit, dict) else {}
-    legacy = mapping.physical.get("identityParameter")
-    parameters: dict[str, str] = {}
-    for semantic in identity_value:
-        parameter = explicit_parameters.get(semantic)
-        if parameter is None and len(identity_value) == 1:
-            parameter = legacy
-        if parameter is None:
-            parameter = semantic
-        if not isinstance(parameter, str) or not parameter:
-            raise ValueError("invalid identity parameter")
-        parameters[semantic] = parameter
-    if len(set(parameters.values())) != len(parameters):
-        raise ValueError("identity parameters must be distinct")
-    return parameters
-
-
 def _identity_pointers(mapping: MappingDef, identity_value: IdentityValue) -> dict[str, str]:
-    if not identity_value:
-        raise ValueError("identity must not be empty")
-    explicit = mapping.physical.get("identityPointers")
-    explicit_pointers = explicit if isinstance(explicit, dict) else {}
+    if set(identity_value) != set(mapping.identity_fields):
+        raise ValueError("identity does not match compiled mapping")
     grain = mapping.physical.get("grainPointers")
-    grain_pointers = grain if isinstance(grain, dict) else {}
-    legacy = mapping.physical.get("identityPointer")
+    if not isinstance(grain, dict):
+        raise ValueError("grainPointers must be an object")
     pointers: dict[str, str] = {}
-    for semantic in identity_value:
-        pointer = explicit_pointers.get(semantic) or grain_pointers.get(semantic)
-        if pointer is None and len(identity_value) == 1:
-            pointer = legacy
+    for semantic in mapping.identity_fields:
+        pointer = grain.get(semantic)
         if not isinstance(pointer, str) or not pointer:
             raise ValueError("invalid identity pointer")
         pointers[semantic] = pointer

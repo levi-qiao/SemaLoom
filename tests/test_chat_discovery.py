@@ -29,7 +29,7 @@ def test_link_and_metric_discovery_exposes_collection_join_boundary() -> None:
     link = tools.call("describe_semantic", {"semanticId": "tax.filingTaxpayer"})
     assert link["kind"] == "Link"
     assert link["analysisCapabilities"] == {
-        "pointLookup": True,
+        "pointLookup": False,
         "keyedFind": True,
         "collectionJoin": False,
     }
@@ -49,7 +49,7 @@ def test_link_and_metric_discovery_exposes_collection_join_boundary() -> None:
         else:
             assert "analysisCapabilities" not in item
     listed = next(item for item in page["definitions"] if item["id"] == "tax.filingTaxpayer")
-    assert listed["analysisCapabilities"]["pointLookup"] is True
+    assert listed["analysisCapabilities"]["pointLookup"] is False
 
 
 def test_catalog_pages_are_complete_release_pinned_and_business_only() -> None:

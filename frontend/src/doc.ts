@@ -46,84 +46,56 @@ export function isOpenApi(value: unknown): boolean {
   return text(value) === "openapi";
 }
 
-export function defaultMappingCapabilities(provider: string): string[] {
-  return provider === "openapi"
-    ? ["POINT_READ"]
-    : ["POINT_READ", "COLLECTION_READ", "EQUI_JOIN"];
-}
-
-function identityList(value: string | string[]): string[] {
-  const values = Array.isArray(value) ? value : [value];
-  return values.filter(Boolean);
+function identityList(identityKeys: string[]): string[] {
+  return identityKeys.map(String).filter(Boolean);
 }
 
 export function emptyMappingPhysical(
   provider: string,
-  identityKey: string | string[],
+  identityKeys: string[],
 ): Record<string, unknown> {
-  const identities = identityList(identityKey);
-  const primary = identities[0] ?? "id";
+  const identities = identityList(identityKeys);
   if (provider === "openapi") {
-    const identityParameters = Object.fromEntries(identities.map((key) => [key, key]));
-    const identityPointers = Object.fromEntries(identities.map((key) => [key, `/${key}`]));
     return {
       method: "GET",
       path: "",
       operationId: "",
-      identityParameter: primary,
-      identityPointer: `/${primary}`,
-      identityParameters,
-      identityPointers,
-      grainPointers: { ...identityPointers },
+      parameterBindings: Object.fromEntries(identities.map((key) => [key, key])),
+      grainPointers: Object.fromEntries(identities.map((key) => [key, `/${key}`])),
       propertyPointers: {},
     };
   }
-  const identityColumns = Object.fromEntries(identities.map((key) => [key, ""]));
   return {
     table: "",
     tenantColumn: "tenant_id",
-    identityColumn: "",
-    identityColumns,
-    grainColumns: { ...identityColumns },
+    grainColumns: Object.fromEntries(identities.map((key) => [key, ""])),
     propertyColumns: {},
   };
 }
 
 export function emptyMetricPhysical(
   provider: string,
-  identityKey: string | string[],
+  identityKeys: string[],
   grain: string[],
 ): Record<string, unknown> {
-  const identities = identityList(identityKey);
-  const primary = identities[0] ?? "id";
-  const dims = grain.length ? grain : identities.length ? identities : [primary];
+  const identities = identityList(identityKeys);
+  const dims = grain.length ? grain : identities;
   if (provider === "openapi") {
-    const grainPointers: Record<string, string> = {};
-    for (const dim of dims) grainPointers[dim] = `/${dim}`;
-    const identityParameters = Object.fromEntries(identities.map((key) => [key, key]));
-    const identityPointers = Object.fromEntries(identities.map((key) => [key, `/${key}`]));
+    const grainPointers = Object.fromEntries(dims.map((dim) => [dim, `/${dim}`]));
     return {
       method: "GET",
       path: "",
       operationId: "",
-      identityParameter: primary,
-      identityPointer: `/${primary}`,
-      identityParameters,
-      identityPointers,
+      parameterBindings: Object.fromEntries(identities.map((key) => [key, key])),
       valuePointer: "/value",
       grainPointers,
     };
   }
-  const grainColumns: Record<string, string> = {};
-  for (const dim of dims) grainColumns[dim] = "";
-  const identityColumns = Object.fromEntries(identities.map((key) => [key, ""]));
   return {
     table: "",
     tenantColumn: "tenant_id",
-    identityColumn: "",
-    identityColumns,
     valueColumn: "",
-    grainColumns,
+    grainColumns: Object.fromEntries(dims.map((dim) => [dim, ""])),
     filters: {},
   };
 }

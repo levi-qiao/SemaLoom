@@ -54,7 +54,7 @@ export function PropertyMappingSheet({
   const [tableRows, setTableRows] = useState<Record<string, string | null>[]>([]);
   const [rowsReason, setRowsReason] = useState<string | null>(null);
   const [pickedRow, setPickedRow] = useState<number | null>(null);
-  const [identity, setIdentity] = useState("");
+  const [identity, setIdentity] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -104,8 +104,6 @@ export function PropertyMappingSheet({
     })) {
       if (value) names.add(String(value));
     }
-    const identity = text(focusedPhysical.identityColumn) || text(focusedPhysical.identityPointer);
-    if (identity) names.add(identity);
     return [...names].map((name) => ({ name }));
   }, [focused, focusedApi, focusedResources, focusedTable, focusedPath, focusedPhysical]);
   const tableSchema = focusedResources.find((item) => item.name === focusedTable)?.schema ?? null;
@@ -134,7 +132,7 @@ export function PropertyMappingSheet({
   }, [focused?.id, focusedTable, tableSchema, focusedApi, focused?.sourceId]);
 
   useEffect(() => {
-    setIdentity("");
+    setIdentity({});
     setPreview(null);
     setPreviewError(null);
   }, [focusMapping]);
@@ -144,7 +142,7 @@ export function PropertyMappingSheet({
   const missingJoin = mappings.some((mapping) => identityKeys.some((key) => !columnOf(mapping, key, identityKeys)));
   const saved = Boolean(focused) && savedDocuments.some((item) => item.id === focused?.id && sameJson(item, focused));
   const hasResource = focusedApi ? Boolean(focusedPath || text(focusedPhysical.operationId)) : Boolean(focusedTable);
-  const canPreview = saved && Boolean(identity.trim()) && hasResource;
+  const canPreview = saved && identityKeys.length > 0 && identityKeys.every((key) => Boolean(text(identity[key]).trim())) && hasResource;
 
   function replaceObject(next: DraftDocument) {
     onChange(replaceDocument(documents, next));
@@ -210,12 +208,11 @@ export function PropertyMappingSheet({
     if (!focused) return;
     const profile = profiles.find((item) => item.sourceId === nextId);
     const provider = String(profile?.provider ?? focused.provider);
-    const identityKey = identityKeys[0] ?? "id";
     const next = {
       ...focused,
       sourceId: nextId,
       provider,
-      physical: emptyMappingPhysical(provider, identityKey),
+      physical: emptyMappingPhysical(provider, identityKeys),
     };
     onChange(rehomeMapping(replaceDocument(documents, next), next.id, nextId, provider));
     setTableRows([]);
@@ -235,8 +232,12 @@ export function PropertyMappingSheet({
 
   function pickRow(index: number, row: Record<string, string | null>) {
     setPickedRow(index);
-    const identityCol = text(focusedPhysical.identityColumn) || focusedColumns[0]?.name;
-    if (identityCol && row[identityCol]) setIdentity(String(row[identityCol]));
+    const next: Record<string, string> = {};
+    for (const key of identityKeys) {
+      const column = focused ? columnOf(focused, key, identityKeys) : "";
+      if (column && row[column] != null) next[key] = String(row[column]);
+    }
+    if (Object.keys(next).length) setIdentity(next);
   }
 
   function patchFocused(next: DraftDocument) {
@@ -366,22 +367,25 @@ export function PropertyMappingSheet({
                 </label>
               );
             })}
-            {focusedApi ? (
-              <label className="form-field"><span>身份参数</span>
+            {focusedApi ? identityKeys.map((key) => (
+              <label className="form-field" key={key}><span>身份参数 {key}</span>
                 <select
-                  aria-label="身份参数"
-                  value={text(focusedPhysical.identityParameter)}
+                  aria-label={`身份参数 ${key}`}
+                  value={text(object(focusedPhysical.parameterBindings)[key])}
                   onChange={(event) => patchFocused({
                     ...focused,
-                    physical: { ...focusedPhysical, identityParameter: event.target.value },
+                    physical: {
+                      ...focusedPhysical,
+                      parameterBindings: { ...object(focusedPhysical.parameterBindings), [key]: event.target.value },
+                    },
                   })}
                 >
-                  {(parameters.length ? parameters : identityKeys.map((item) => ({ name: item }))).map((item) => (
+                  {(parameters.length ? parameters : [{ name: key }]).map((item) => (
                     <option key={item.name} value={item.name}>{item.name}</option>
                   ))}
                 </select>
               </label>
-            ) : null}
+            )) : null}
           </div>
         ) : <p className="empty">还没有接到任何表或接口。点上面按钮添加。</p>}
         {multiTable ? (
@@ -540,10 +544,16 @@ export function PropertyMappingSheet({
           )}
           {focused ? (
             <div className="try-read">
-              <label className="form-field">
-                <span>试读业务键</span>
-                <input value={identity} placeholder="例如 PO-001" onChange={(event) => setIdentity(event.target.value)} />
-              </label>
+              {identityKeys.map((key) => (
+                <label className="form-field" key={key}>
+                  <span>试读业务键 {key}</span>
+                  <input
+                    value={text(identity[key])}
+                    placeholder={key}
+                    onChange={(event) => setIdentity((current) => ({ ...current, [key]: event.target.value }))}
+                  />
+                </label>
+              ))}
               <button className="secondary" disabled={busy || !canPreview} onClick={() => void runPreview()}>试读</button>
               {saved ? (
                 <p className="mapping-hint">{draftPreviewHint(true, savedRevision)}</p>
@@ -579,9 +589,6 @@ function columnOf(mapping: DraftDocument, propertyId: string, identityKeys: stri
   const props = object(isOpenApi(mapping.provider) ? physical.propertyPointers : physical.propertyColumns);
   if (text(grain[propertyId])) return text(grain[propertyId]);
   if (text(props[propertyId])) return text(props[propertyId]);
-  if (identityKeys[0] === propertyId) {
-    return text(physical.identityColumn) || text(physical.identityPointer);
-  }
   return "";
 }
 

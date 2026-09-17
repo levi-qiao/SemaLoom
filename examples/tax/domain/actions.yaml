@@ -21,5 +21,8 @@
   id: tax.defaultAccess
   version: "1.0.0"
   roles: [analyst, approver]
-  capabilities: [query, evaluateClaim, planAction]
+  capabilities:
+    - query
+    - evaluateClaim
+    - planAction
   resourceTypes: [tax.Taxpayer, tax.Filing]

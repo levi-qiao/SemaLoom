@@ -16,11 +16,9 @@
   objectType: warehouse.Sku
   expectedCardinality: ONE
   completeness: PARTIAL
-  capabilities: [POINT_READ, COLLECTION_READ, EQUI_JOIN]
   physical:
     table: warehouse_sku
     tenantColumn: tenant_id
-    identityColumn: sku_id
     grainColumns:
       skuId: sku_id
     propertyColumns:

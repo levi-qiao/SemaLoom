@@ -301,7 +301,7 @@ def test_role_deny_is_forbidden_not_missing(client: TestClient) -> None:
                 MetricSelect(
                     metric="tax.reportedIncome",
                     bindings={
-                        "taxpayer": "TAXPAYER-A",
+                        "taxpayerId": "TAXPAYER-A",
                         "taxYear": 2024,
                         "perspective": "TAX_RETURN",
                     },
@@ -322,7 +322,7 @@ def test_other_tenant_does_not_see_tenant_a_values(client: TestClient) -> None:
         json={
             "metric": "tax.reportedIncome",
             "bindings": {
-                "taxpayer": "TAXPAYER-A",
+                "taxpayerId": "TAXPAYER-A",
                 "taxYear": 2024,
                 "perspective": "TAX_RETURN",
             },
@@ -392,7 +392,7 @@ def test_version_switch_uses_query_active_and_does_not_mix() -> None:
             "/v0.1/claims/evaluate",
             json={
                 "claimId": "tax.incomeReconciles",
-                "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+                "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
                 "periodFrom": "2024-01-01",
                 "periodTo": "2025-01-01",
                 "dimensions": {"jurisdiction": "CN"},
@@ -476,7 +476,7 @@ def test_reject_sql_url_and_caller_permissions(client: TestClient) -> None:
         "/v0.1/query",
         json={
             "metric": "tax.reportedIncome",
-            "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
             "periodFrom": "2024-01-01",
             "periodTo": "2025-01-01",
             "sql": "select 1",
@@ -503,7 +503,7 @@ def test_reject_sql_url_and_caller_permissions(client: TestClient) -> None:
         json={
             "metric": "tax.reportedIncome",
             "bindings": {
-                "taxpayer": "TAXPAYER-A'; DROP TABLE tax_metric;--",
+                "taxpayerId": "TAXPAYER-A'; DROP TABLE tax_metric;--",
                 "taxYear": 2024,
                 "perspective": "TAX_RETURN",
             },
@@ -524,7 +524,7 @@ def test_policy_period_switch_and_straddle(client: TestClient) -> None:
         "/v0.1/claims/evaluate",
         json={
             "claimId": "tax.incomeReconciles",
-            "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2025},
+            "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2025},
             "periodFrom": "2025-01-01",
             "periodTo": "2026-01-01",
             "dimensions": {"jurisdiction": "CN"},
@@ -535,7 +535,7 @@ def test_policy_period_switch_and_straddle(client: TestClient) -> None:
         "/v0.1/claims/evaluate",
         json={
             "claimId": "tax.incomeReconciles",
-            "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
             "periodFrom": "2024-06-01",
             "periodTo": "2025-06-01",
             "dimensions": {"jurisdiction": "CN"},
@@ -702,7 +702,7 @@ def test_unavailable_source_via_runtime_is_not_false_or_zero(client: TestClient)
                 MetricSelect(
                     metric="tax.reportedIncome",
                     bindings={
-                        "taxpayer": "TAXPAYER-A",
+                        "taxpayerId": "TAXPAYER-A",
                         "taxYear": 2024,
                         "perspective": "TAX_RETURN",
                     },

@@ -12,7 +12,7 @@ def test_studio_session_can_read_published_data_with_csrf_and_current_roles() ->
         headers = {"Origin": "http://testserver", "X-CSRF-Token": client.cookies["semaloom_csrf"]}
         body = {
             "metric": "tax.reportedIncome",
-            "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
             "periodFrom": "2024-01-01",
             "periodTo": "2025-01-01",
         }

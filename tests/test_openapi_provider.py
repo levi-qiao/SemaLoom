@@ -9,7 +9,7 @@ from semaloom.adapters.composite import CompositeReadProvider
 from semaloom.adapters.openapi import OpenApiReadProvider
 from semaloom.app.bootstrap import compile_examples
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import ObjectRead
+from semaloom.core.provider import IdentityValue, ObjectRead
 from semaloom.core.results import (
     ObjectSelect,
     Observation,
@@ -23,10 +23,12 @@ ACTOR = RequestActor(tenant="tenant-a", subject="alice", roles=("analyst",))
 
 
 class PgOrderProvider:
-    def fetch_object(self, mapping: MappingDef, *, tenant: str, identity_value: str) -> ObjectRead:
+    def fetch_object(
+        self, mapping: MappingDef, *, tenant: str, identity_value: IdentityValue
+    ) -> ObjectRead:
         return ObjectRead(
             kind="PRESENT",
-            values={"orderId": identity_value, "status": "APPROVED"},
+            values={"orderId": identity_value["orderId"], "status": "APPROVED"},
             mapping_id=mapping.id,
             source_id=mapping.source_id,
             observed_at="2026-01-01T00:00:00Z",
@@ -37,7 +39,7 @@ class PgOrderProvider:
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
+        identity_value: IdentityValue,
         extra_filters: dict[str, str] | None = None,
     ) -> Observation:
         raise AssertionError("metric access is not expected")
@@ -61,11 +63,15 @@ def _object_mapping(**physical: Any) -> MappingDef:
             "provider": "openapi",
             "objectType": "procurement.Order",
             "expectedCardinality": "ONE",
+            "identityFields": ["orderId"],
+            "grainFields": ["orderId"],
+            "propertyFields": ["deliveryRisk"],
+            "capabilities": ["POINT_READ"],
             "physical": {
                 "method": "GET",
                 "path": "/orders",
-                "identityParameter": "orderId",
-                "identityPointer": "/orderId",
+                "parameterBindings": {"orderId": "orderId"},
+                "grainPointers": {"orderId": "/orderId"},
                 "propertyPointers": {"deliveryRisk": "/deliveryRisk"},
                 **physical,
             },
@@ -139,7 +145,7 @@ def test_api_object_failure_matrix() -> None:
     ]
     for handler, kind, reason in cases:
         result = OpenApiReadProvider({"api": _client(handler)}).fetch_object(
-            _object_mapping(), tenant="tenant-a", identity_value="PO-001"
+            _object_mapping(), tenant="tenant-a", identity_value={"orderId": "PO-001"}
         )
         assert (result.kind, result.reason) == (kind, reason)
 
@@ -158,7 +164,7 @@ def test_api_object_failure_matrix() -> None:
     ).fetch_object(
         _object_mapping(recordsPointer="/items", nextPointer="/next"),
         tenant="tenant-a",
-        identity_value="PO-001",
+        identity_value={"orderId": "PO-001"},
     )
     assert (incomplete.kind, incomplete.reason) == ("UNAVAILABLE", "INCOMPLETE_PAGE")
 
@@ -172,7 +178,7 @@ def test_api_null_property_and_exact_decimal() -> None:
                 )
             )
         }
-    ).fetch_object(_object_mapping(), tenant="tenant-a", identity_value="PO-001")
+    ).fetch_object(_object_mapping(), tenant="tenant-a", identity_value={"orderId": "PO-001"})
     assert null_result.kind == "PRESENT"
     assert null_result.values["deliveryRisk"] is None
 
@@ -187,7 +193,7 @@ def test_api_null_property_and_exact_decimal() -> None:
                 )
             )
         }
-    ).fetch_metric(mapping, tenant="tenant-a", identity_value="PO-001")
+    ).fetch_metric(mapping, tenant="tenant-a", identity_value={"orderId": "PO-001"})
     assert (exact.kind, exact.value) == ("PRESENT", "1234567890.0100")
 
     inexact = OpenApiReadProvider(
@@ -196,7 +202,7 @@ def test_api_null_property_and_exact_decimal() -> None:
                 lambda request: httpx.Response(200, json={"orderId": "PO-001", "amount": 1.1})
             )
         }
-    ).fetch_metric(mapping, tenant="tenant-a", identity_value="PO-001")
+    ).fetch_metric(mapping, tenant="tenant-a", identity_value={"orderId": "PO-001"})
     assert (inexact.kind, inexact.reason) == ("UNAVAILABLE", "INEXACT_NUMBER")
 
     non_finite = OpenApiReadProvider(
@@ -205,7 +211,7 @@ def test_api_null_property_and_exact_decimal() -> None:
                 lambda request: httpx.Response(200, json={"orderId": "PO-001", "amount": "NaN"})
             )
         }
-    ).fetch_metric(mapping, tenant="tenant-a", identity_value="PO-001")
+    ).fetch_metric(mapping, tenant="tenant-a", identity_value={"orderId": "PO-001"})
     assert (non_finite.kind, non_finite.reason) == (
         "UNAVAILABLE",
         "NON_FINITE_NUMBER",
@@ -224,7 +230,7 @@ def test_api_caller_filters_cannot_override_tenant_or_identity() -> None:
     result = OpenApiReadProvider({"api": _client(handler)}).fetch_metric(
         mapping,
         tenant="tenant-a",
-        identity_value="PO-001",
-        extra_filters={"tenant": "tenant-b", "orderId": "PO-999"},
+        identity_value={"orderId": "PO-001"},
+        bindings={"orderId": "PO-999"},
     )
-    assert (result.kind, result.value) == ("PRESENT", "1.00")
+    assert (result.kind, result.reason) == ("UNAVAILABLE", "INVALID_BINDINGS")

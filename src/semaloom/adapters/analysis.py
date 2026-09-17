@@ -399,13 +399,13 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     tenant_col = require_ident(
         metric_mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
     )
-    identity_col = require_ident(
-        metric_mapping.physical.get("identityColumn"), field="identityColumn"
-    )
     projection = {**_projection(object_mapping), **_projection(metric_mapping)}
     obj = next(item for item in service.bundle.object_types if item.id == metric.object_type)
     if len(obj.identity_keys) != 1:
         raise AnalysisError("UNSUPPORTED_IDENTITY")
+    identity_col = projection.get(obj.identity_keys[0])
+    if identity_col is None:
+        raise AnalysisError("NO_MAPPING")
     if query.comparison and query.comparison.subject and query.comparison.subject.identity:
         if set(query.comparison.subject.identity) != set(obj.identity_keys):
             raise AnalysisError("INVALID_SUBJECT_PROPERTIES")
@@ -1036,10 +1036,9 @@ def _link_labels(
         if target_mapping.source_id != source_mapping.source_id:
             continue
         projection = _projection(target_mapping)
-        identity_col = require_ident(
-            target_mapping.physical.get("identityColumn") or projection.get(link.identity.target),
-            field="identityColumn",
-        )
+        identity_col = projection.get(link.identity.target)
+        if identity_col is None:
+            continue
         tenant_col = require_ident(
             target_mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
         )
@@ -1211,7 +1210,9 @@ def _lookup_bind_identities(service: _Context, bind: _BindJoin, tenant: str) -> 
     column = projection.get(bind.remote_field)
     if column is None:
         raise AnalysisError("NO_MAPPING")
-    identity = require_ident(bind.mapping.physical.get("identityColumn"), field="identityColumn")
+    identity = projection.get(bind.link.identity.target)
+    if identity is None:
+        raise AnalysisError("NO_MAPPING")
     tenant_col = require_ident(
         bind.mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
     )
@@ -1251,7 +1252,9 @@ def _lookup_bind_properties(
         return found
     projection = _projection(bind.mapping)
     column = projection.get(bind.remote_field)
-    identity = require_ident(bind.mapping.physical.get("identityColumn"), field="identityColumn")
+    identity = projection.get(bind.link.identity.target)
+    if identity is None:
+        raise AnalysisError("NO_MAPPING")
     tenant_col = require_ident(
         bind.mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
     )

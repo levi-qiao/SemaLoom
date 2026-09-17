@@ -31,7 +31,7 @@ to test reuse; neither domain is built into the core.
   history on synthetic data.
 
 Not in this tree: production identity (local demo tokens only; other profiles refuse to start),
-MCP SDK transport (`GET /v0.1/mcp/tools` is a static name list), composite-key query, BOOLEAN /
+MCP SDK transport (`GET /v0.1/mcp/tools` is a static name list), composite-key Link traversal, BOOLEAN /
 STRING / DATE rule execution, enterprise Action recovery, a finished structured Rule editor, and
 the joint Studio gate. See [capabilities and limits](docs/capabilities.md).
 

@@ -26,8 +26,19 @@ class ObjectRead(BaseModel):
     observed_at: str
 
 
+class ObjectSearch(BaseModel):
+    """A bounded page of source objects; has_more is never a completeness claim."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: Literal["PRESENT", "UNAVAILABLE"]
+    rows: tuple[dict[str, Any], ...] = ()
+    has_more: bool = False
+    reason: str | None = None
+    observed_at: str = ""
+
+
 class ReadProvider(Protocol):
-    """Small runtime seam implemented by database and API adapters."""
+    """Runtime seam. All keys are semantic; adapters own physical translation."""
 
     def fetch_metric(
         self,
@@ -35,7 +46,7 @@ class ReadProvider(Protocol):
         *,
         tenant: str,
         identity_value: IdentityValue,
-        extra_filters: dict[str, str] | None = None,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Observation: ...
 
     def fetch_object(
@@ -46,13 +57,12 @@ class ReadProvider(Protocol):
         identity_value: IdentityValue,
     ) -> ObjectRead: ...
 
-
-class ObjectSearch(BaseModel):
-    """A bounded page of source objects; has_more is never a completeness claim."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    kind: Literal["PRESENT", "UNAVAILABLE"]
-    rows: tuple[dict[str, Any], ...] = ()
-    has_more: bool = False
-    reason: str | None = None
-    observed_at: str = ""
+    def search_objects(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        filters: dict[str, Any],
+        properties: tuple[str, ...],
+        limit: int,
+    ) -> ObjectSearch: ...

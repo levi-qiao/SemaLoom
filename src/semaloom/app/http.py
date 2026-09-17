@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, model_validator
 
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.provider import IdentityScalar
 from semaloom.core.results import (
     MetricSelect,
     ObjectSearchRequest,
@@ -115,12 +116,12 @@ class PeriodBody(StrictModel):
 
 class QueryBody(PeriodBody):
     metric: str
-    bindings: dict[str, str | int]
+    bindings: dict[str, IdentityScalar]
 
 
 class ClaimBody(PeriodBody):
     claim_id: str
-    bindings: dict[str, str | int]
+    bindings: dict[str, IdentityScalar]
     dimensions: dict[str, str] = Field(default_factory=dict)
 
 
@@ -465,9 +466,9 @@ class SampleBody(StrictModel):
     object_id: str | None = None
     mapping_id: str | None = None
     metric_id: str | None = None
-    identity: str
+    identity: dict[str, str | int | bool]
     properties: list[str] = Field(default_factory=list)
-    bindings: dict[str, str] = Field(default_factory=dict)
+    bindings: dict[str, IdentityScalar] = Field(default_factory=dict)
     draft_id: str | None = None
 
 
@@ -590,13 +591,15 @@ def studio_sample(
     object_type = next((item for item in bundle.object_types if item.id == object_id), None)
     if object_id is None or object_type is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
+    if set(body.identity) != set(object_type.identity_keys):
+        raise HTTPException(status_code=422, detail="INVALID_IDENTITY")
     envelope = QueryService(bundle, request.app.state.services.provider).execute(
         QueryRequest(
             api_version="semaloom/v0.1",
             select=(
                 ObjectSelect(
                     object_type=object_id,
-                    identity={object_type.identity_keys[0]: body.identity},
+                    identity={key: str(body.identity[key]) for key in object_type.identity_keys},
                     properties=tuple(body.properties),
                 ),
             ),

@@ -51,22 +51,6 @@ class QueryService:
         diagnostics: list[Diagnostic] = []
         for item in request.select:
             if isinstance(item, MetricSelect):
-                try:
-                    item = item.model_copy(update={"bindings": self.normalize_bindings(item)})
-                except ValueError:
-                    observations.append(
-                        Observation(
-                            kind="UNAVAILABLE", target=item.metric, reason="INVALID_BINDINGS"
-                        )
-                    )
-                    diagnostics.append(
-                        Diagnostic(
-                            code="INVALID_BINDINGS",
-                            path=item.metric,
-                            message="conflicting identity aliases",
-                        )
-                    )
-                    continue
                 metric = next((m for m in self.bundle.metrics if m.id == item.metric), None)
                 if metric is not None:
                     mapping_perspectives = {
@@ -165,29 +149,6 @@ class QueryService:
             status=status,
             extras={"decisionId": decision.decision_id, "tenant": actor.tenant},
         )
-
-    def normalize_bindings(self, item: MetricSelect) -> dict[str, str | int]:
-        """Accept legacy scalar identity aliases only when mappings prove their meaning."""
-        bindings = dict(item.bindings)
-        metric = next((m for m in self.bundle.metrics if m.id == item.metric), None)
-        if metric is None:
-            return bindings
-        obj = next(o for o in self.bundle.object_types if o.id == metric.object_type)
-        if len(obj.identity_keys) != 1:
-            return bindings
-        canonical = obj.identity_keys[0]
-        for mapping in self.bundle.mappings:
-            if mapping.object_type != obj.id:
-                continue
-            for alias, column in _grain_columns(mapping).items():
-                if alias == canonical or column != mapping.physical.get("identityColumn"):
-                    continue
-                if alias in bindings and alias not in metric.grain:
-                    value = bindings[alias]
-                    if canonical in bindings and str(bindings[canonical]) != str(value):
-                        raise ValueError("conflicting identity aliases")
-                    bindings[canonical] = bindings.pop(alias)
-        return bindings
 
     def _check_metric_period(
         self,
@@ -332,7 +293,7 @@ class QueryService:
         self,
         *,
         link_id: str,
-        source_identity: str | dict[str, str],
+        source_identity: IdentityValue,
         actor: RequestActor,
     ) -> EvidenceEnvelope:
         request_id = uuid.uuid4().hex
@@ -358,26 +319,23 @@ class QueryService:
             )
         source_obj = next(item for item in self.bundle.object_types if item.id == link.source)
         target_obj = next(item for item in self.bundle.object_types if item.id == link.target)
-        if isinstance(source_identity, dict):
-            if set(source_identity) != set(source_obj.identity_keys):
-                return EvidenceEnvelope(
-                    request_id=request_id,
-                    release_digest=self.bundle.digest,
-                    observations=(),
-                    diagnostics=(Diagnostic(code="INVALID_BINDINGS", path=link_id, message="source identity is incomplete"),),
-                    status="FAILED",
-                )
-            source_identity_value: IdentityValue = dict(source_identity)
-        elif len(source_obj.identity_keys) == 1:
-            source_identity_value = {source_obj.identity_keys[0]: source_identity}
-        else:
+        if set(source_identity) != set(source_obj.identity_keys):
             return EvidenceEnvelope(
                 request_id=request_id,
                 release_digest=self.bundle.digest,
                 observations=(),
-                diagnostics=(Diagnostic(code="INVALID_BINDINGS", path=link_id, message="composite source identity is required"),),
+                diagnostics=(
+                    Diagnostic(
+                        code="INVALID_BINDINGS",
+                        path=link_id,
+                        message="source identity must contain every declared identity component",
+                    ),
+                ),
                 status="FAILED",
             )
+        source_identity_value: IdentityValue = {
+            key: source_identity[key] for key in source_obj.identity_keys
+        }
         source_mapping, source_error = self._object_mapping_for_property(
             link.source, link.identity.source
         )
@@ -524,7 +482,9 @@ class QueryService:
             return (
                 Observation(kind="UNAVAILABLE", target=item.metric, reason="UNKNOWN_METRIC"),
                 None,
-                Diagnostic(code="UNKNOWN_METRIC", path=item.metric, message="metric is not declared"),
+                Diagnostic(
+                    code="UNKNOWN_METRIC", path=item.metric, message="metric is not declared"
+                ),
             )
         object_type = next(
             entry for entry in self.bundle.object_types if entry.id == metric_def.object_type
@@ -541,19 +501,16 @@ class QueryService:
                     message="all object identity bindings are required",
                 ),
             )
-        allowed = set(metric_def.grain)
-        grain = _grain_columns(mapping)
-        identity_columns = {grain[key] for key in identity_value if key in grain}
-        extra = {
-            grain[key]: str(value)
+        bindings = {
+            key: value
             for key, value in item.bindings.items()
-            if key in allowed and key in grain and grain[key] not in identity_columns
+            if key in metric_def.grain and key not in identity_value
         }
         observation = self.provider.fetch_metric(
             mapping,
             tenant=tenant,
             identity_value=identity_value,
-            extra_filters=extra or None,
+            bindings=bindings or None,
         )
         observation = observation.model_copy(
             update={
@@ -749,31 +706,14 @@ def _select_target(item: MetricSelect | ObjectSelect) -> str:
     return item.metric if isinstance(item, MetricSelect) else item.object_type
 
 
-def _grain_columns(mapping: MappingDef) -> dict[str, str]:
-    raw = mapping.physical.get("grainColumns")
-    if not isinstance(raw, dict):
-        return {}
-    return {str(key): str(value) for key, value in raw.items()}
-
-
 def _descriptive_object_fields(
     mapping: MappingDef, measure_ids: set[str], identity: set[str]
 ) -> set[str]:
-    fields: set[str] = set()
-    for key in ("propertyColumns", "propertyPointers"):
-        raw = mapping.physical.get(key)
-        if isinstance(raw, dict):
-            fields.update(str(item) for item in raw)
-    return fields - measure_ids - identity
+    return set(mapping.property_fields) - measure_ids - identity
 
 
 def _mapped_object_fields(mapping: MappingDef) -> set[str]:
-    fields: set[str] = set()
-    for key in ("grainColumns", "propertyColumns", "grainPointers", "propertyPointers"):
-        raw = mapping.physical.get(key)
-        if isinstance(raw, dict):
-            fields.update(str(item) for item in raw)
-    return fields
+    return set(mapping.grain_fields) | set(mapping.property_fields)
 
 
 def _identity_bindings(

@@ -337,7 +337,7 @@ def test_conflicting_identity_aliases_are_rejected_before_query_or_claim() -> No
         ACTOR,
     )
     assert result.observations[0].reason == "INVALID_BINDINGS"
-    with pytest.raises(EvaluationError, match="conflicting identity aliases"):
+    with pytest.raises(EvaluationError, match="unsupported bindings"):
         evaluate_claim_with_evidence(
             compiled.bundle,
             query,

@@ -187,7 +187,10 @@ class MappingDef(_Doc):
     perspective: str | None = None
     expected_cardinality: Cardinality
     completeness: Literal["AUTHORITATIVE", "PARTIAL"] = "PARTIAL"
-    capabilities: tuple[MappingCapability, ...] = ("POINT_READ",)
+    identity_fields: tuple[str, ...] = ()
+    grain_fields: tuple[str, ...] = ()
+    property_fields: tuple[str, ...] = ()
+    capabilities: tuple[MappingCapability, ...] = ()
     physical: dict[str, Any]
 
 

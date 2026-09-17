@@ -11,6 +11,7 @@ from semaloom.core.bundle import CompiledBundle
 from semaloom.core.diagnostics import Diagnostic
 from semaloom.core.expr import Expr
 from semaloom.core.model import PolicyDef, RuleDef
+from semaloom.core.provider import IdentityScalar
 from semaloom.core.results import (
     Claim,
     EvidenceEnvelope,
@@ -139,7 +140,7 @@ def evaluate_named_claim(
     actor: RequestActor,
     *,
     claim_id: str,
-    bindings: dict[str, str | int],
+    bindings: dict[str, IdentityScalar],
     period_from: str,
     period_to: str,
     dimensions: dict[str, str],
@@ -163,7 +164,7 @@ def evaluate_claim_with_evidence(
     actor: RequestActor,
     *,
     claim_id: str,
-    bindings: dict[str, str | int],
+    bindings: dict[str, IdentityScalar],
     period_from: str,
     period_to: str,
     dimensions: dict[str, str],
@@ -203,25 +204,35 @@ def _rule_inputs(
     query: QueryService,
     actor: RequestActor,
     rule: RuleDef,
-    bindings: dict[str, str | int],
+    bindings: dict[str, IdentityScalar],
     period_from: str,
     period_to: str,
 ) -> tuple[tuple[Observation, ...], EvidenceEnvelope]:
     from semaloom.core.results import MetricSelect, ObjectSelect, QueryContext, QueryRequest
 
     selects: list[MetricSelect | ObjectSelect] = []
+    allowed_bindings = {"perspective"}
+    for input_spec in rule.inputs:
+        if input_spec.metric is not None:
+            input_metric = next(item for item in bundle.metrics if item.id == input_spec.metric)
+            allowed_bindings.update(input_metric.grain)
+        elif input_spec.object_type is not None:
+            input_object = next(
+                item for item in bundle.object_types if item.id == input_spec.object_type
+            )
+            allowed_bindings.update(input_object.identity_keys)
+    unknown_bindings = sorted(set(bindings) - allowed_bindings)
+    if unknown_bindings:
+        raise EvaluationError(
+            "INVALID_BINDINGS",
+            f"unsupported bindings: {', '.join(unknown_bindings)}",
+        )
     for spec in rule.inputs:
         if spec.metric is not None:
             metric = next(item for item in bundle.metrics if item.id == spec.metric)
-            try:
-                normalized_bindings = query.normalize_bindings(
-                    MetricSelect(metric=spec.metric, bindings=bindings)
-                )
-            except ValueError as exc:
-                raise EvaluationError("INVALID_BINDINGS", "conflicting identity aliases") from exc
             metric_bindings = {
                 key: value
-                for key, value in normalized_bindings.items()
+                for key, value in bindings.items()
                 if key in metric.grain or key == "perspective"
             }
             if metric.perspective:

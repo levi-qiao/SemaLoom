@@ -30,7 +30,7 @@ def test_search_exposes_meaning_and_ambiguity_without_physical_bindings() -> Non
     assert metric["analysisCapabilities"]["collectionJoin"] is False
     link = service.describe("tax.filingTaxpayer", ANALYST)
     assert link["analysisCapabilities"] == {
-        "pointLookup": True,
+        "pointLookup": False,
         "keyedFind": True,
         "collectionJoin": False,
     }
@@ -83,7 +83,7 @@ def test_discovery_http_pins_tenant_bundle_and_does_not_expose_unknown_ids() -> 
     search = client.get("/v0.1/search", params={"q": "申报纳税人"}, headers=headers)
     assert search.status_code == 200
     found = next(item for item in search.json()["candidates"] if item["id"] == "tax.filingTaxpayer")
-    assert found["analysisCapabilities"]["pointLookup"] is True
+    assert found["analysisCapabilities"]["pointLookup"] is False
     assert "physical" not in found
     other = client.get(
         "/v0.1/describe",

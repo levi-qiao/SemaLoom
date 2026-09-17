@@ -346,7 +346,7 @@ class SemanticTools:
         for item in request.select:
             if not isinstance(item, MetricSelect):
                 continue
-            bindings = self.query.normalize_bindings(item)
+            bindings = dict(item.bindings)
             bindings.pop("perspective", None)
             key = json.dumps(bindings, sort_keys=True)
             _, covered = groups.setdefault(key, (bindings, set()))
@@ -396,7 +396,7 @@ class SemanticTools:
         metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
         if metric is None:
             raise ValueError("UNKNOWN_METRIC")
-        self._identity(metric.object_type, self.query.normalize_bindings(selection))
+        self._identity(metric.object_type, selection.bindings)
 
     def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
         obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)

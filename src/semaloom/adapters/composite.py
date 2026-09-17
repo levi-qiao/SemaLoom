@@ -6,7 +6,13 @@ from typing import Any, cast
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import IdentityValue, ObjectRead, ObjectSearch, ReadProvider
+from semaloom.core.provider import (
+    IdentityScalar,
+    IdentityValue,
+    ObjectRead,
+    ObjectSearch,
+    ReadProvider,
+)
 from semaloom.core.results import Observation
 from semaloom.core.semantic_query import (
     AnalysisError,
@@ -29,7 +35,7 @@ class CompositeReadProvider:
         *,
         tenant: str,
         identity_value: IdentityValue,
-        extra_filters: dict[str, str] | None = None,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Observation:
         provider = self._providers.get(mapping.provider)
         if provider is None:
@@ -44,7 +50,7 @@ class CompositeReadProvider:
             mapping,
             tenant=tenant,
             identity_value=identity_value,
-            extra_filters=extra_filters,
+            bindings=bindings,
         )
 
     def fetch_object(

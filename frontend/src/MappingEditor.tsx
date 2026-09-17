@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { apiHeaders, checkedJson } from "./api";
 import {
   array,
-  defaultMappingCapabilities,
   emptyMappingPhysical,
   emptyMetricPhysical,
   isOpenApi,
@@ -118,10 +117,6 @@ export function MappingEditor({
     for (const value of Object.values({ ...grain, ...propertyBindings })) {
       if (value) found.add(String(value));
     }
-    for (const value of Object.values(object(physical.identityColumns))) {
-      if (value) found.add(String(value));
-    }
-    if (text(physical.identityColumn)) found.add(text(physical.identityColumn));
     if (text(physical.valueColumn)) found.add(text(physical.valueColumn));
     return found;
   }, [grain, propertyBindings, physical.identityColumns, physical.identityColumn, physical.valueColumn]);
@@ -170,7 +165,6 @@ export function MappingEditor({
       ...mapping,
       sourceId: nextId,
       provider,
-      capabilities: defaultMappingCapabilities(provider),
       physical: metric
         ? emptyMetricPhysical(provider, identityKeys, array(metric.grain).map(String))
         : emptyMappingPhysical(provider, identityKeys),
@@ -192,13 +186,12 @@ export function MappingEditor({
   function selectOperation(nextPath: string) {
     const resource = operations.find((item) => item.name === nextPath);
     const parameter = resource?.parameters?.[0]?.name || text(physical.identityParameter) || primaryIdentity;
-    const identityParameters = { ...object(physical.identityParameters), [primaryIdentity]: parameter };
+    const parameterBindings = { ...object(physical.parameterBindings), [primaryIdentity]: parameter };
     setPhysical(
       openApiPhysical(physical, {
         path: nextPath,
         operationId: resource?.operationId || resource?.id || "",
-        identityParameter: parameter,
-        identityParameters,
+        parameterBindings,
       }, metricMode),
     );
   }
@@ -424,13 +417,13 @@ export function MappingEditor({
                 aria-label="主身份参数"
                 value={text(physical.identityParameter)}
                 onChange={(event) => {
-                  const identityParameters = {
-                    ...object(physical.identityParameters),
+                  const parameterBindings = {
+                    ...object(physical.parameterBindings),
                     [primaryIdentity]: event.target.value,
                   };
                   setPhysical(openApiPhysical(physical, {
                     identityParameter: event.target.value,
-                    identityParameters,
+                    parameterBindings,
                   }, metricMode));
                 }}
               >
@@ -717,8 +710,6 @@ function postgresPhysical(
   const next: Record<string, unknown> = {
     table: patch.table !== undefined ? patch.table : physical.table,
     tenantColumn: patch.tenantColumn !== undefined ? patch.tenantColumn : (physical.tenantColumn ?? "tenant_id"),
-    identityColumn: patch.identityColumn !== undefined ? patch.identityColumn : physical.identityColumn,
-    identityColumns: patch.identityColumns !== undefined ? patch.identityColumns : object(physical.identityColumns),
     grainColumns: patch.grainColumns !== undefined ? patch.grainColumns : object(physical.grainColumns),
   };
   const schema = patch.schema !== undefined ? patch.schema : physical.schema;
@@ -744,9 +735,7 @@ function openApiPhysical(
     path: patch.path !== undefined ? patch.path : physical.path,
     operationId: patch.operationId !== undefined ? patch.operationId : physical.operationId,
     identityParameter: patch.identityParameter !== undefined ? patch.identityParameter : physical.identityParameter,
-    identityPointer: patch.identityPointer !== undefined ? patch.identityPointer : physical.identityPointer,
-    identityParameters: patch.identityParameters !== undefined ? patch.identityParameters : object(physical.identityParameters),
-    identityPointers: patch.identityPointers !== undefined ? patch.identityPointers : object(physical.identityPointers),
+    parameterBindings: patch.parameterBindings !== undefined ? patch.parameterBindings : object(physical.parameterBindings),
     grainPointers: patch.grainPointers !== undefined ? patch.grainPointers : object(physical.grainPointers),
   };
   const propertyPointers = patch.propertyPointers !== undefined ? patch.propertyPointers : object(physical.propertyPointers);
@@ -816,7 +805,6 @@ export function makeMappingDocument(
     provider,
     expectedCardinality: "ONE",
     completeness: existing.length ? "PARTIAL" : "AUTHORITATIVE",
-    capabilities: defaultMappingCapabilities(provider),
     physical: emptyMappingPhysical(provider, identityKeys),
   };
 }
@@ -843,7 +831,6 @@ export function makeMetricMappingDocument(
     provider,
     expectedCardinality: "ONE",
     completeness: "AUTHORITATIVE",
-    capabilities: defaultMappingCapabilities(provider),
     ...(perspective ? { perspective } : {}),
     physical: emptyMetricPhysical(provider, identityKeys, grain),
   };

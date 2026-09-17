@@ -40,7 +40,7 @@ def test_authorized_point_query_with_evidence() -> None:
     envelope = services.query.execute(
         _metric_request(
             "tax.reportedIncome",
-            taxpayer="TAXPAYER-A",
+            taxpayerId="TAXPAYER-A",
             taxYear=2024,
             perspective="TAX_RETURN",
         ),
@@ -58,7 +58,7 @@ def test_unauthorized_role_is_forbidden_not_missing() -> None:
     services = build_services(load_data=False)
     envelope = services.query.execute(
         _metric_request(
-            "tax.reportedIncome", taxpayer="TAXPAYER-A", taxYear=2024, perspective="TAX_RETURN"
+            "tax.reportedIncome", taxpayerId="TAXPAYER-A", taxYear=2024, perspective="TAX_RETURN"
         ),
         DENIED,
     )
@@ -70,7 +70,7 @@ def test_other_tenant_does_not_see_tenant_a_amount() -> None:
     services = build_services(load_data=False)
     own = services.query.execute(
         _metric_request(
-            "tax.reportedIncome", taxpayer="TAXPAYER-A", taxYear=2024, perspective="TAX_RETURN"
+            "tax.reportedIncome", taxpayerId="TAXPAYER-A", taxYear=2024, perspective="TAX_RETURN"
         ),
         OTHER,
     )
@@ -81,7 +81,7 @@ def test_other_tenant_does_not_see_tenant_a_amount() -> None:
 def test_sql_binding_is_rejected() -> None:
     services = build_services(load_data=False)
     envelope = services.query.execute(
-        _metric_request("tax.reportedIncome", sql="drop table tax_metric", taxpayer="TAXPAYER-A"),
+        _metric_request("tax.reportedIncome", sql="drop table tax_metric", taxpayerId="TAXPAYER-A"),
         ANALYST,
     )
     assert envelope.diagnostics[0].code == "INVALID_BINDINGS"
@@ -91,7 +91,7 @@ def test_two_database_link_composition() -> None:
     services = build_services(load_data=False)
     envelope = services.query.follow_link(
         link_id="procurement.orderSupplier",
-        source_identity="PO-001",
+        source_identity={"orderId": "PO-001"},
         actor=ANALYST,
     )
     assert envelope.status == "SUCCEEDED"
@@ -104,7 +104,7 @@ def test_two_database_link_composition() -> None:
 def _claim(
     services: AppServices,
     *,
-    taxpayer: str,
+    taxpayerId: str,
     year: int,
     query: QueryService | None = None,
     bundle: CompiledBundle | None = None,
@@ -116,7 +116,7 @@ def _claim(
         runner,
         ANALYST,
         claim_id="tax.incomeReconciles",
-        bindings={"taxpayer": taxpayer, "taxYear": year},
+        bindings={"taxpayerId": taxpayerId, "taxYear": year},
         period_from=f"{year}-01-01",
         period_to=f"{year + 1}-01-01",
         dimensions={"jurisdiction": "CN"},
@@ -125,11 +125,11 @@ def _claim(
 
 def test_claim_true_false_unknown_and_error() -> None:
     services = build_services(load_data=True)
-    true_claim, _, _, _ = _claim(services, taxpayer="TAXPAYER-A", year=2024)
+    true_claim, _, _, _ = _claim(services, taxpayerId="TAXPAYER-A", year=2024)
     assert true_claim.truth == "TRUE"
-    false_claim, _, _, _ = _claim(services, taxpayer="TAXPAYER-B", year=2024)
+    false_claim, _, _, _ = _claim(services, taxpayerId="TAXPAYER-B", year=2024)
     assert false_claim.truth == "FALSE"
-    unknown_claim, unknown_obs, _, _ = _claim(services, taxpayer="TAXPAYER-A", year=2025)
+    unknown_claim, unknown_obs, _, _ = _claim(services, taxpayerId="TAXPAYER-A", year=2025)
     assert unknown_claim.truth == "UNKNOWN"
     assert (
         "NULL_INPUT" in unknown_claim.reason_codes or "MISSING_INPUT" in unknown_claim.reason_codes
@@ -144,7 +144,7 @@ def test_claim_true_false_unknown_and_error() -> None:
     broken = CompiledBundle.model_validate(payload)
     error_claim, error_obs, error_diags, _ = _claim(
         services,
-        taxpayer="TAXPAYER-A",
+        taxpayerId="TAXPAYER-A",
         year=2024,
         query=QueryService(broken, services.provider),
         bundle=broken,
@@ -174,7 +174,7 @@ def test_release_activation_does_not_mix_in_flight_bundle() -> None:
     in_flight = services.query_for_digest(bundle_a.digest)
     services.registry.activate("dev", bundle_b.digest, expected_revision=revision)
     request = _metric_request(
-        "tax.reportedIncome", taxpayer="TAXPAYER-A", taxYear=2024, perspective="TAX_RETURN"
+        "tax.reportedIncome", taxpayerId="TAXPAYER-A", taxYear=2024, perspective="TAX_RETURN"
     )
     env_a = in_flight.execute(request, ANALYST)
     env_b = services.query_active().execute(request, ANALYST)
@@ -326,7 +326,7 @@ def test_rest_rejects_invalid_token_and_sql() -> None:
         "/v0.1/query",
         json={
             "metric": "tax.reportedIncome",
-            "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
+            "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
             "periodFrom": "2024-01-01",
             "periodTo": "2025-01-01",
         },
@@ -337,7 +337,7 @@ def test_rest_rejects_invalid_token_and_sql() -> None:
         "/v0.1/query",
         json={
             "metric": "tax.reportedIncome",
-            "bindings": {"sql": "1=1", "taxpayer": "TAXPAYER-A"},
+            "bindings": {"sql": "1=1", "taxpayerId": "TAXPAYER-A"},
             "periodFrom": "2024-01-01",
             "periodTo": "2025-01-01",
         },
@@ -348,7 +348,7 @@ def test_rest_rejects_invalid_token_and_sql() -> None:
         "/v0.1/query",
         json={
             "metric": "tax.reportedIncome",
-            "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
+            "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
             "periodFrom": "2024-01-01",
             "periodTo": "2025-01-01",
         },

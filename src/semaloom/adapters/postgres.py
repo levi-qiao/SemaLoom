@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import IdentityValue, ObjectRead, ObjectSearch
+from semaloom.core.provider import IdentityScalar, IdentityValue, ObjectRead, ObjectSearch
 from semaloom.core.results import Observation
 from semaloom.core.semantic_query import AnalysisError, PlanRef, QueryResult, SemanticQuery
 
@@ -44,7 +44,7 @@ class PostgresReadProvider:
         *,
         tenant: str,
         identity_value: IdentityValue,
-        extra_filters: dict[str, str] | None = None,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Observation:
         physical = mapping.physical
         observed = datetime.now(UTC).isoformat()
@@ -72,10 +72,13 @@ class PostgresReadProvider:
                     pname = f"f_{column}"
                     clauses.append(f"{column} = :{pname}")
                     params[pname] = value
-            if extra_filters:
-                for key, value in extra_filters.items():
-                    column = require_ident(key, field=f"binding.{key}")
-                    pname = f"b_{column}"
+            if bindings:
+                grain = mapping.physical.get("grainColumns")
+                if not isinstance(grain, dict):
+                    raise ValueError("grainColumns must be an object")
+                for index, (semantic, value) in enumerate(bindings.items()):
+                    column = require_ident(grain.get(semantic), field=f"binding.{semantic}")
+                    pname = f"b_{index}"
                     clauses.append(f"{column} = :{pname}")
                     params[pname] = value
             sql = text(
@@ -162,9 +165,7 @@ class PostgresReadProvider:
                 pname = f"i_{index}"
                 clauses.append(f"{identity_columns[semantic]} = :{pname}")
                 params[pname] = value
-            sql = text(
-                f"SELECT {selected} FROM {table} WHERE {' AND '.join(clauses)} LIMIT 2"
-            )
+            sql = text(f"SELECT {selected} FROM {table} WHERE {' AND '.join(clauses)} LIMIT 2")
             with _read_transaction(engine) as conn:
                 rows = conn.execute(sql, params).mappings().all()
         except (SQLAlchemyError, KeyError, ValueError):
@@ -231,7 +232,7 @@ class PostgresReadProvider:
                     clauses.append(f"{col} = :f{index}")
                     params[f"f{index}"] = value
             selected = ", ".join(f'{projection[key]} AS "{key}"' for key in properties)
-            order_columns = list(dict.fromkeys(projection[key] for key in properties))
+            order_columns = [projection[key] for key in mapping.identity_fields]
             order_by = ", ".join(order_columns)
             statement = text(
                 f"SELECT {selected} FROM {table} WHERE {' AND '.join(clauses)} "
@@ -344,19 +345,15 @@ def _object_projection(mapping: MappingDef) -> dict[str, str]:
 
 
 def _identity_columns(mapping: MappingDef, identity_value: IdentityValue) -> dict[str, str]:
-    if not identity_value:
-        raise ValueError("identity must not be empty")
+    if set(identity_value) != set(mapping.identity_fields):
+        raise ValueError("identity does not match compiled mapping")
     grain = mapping.physical.get("grainColumns")
-    grain_columns = grain if isinstance(grain, dict) else {}
-    explicit = mapping.physical.get("identityColumns")
-    explicit_columns = explicit if isinstance(explicit, dict) else {}
-    legacy = mapping.physical.get("identityColumn")
-    columns: dict[str, str] = {}
-    for semantic in identity_value:
-        physical = explicit_columns.get(semantic) or grain_columns.get(semantic)
-        if physical is None and len(identity_value) == 1:
-            physical = legacy
-        columns[semantic] = require_ident(physical, field=f"identity.{semantic}")
+    if not isinstance(grain, dict):
+        raise ValueError("grainColumns must be an object")
+    columns = {
+        semantic: require_ident(grain.get(semantic), field=f"identity.{semantic}")
+        for semantic in mapping.identity_fields
+    }
     if len(set(columns.values())) != len(columns):
         raise ValueError("identity keys must map to distinct physical columns")
     return columns

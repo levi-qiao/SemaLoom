@@ -7,7 +7,7 @@ from typing import Any
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import IdentityValue, ReadProvider
+from semaloom.core.provider import IdentityScalar, IdentityValue, ReadProvider
 
 
 def _namespace(semantic_id: str) -> str:
@@ -32,13 +32,11 @@ def _resource(mapping: MappingDef) -> str:
 def _field_count(mapping: MappingDef) -> int:
     physical = mapping.physical
     fields: set[str] = set()
-    for key in ("identityColumn", "valueColumn", "identityPointer", "valuePointer"):
+    for key in ("valueColumn", "valuePointer"):
         value = physical.get(key)
         if isinstance(value, str):
             fields.add(value)
     for key in (
-        "identityColumns",
-        "identityPointers",
         "grainColumns",
         "propertyColumns",
         "grainPointers",
@@ -84,7 +82,7 @@ def _field_bindings(mapping: MappingDef) -> list[dict[str, str]]:
 
 def mapping_summary(mapping: MappingDef, metric_ids: set[str] | None = None) -> dict[str, Any]:
     targets = metric_ids or set()
-    identity_fields = _identity_fields(mapping)
+    identity_fields = list(mapping.identity_fields)
     return {
         "id": mapping.id,
         "label": mapping.label or mapping.id,
@@ -286,41 +284,29 @@ def studio_mapping_preview(
     *,
     mapping_id: str,
     tenant: str,
-    identity: str,
-    bindings: dict[str, str] | None = None,
+    identity: IdentityValue,
+    bindings: dict[str, IdentityScalar] | None = None,
 ) -> dict[str, Any] | None:
     mapping = next((item for item in bundle.mappings if item.id == mapping_id), None)
     if mapping is None:
         return None
-    object_type = next((item for item in bundle.object_types if item.id == mapping.object_type), None)
-    if object_type is None or not object_type.identity_keys:
-        return None
+    object_type = next(
+        (item for item in bundle.object_types if item.id == mapping.object_type), None
+    )
+    if object_type is None or set(identity) != set(object_type.identity_keys):
+        raise ValueError("INVALID_IDENTITY")
+    identity_value: IdentityValue = {key: identity[key] for key in object_type.identity_keys}
     supplied = dict(bindings or {})
-    identity_value: IdentityValue = {object_type.identity_keys[0]: identity}
-    for key in object_type.identity_keys[1:]:
-        value = supplied.pop(key, None)
-        if value is None or value == "":
-            return {
-                "preview": True,
-                "mappingId": mapping.id,
-                "target": mapping.target,
-                "objectType": mapping.object_type,
-                "sourceId": mapping.source_id,
-                "provider": mapping.provider,
-                "resource": _resource(mapping),
-                "identity": identity_value,
-                "kind": "UNAVAILABLE",
-                "reason": "INVALID_IDENTITY",
-                "observedAt": None,
-                "fields": [],
-            }
-        identity_value[key] = value
     metric_ids = {item.id for item in bundle.metrics}
-    extra = _preview_extra_filters(mapping, supplied, set(object_type.identity_keys))
+    extra = {
+        key: value
+        for key, value in supplied.items()
+        if key in mapping.grain_fields and key not in identity_value
+    }
     fields = _field_bindings(mapping)
     if mapping.target in metric_ids:
         observation = provider.fetch_metric(
-            mapping, tenant=tenant, identity_value=identity_value, extra_filters=extra or None
+            mapping, tenant=tenant, identity_value=identity_value, bindings=extra or None
         )
         values = {mapping.target: observation.value} if observation.kind == "PRESENT" else {}
         kind = observation.kind
@@ -355,64 +341,11 @@ def studio_mapping_preview(
     }
 
 
-def _identity_fields(mapping: MappingDef) -> list[str]:
-    physical = mapping.physical
-    for key in ("identityColumns", "identityPointers"):
-        explicit = physical.get(key)
-        if isinstance(explicit, dict) and explicit:
-            return [str(item) for item in explicit]
-    identity_physical = physical.get("identityColumn") or physical.get("identityPointer")
-    for key in ("grainColumns", "grainPointers"):
-        grain = physical.get(key)
-        if not isinstance(grain, dict):
-            continue
-        matched = [
-            str(semantic)
-            for semantic, physical_field in grain.items()
-            if identity_physical is not None and physical_field == identity_physical
-        ]
-        if matched:
-            return matched[:1]
-    parameter = physical.get("identityParameter")
-    return [str(parameter)] if isinstance(parameter, str) else []
-
-
-def _required_preview_bindings(mapping: MappingDef, identity_fields: list[str] | None = None) -> list[str]:
-    physical = mapping.physical
-    identity = set(identity_fields or _identity_fields(mapping))
-    required: list[str] = [item for item in (identity_fields or []) if item not in identity_fields[:1]] if identity_fields else []
-    if physical.get("valueColumn") is None and physical.get("valuePointer") is None:
-        return required
-    filters = physical.get("filters")
-    locked = set(filters) if isinstance(filters, dict) else set()
-    grain = physical.get("grainColumns")
-    if not isinstance(grain, dict):
-        grain = physical.get("grainPointers")
-    if not isinstance(grain, dict):
-        return required
-    for semantic, column in grain.items():
-        semantic_name = str(semantic)
-        if semantic_name in identity or semantic_name in locked or column in locked:
-            continue
-        if semantic_name not in required:
-            required.append(semantic_name)
-    return required
-
-
-def _preview_extra_filters(
-    mapping: MappingDef,
-    bindings: dict[str, str],
-    identity_fields: set[str],
-) -> dict[str, str]:
-    grain = mapping.physical.get("grainColumns")
-    if not isinstance(grain, dict):
-        return {}
-    extra: dict[str, str] = {}
-    for semantic, column in grain.items():
-        if str(semantic) in identity_fields or semantic not in bindings:
-            continue
-        extra[str(column)] = bindings[str(semantic)]
-    return extra
+def _required_preview_bindings(
+    mapping: MappingDef, identity_fields: list[str] | None = None
+) -> list[str]:
+    identity = set(identity_fields or mapping.identity_fields)
+    return [field for field in mapping.grain_fields if field not in identity]
 
 
 def _preview_value(value: object) -> str | None:
