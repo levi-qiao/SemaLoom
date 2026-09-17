@@ -146,11 +146,15 @@ patch(
 )
 
 # Bindings may add semantic grain values, but they may never replace identity.
+old_openapi_bindings = (
+    '        params: dict[str, Any] = {**dict(mapping.physical.get("fixedParameters") '
+    'or {}), "tenant": tenant}\n'
+    "        semantic_values: dict[str, IdentityScalar] = "
+    "{**identity_value, **(bindings or {})}\n"
+)
 patch(
     "src/semaloom/adapters/openapi.py",
-    '''        params: dict[str, Any] = {**dict(mapping.physical.get("fixedParameters") or {}), "tenant": tenant}
-        semantic_values: dict[str, IdentityScalar] = {**identity_value, **(bindings or {})}
-''',
+    old_openapi_bindings,
     '''        params: dict[str, Any] = {
             **dict(mapping.physical.get("fixedParameters") or {}),
             "tenant": tenant,
