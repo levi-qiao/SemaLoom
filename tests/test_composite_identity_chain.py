@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from semaloom.app.chat.tools import SemanticTools
@@ -11,6 +13,7 @@ from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
 from semaloom.runtime.studio import studio_mapping_preview
 
+ROOT = Path(__file__).resolve().parents[1]
 ACTOR = RequestActor(tenant="tenant-a", subject="reader", roles=("analyst",))
 
 
