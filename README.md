@@ -20,7 +20,7 @@ to test reuse; neither domain is built into the core.
 
 - Deterministic compilation of two synthetic domain packs.
 - PostgreSQL metric and object reads with tenant filters and typed evidence.
-- In-process links across databases using declared business identities (first identity key only).
+- In-process links across databases using complete declared business identities, including composite keys.
 - Exact-decimal numeric rules with distinct TRUE, FALSE, UNKNOWN, and operational failure outcomes.
 - Immutable semantic candidate validation, independent approval and release activation, plus a
   plan/approve/execute prototype that writes an in-process draft store.
@@ -31,9 +31,9 @@ to test reuse; neither domain is built into the core.
   history on synthetic data.
 
 Not in this tree: production identity (local demo tokens only; other profiles refuse to start),
-MCP SDK transport (`GET /v0.1/mcp/tools` is a static name list), composite-key Link traversal, BOOLEAN /
-STRING / DATE rule execution, enterprise Action recovery, a finished structured Rule editor, and
-the joint Studio gate. See [capabilities and limits](docs/capabilities.md).
+MCP SDK transport (`GET /v0.1/mcp/tools` is a static name list), composite-key cross-source collection
+analysis, BOOLEAN / STRING / DATE rule execution, enterprise Action recovery, a finished structured
+Rule editor, and the joint Studio gate. See [capabilities and limits](docs/capabilities.md).
 
 For the implemented read-only business-analysis flow, HTTP tool schemas and AI host instructions,
 see [AI analysis](docs/ai-analysis.md).
