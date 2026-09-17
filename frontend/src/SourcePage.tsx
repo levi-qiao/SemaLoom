@@ -401,7 +401,13 @@ function SourceDetail({
         <ul className="schema-list">
           {schema.map((resource) => (
             <li key={resource.id}>
-              <strong>{resource.kind === "operation" ? `${resource.method ?? "GET"} ${resource.name}` : resource.name}</strong>
+              <strong>
+                {resource.kind === "operation"
+                  ? `${resource.method ?? "GET"} ${resource.name}`
+                  : resource.schema && resource.schema !== "public"
+                    ? `${resource.schema}.${resource.name}`
+                    : resource.name}
+              </strong>
               <small>
                 {resource.kind === "operation"
                   ? (resource.parameters?.map((item) => item.name).join(", ") || resource.operationId || "operation")

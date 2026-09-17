@@ -162,6 +162,8 @@ class OpenApiReadProvider:
     ) -> Any | str:
         if str(mapping.physical.get("method", "GET")).upper() != "GET":
             return "READ_METHOD_REQUIRED"
+        if set(identity_value) != set(mapping.identity_fields):
+            return "INVALID_MAPPING"
         client = self._client(tenant, mapping.source_id)
         path = mapping.physical.get("path")
         if (

@@ -98,7 +98,6 @@ def mapping_summary(mapping: MappingDef, metric_ids: set[str] | None = None) -> 
         "perspective": mapping.perspective,
         "capabilities": list(mapping.capabilities),
         "targetKind": "metric" if mapping.target in targets else "object",
-        "identityField": identity_fields[0] if identity_fields else "id",
         "identityFields": identity_fields,
         "requiredBindings": _required_preview_bindings(mapping, identity_fields),
     }

@@ -72,4 +72,4 @@ uv run python ops/data/verify_analysis.py
 
 已通过：PostgreSQL + HTTP mock 组合查询、十进制值一致、来源 Evidence、另租户不返回样本、无凭证 401、mock 缺失/另租户 404、运行账号无业务写权限。旧页面回归已覆盖审计报告的两个 Mapping；最新分析链路通过 80 次指标核对、30 次规则对数和 10 次错误期间拒绝。
 
-公共查询、Claim、Studio 已发布视图及 CLI 查询按租户激活版本读取；回归覆盖真实映射变化、旧请求固定版本和另一租户不切换。typed rules 与当前标量身份准确性已补齐；复合身份显式拒绝，Action 恢复及生产授权按用户范围后置。当前派发仅为 [独立测试](analysis-test-goals.md)。本次数据与测试不关闭 T08B，也不证明全部 Studio 编辑流程完善。
+公共查询、Claim、Studio 已发布视图及 CLI 查询按租户激活版本读取；回归覆盖真实映射变化、旧请求固定版本和另一租户不切换。typed rules 与完整结构化身份（点查/Link；集合分析复合 Link 仍拒绝）已补齐；Action 恢复及生产授权按用户范围后置。当前派发仅为 [独立测试](analysis-test-goals.md)。本次数据与测试不关闭 T08B，也不证明全部 Studio 编辑流程完善。

@@ -301,7 +301,7 @@ Studio 使用独立管理权限读取模型、来源元数据和草稿；样本�
 - Rule 输入按声明的 INTEGER/DECIMAL/BOOLEAN/STRING/DATE/DATETIME 解析。STRING/DATE/DATETIME 使用同名小写 literal op，BOOLEAN 使用 `bool`；DATE 必须 ISO 日期，DATETIME 必须有时区。数字拒绝 NaN/Infinity。表达式最多 256 节点、32 层，round places 为 0–28；数值采用既有 Decimal 运算上下文。
 - Compiler 拒绝不存在的属性、重复输入、类型不匹配、非 BOOLEAN Claim、重复输出和依赖环；`outputMetric` 经相同解释器计算派生指标，返回 unit/valueType/ruleId 及源活动。缺必需输入为 UNKNOWN/无派生值，不当零。可选输入的 and/or 遵循三值逻辑；运行失败保留诊断。
 - ObjectType 可声明 `period: {fromProperty: periodStart, toProperty: periodTo}`，两属性必须为 DATE。其 Metric 请求 businessPeriod 必须与对象实际半开期间完全一致；不一致为 PERIOD_MISMATCH，无有效值。对象资料读取不以期间过滤，因此 AI 可先定位实例并读取实际期间。未声明 period 的对象不承诺从 context 自动过滤数据。
-- Metric 必须给出完整 grain（固定 perspective 可由定义提供），未知额外 binding 拒绝；既有映射明确对应同一身份列的旧身份别名继续兼容。省略歧义口径为 AMBIGUOUS_MAPPING，缺年度等粒度为 INVALID_BINDINGS，不等到数据碰巧多行才报错。对象仅选择身份时仍读取来源验证存在。当前运行对象只支持稳定单键，复合对象身份明确拒绝。
+- Metric 必须给出完整 grain（固定 perspective 可由定义提供），未知额外 binding 拒绝。省略歧义口径为 AMBIGUOUS_MAPPING，缺年度等粒度为 INVALID_BINDINGS，不等到数据碰巧多行才报错。对象仅选择身份时仍读取来源验证存在。`ObjectType.identityKeys` 可为多键：点查、实例搜索、Studio 预览、AI 工具与 Link 遍历 MUST 传递完整结构化身份，禁止截取第一键；集合分析沿 Link 做 bind-join 时仍仅支持单字段 `Link.identity`，复合 Link 返回明确 `LINK_ANALYSIS_UNSUPPORTED`。禁止在 Mapping 中声明 `identityColumn(s)` / `identityPointer(s)` / `identityParameter(s)` 等遗留字段。
 - `POST /v0.1/objects/search` 接受 objectType、精确 filters、properties 和 limit（1–50）。仅针对单一明确 Mapping，强制租户、固定过滤和显式投影；返回 identity、properties、hasMore、requiresSelection、releaseDigest、sourceActivities。hasMore 不可用来推断全量或不存在；当前无翻页/模糊检索。固定 GET API 不支持列表时返回 SEARCH_NOT_SUPPORTED。
 - `GET /v0.1/agent/tools` 返回五个 HTTP 工具及完整输入 Schema：search_semantics、describe_semantic、find_objects、semantic_query、evaluate_claim。它不是 MCP transport。Claim 响应包含 evidenceRefs 对应的 sourceActivities。每个请求固定租户当前版本；跨请求工具链需要核对 digest，不声称数据库快照一致。
 

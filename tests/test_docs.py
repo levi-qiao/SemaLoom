@@ -79,7 +79,7 @@ def test_capabilities_state_current_limits() -> None:
     lowered = text.lower()
     assert "static name list" in lowered
     assert "mcp sdk transport" in lowered
-    assert "first" in lowered and "key" in lowered
+    assert "single link identity pair" in lowered or "composite links" in lowered
     assert "boolean" in lowered
     assert "draftstore" in lowered
     assert "rule editor" in lowered

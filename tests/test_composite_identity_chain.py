@@ -268,3 +268,73 @@ def test_frontend_editor_has_no_legacy_identity_mapping_fields() -> None:
         "identityParameter",
     )
     assert all(token not in editor for token in forbidden)
+
+
+def test_partial_composite_identity_is_rejected_by_postgres_adapter() -> None:
+    from semaloom.adapters.postgres import _identity_columns
+
+    mapping = _bundle().mappings[0]
+    with pytest.raises(ValueError, match="identity does not match"):
+        _identity_columns(mapping, {"ledger": "0L"})
+    columns = _identity_columns(mapping, {"ledger": "0L", "entryId": "E-1"})
+    assert columns == {"ledger": "ledger", "entryId": "entry_id"}
+
+
+def test_action_draft_store_keeps_same_first_key_targets_distinct() -> None:
+    from semaloom.runtime.action import DraftStore
+
+    store = DraftStore()
+    first = store.create(
+        idempotency_key="plan-1",
+        payload={"target": {"org": "A", "orderId": "1"}, "parameters": {"amount": "1"}},
+    )
+    second = store.create(
+        idempotency_key="plan-2",
+        payload={"target": {"org": "A", "orderId": "2"}, "parameters": {"amount": "1"}},
+    )
+    assert first != second
+    assert store.writes == 2
+    assert store.get({"org": "A", "orderId": "1"})["payload"]["target"] == {
+        "org": "A",
+        "orderId": "1",
+    }
+    assert store.get({"org": "A", "orderId": "2"})["payload"]["target"] == {
+        "org": "A",
+        "orderId": "2",
+    }
+    replay = store.create(
+        idempotency_key="plan-1",
+        payload={"target": {"org": "A", "orderId": "1"}, "parameters": {"amount": "1"}},
+    )
+    assert replay == first
+    assert store.writes == 2
+
+
+def test_action_execute_persists_full_structured_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    from semaloom.app.bootstrap import build_services
+    from semaloom.runtime.auth import RequestActor
+
+    services = build_services(load_data=True)
+    captured: dict[str, object] = {}
+    original_create = services.drafts.create
+
+    def capture_create(*, idempotency_key: str, payload: dict, expected_version=None):
+        captured["payload"] = payload
+        return original_create(
+            idempotency_key=idempotency_key,
+            payload=payload,
+            expected_version=expected_version,
+        )
+
+    monkeypatch.setattr(services.drafts, "create", capture_create)
+    analyst = RequestActor(tenant="tenant-a", subject="alice", roles=("analyst",))
+    approver = RequestActor(tenant="tenant-a", subject="bob", roles=("approver", "analyst"))
+    plan = services.actions.plan(
+        analyst,
+        action_id="tax.CreateTaxAdjustmentDraft",
+        target={"taxpayerId": "TAXPAYER-A"},
+        parameters={"amount": "10.00", "taxYear": "2024"},
+    )
+    services.actions.approve(approver, plan.plan_id)
+    services.actions.execute(analyst, plan.plan_id)
+    assert captured["payload"]["target"] == {"taxpayerId": "TAXPAYER-A"}

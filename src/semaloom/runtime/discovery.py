@@ -6,7 +6,7 @@ import unicodedata
 from typing import Any
 
 from semaloom.core.bundle import CompiledBundle
-from semaloom.core.model import MappingCapability
+from semaloom.core.model import LinkDef, MappingCapability
 from semaloom.runtime.auth import RequestActor, authorize_query
 
 
@@ -87,13 +87,13 @@ def _object_has_capability(
     )
 
 
-def _link_collection_join(
-    bundle: CompiledBundle, source: str, target: str, cardinality: str
-) -> bool:
+def _link_supports_collection_join(bundle: CompiledBundle, link: LinkDef) -> bool:
+    """Collection analysis still requires a single identity pair (not composite Links)."""
     return (
-        cardinality == "ONE"
-        and _object_has_capability(bundle, source, "EQUI_JOIN")
-        and _object_has_capability(bundle, target, "EQUI_JOIN")
+        link.cardinality == "ONE"
+        and len(link.identity) == 1
+        and _object_has_capability(bundle, link.source, "EQUI_JOIN")
+        and _object_has_capability(bundle, link.target, "EQUI_JOIN")
     )
 
 
@@ -103,18 +103,14 @@ def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle
     if kind == "Link":
         source = str(document.get("source") or "")
         target = str(document.get("target") or "")
+        link = next((item for item in bundle.links if item.id == document.get("id")), None)
         return {
             **document,
             "analysisCapabilities": {
                 "pointLookup": _object_has_capability(bundle, source, "POINT_READ")
                 and _object_has_capability(bundle, target, "POINT_READ"),
                 "keyedFind": _object_has_capability(bundle, target, "COLLECTION_READ"),
-                "collectionJoin": _link_collection_join(
-                    bundle,
-                    source,
-                    target,
-                    str(document.get("cardinality") or ""),
-                ),
+                "collectionJoin": link is not None and _link_supports_collection_join(bundle, link),
             },
         }
     if kind == "Metric":
@@ -125,7 +121,7 @@ def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle
                 "sameTableCollection": document.get("population") is not None
                 and _object_has_capability(bundle, object_type, "COLLECTION_READ"),
                 "collectionJoin": any(
-                    _link_collection_join(bundle, link.source, link.target, link.cardinality)
+                    _link_supports_collection_join(bundle, link)
                     for link in bundle.links
                     if link.source == object_type
                 ),

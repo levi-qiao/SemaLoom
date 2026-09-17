@@ -196,3 +196,13 @@ def test_old_scalar_link_identity_shape_is_rejected() -> None:
     result = compile_documents(docs)
     assert not result.ok
     assert any(item.code == "INVALID_DEFINITION" for item in result.diagnostics)
+
+
+def test_discovery_does_not_advertise_collection_join_for_composite_links() -> None:
+    from semaloom.runtime.auth import RequestActor
+    from semaloom.runtime.discovery import SemanticDiscovery
+
+    actor = RequestActor(tenant="tenant-a", subject="reader", roles=("analyst",))
+    described = SemanticDiscovery(bundle()).describe("demo.entryAccount", actor)
+    assert described["analysisCapabilities"]["pointLookup"] is True
+    assert described["analysisCapabilities"]["collectionJoin"] is False

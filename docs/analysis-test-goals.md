@@ -38,7 +38,7 @@
 任务名 semantic-boundaries。
 目标：确保核心能力不是为财税样例写死，错误不会悄悄变成数字或 TRUE。
 用一个最小第三业务包（例如库存质量检查）验证 STRING/BOOLEAN/DATE/DATETIME 与 Decimal Rule、派生 Metric、属性读取、稳定标量身份及搜索，不修改 core/compiler/provider。
-覆盖：非布尔 Claim 编译拒绝与运行防线；不存在属性、混合类型、重复输出、重复输入、规则依赖环、表达式深度/节点/数值限制；可选输入三值逻辑；除零/NaN/Infinity；整数非整数返回；身份单独查询不存在对象；复合身份明确拒绝而不是使用第一键。
+覆盖：非布尔 Claim 编译拒绝与运行防线；不存在属性、混合类型、重复输出、重复输入、规则依赖环、表达式深度/节点/数值限制；可选输入三值逻辑；除零/NaN/Infinity；整数非整数返回；身份单独查询不存在对象；复合身份必须传完整键集，禁止截取第一键。
 验证完整粒度、未知/冲突绑定、旧别名与标准身份冲突、口径歧义、业务期间非法/跨年/与样本不符。原 GQ07 缺年度现在应在读库前 INVALID_BINDINGS；另造完整粒度真实重复行验证 CARDINALITY_VIOLATION。
 验证 query/claim sourceActivities、observedAt、ruleId/evidenceRefs 与 releaseDigest 可对应；租户切换不串值。有限只读 API 不支持实例列表时应明确 SEARCH_NOT_SUPPORTED。
 测试误差和遗漏写报告，不擅自放宽契约或修产品代码。

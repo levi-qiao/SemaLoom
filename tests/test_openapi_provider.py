@@ -263,3 +263,57 @@ def test_api_caller_filters_cannot_override_tenant_or_identity() -> None:
         bindings={"orderId": "PO-999"},
     )
     assert (result.kind, result.reason) == ("UNAVAILABLE", "INVALID_BINDINGS")
+
+
+def _composite_object_mapping() -> MappingDef:
+    return MappingDef.model_validate(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Mapping",
+            "id": "demo.Entry.api",
+            "version": "1.0.0",
+            "target": "demo.Entry",
+            "sourceId": "api",
+            "provider": "openapi",
+            "objectType": "demo.Entry",
+            "expectedCardinality": "ONE",
+            "identityFields": ["ledger", "entryId"],
+            "grainFields": ["ledger", "entryId"],
+            "propertyFields": ["name"],
+            "capabilities": ["POINT_READ"],
+            "physical": {
+                "method": "GET",
+                "path": "/entries",
+                "parameterBindings": {"ledger": "ledger", "entryId": "entryId"},
+                "grainPointers": {"ledger": "/ledger", "entryId": "/entryId"},
+                "propertyPointers": {"name": "/name"},
+            },
+        }
+    )
+
+
+def test_openapi_composite_identity_requires_every_parameter() -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update({key: request.url.params[key] for key in ("ledger", "entryId", "tenant")})
+        return httpx.Response(
+            200,
+            json={"ledger": "0L", "entryId": "E-1", "name": "Journal"},
+        )
+
+    result = OpenApiReadProvider({"api": _client(handler)}).fetch_object(
+        _composite_object_mapping(),
+        tenant="tenant-a",
+        identity_value={"ledger": "0L", "entryId": "E-1"},
+    )
+    assert result.kind == "PRESENT"
+    assert seen == {"tenant": "tenant-a", "ledger": "0L", "entryId": "E-1"}
+    assert result.values["name"] == "Journal"
+
+    partial = OpenApiReadProvider({"api": _client(handler)}).fetch_object(
+        _composite_object_mapping(),
+        tenant="tenant-a",
+        identity_value={"ledger": "0L"},
+    )
+    assert (partial.kind, partial.reason) == ("UNAVAILABLE", "INVALID_MAPPING")
