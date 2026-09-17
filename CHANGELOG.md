@@ -35,9 +35,13 @@ versioning for published releases. During `0.x`, incompatible changes are docume
   business vocabulary (stable id, aliases, optional code filter) that inherit grain/unit
   from the object and Mapping; Compiler synthesizes the query Mapping. See ADR-0012.
 
+- Mapping capabilities and semantic field coverage are compiler-generated IR. Object point reads,
+  Studio preview, HTTP tools, AI tools, and Link traversal preserve complete structured identities,
+  including composite keys; legacy identity mapping fields are rejected instead of normalized.
 - Capability and README wording matches current evidence: local-dev demo tokens only, static
-  `/mcp/tools` list rather than MCP transport, first-key identity, numeric Decimal rules, in-process
-  Action drafts, and an unfinished Studio Rule editor / joint Studio gate.
+  `/mcp/tools` list rather than MCP transport, exact-decimal rules, in-process Action drafts, and an
+  unfinished Studio Rule editor / joint Studio gate. Composite-key cross-source collection analysis
+  remains outside the current boundary.
 - Public sdist omits private-sample instructions and the remote importer; contributors still use
   git for those files.
 
