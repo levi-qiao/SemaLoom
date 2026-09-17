@@ -125,11 +125,22 @@ def test_compiler_emits_neutral_mapping_ir() -> None:
     assert mapping.capabilities == ("POINT_READ", "COLLECTION_READ", "EQUI_JOIN")
 
 
-def test_compiler_rejects_legacy_scalar_identity_mapping_fields() -> None:
+@pytest.mark.parametrize(
+    "legacy_field",
+    (
+        "identityColumn",
+        "identityColumns",
+        "identityParameter",
+        "identityParameters",
+        "identityPointer",
+        "identityPointers",
+    ),
+)
+def test_compiler_rejects_legacy_identity_mapping_fields(legacy_field: str) -> None:
     docs = _documents()
     mapping = next(item for item in docs if item.get("kind") == "Mapping")
     physical = dict(mapping["physical"])
-    physical["identityColumn"] = "entry_id"
+    physical[legacy_field] = "legacy_identity_binding"
     mapping["physical"] = physical
     result = compile_documents(docs)
     assert not result.ok
@@ -147,7 +158,9 @@ def test_query_studio_and_ai_share_exact_composite_identity() -> None:
             select=(
                 ObjectSelect(object_type="demo.Entry", identity=identity, properties=("name",)),
             ),
-            context=QueryContext(business_period={"from": "2024-01-01", "to": "2025-01-01"}),
+            context=QueryContext(
+                business_period={"from": "2024-01-01", "to": "2025-01-01"}
+            ),
         ),
         ACTOR,
     )
@@ -168,15 +181,27 @@ def test_query_studio_and_ai_share_exact_composite_identity() -> None:
     tools = SemanticTools(query, ACTOR)
     found = tools.call(
         "find_objects",
-        {"objectType": "demo.Entry", "filters": {"name": "Journal entry"}, "properties": ["name"]},
+        {
+            "objectType": "demo.Entry",
+            "filters": {"name": "Journal entry"},
+            "properties": ["name"],
+        },
     )
     assert found["objects"][0]["identity"] == identity
     tools.call(
         "semantic_query",
         {
             "apiVersion": "semaloom/v0.1",
-            "select": [{"objectType": "demo.Entry", "identity": identity, "properties": ["name"]}],
-            "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
+            "select": [
+                {
+                    "objectType": "demo.Entry",
+                    "identity": identity,
+                    "properties": ["name"],
+                }
+            ],
+            "context": {
+                "businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}
+            },
         },
     )
     with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
@@ -191,6 +216,8 @@ def test_query_studio_and_ai_share_exact_composite_identity() -> None:
                         "properties": ["name"],
                     }
                 ],
-                "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
+                "context": {
+                    "businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}
+                },
             },
         )
