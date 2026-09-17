@@ -16,7 +16,7 @@ test("model, source and definition workflow is complete", async ({ page }) => {
   await expect(page.getByRole("button", { name: "在实体中完整编辑" })).toBeVisible();
 
   await page.getByRole("button", { name: /来源/ }).click();
-  await page.getByPlaceholder("例如 PO-001").first().fill("PO-001");
+  await page.getByLabel("试读 orderId").first().fill("PO-001");
   await page.getByRole("button", { name: "试读", exact: true }).first().click();
   await expect(page.getByText(/命中/)).toBeVisible({ timeout: 10_000 });
 

@@ -102,9 +102,7 @@ def test_query_composes_postgres_and_api_properties_with_evidence() -> None:
                     properties=("status", "deliveryRisk"),
                 ),
             ),
-            context=QueryContext(
-                businessPeriod={"from": "2026-01-01", "to": "2027-01-01"}
-            ),
+            context=QueryContext(businessPeriod={"from": "2026-01-01", "to": "2027-01-01"}),
         ),
         ACTOR,
     )
@@ -216,9 +214,7 @@ def test_api_null_property_and_exact_decimal() -> None:
     inexact = OpenApiReadProvider(
         {
             "api": _client(
-                lambda request: httpx.Response(
-                    200, json={"orderId": "PO-001", "amount": 1.1}
-                )
+                lambda request: httpx.Response(200, json={"orderId": "PO-001", "amount": 1.1})
             )
         }
     ).fetch_metric(

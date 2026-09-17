@@ -161,9 +161,7 @@ def test_query_studio_and_ai_share_exact_composite_identity() -> None:
             select=(
                 ObjectSelect(object_type="demo.Entry", identity=identity, properties=("name",)),
             ),
-            context=QueryContext(
-                business_period={"from": "2024-01-01", "to": "2025-01-01"}
-            ),
+            context=QueryContext(business_period={"from": "2024-01-01", "to": "2025-01-01"}),
         ),
         ACTOR,
     )
@@ -202,9 +200,7 @@ def test_query_studio_and_ai_share_exact_composite_identity() -> None:
                     "properties": ["name"],
                 }
             ],
-            "context": {
-                "businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}
-            },
+            "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
         },
     )
     with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
@@ -219,8 +215,18 @@ def test_query_studio_and_ai_share_exact_composite_identity() -> None:
                         "properties": ["name"],
                     }
                 ],
-                "context": {
-                    "businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}
-                },
+                "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
             },
         )
+
+
+def test_frontend_editor_has_no_legacy_identity_mapping_fields() -> None:
+    editor = (ROOT / "frontend/src/MappingEditor.tsx").read_text()
+    forbidden = (
+        "identityColumn",
+        "identityColumns",
+        "identityPointer",
+        "identityPointers",
+        "identityParameter",
+    )
+    assert all(token not in editor for token in forbidden)
