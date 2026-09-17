@@ -85,13 +85,18 @@ patch(
     count=2,
 )
 
-# Compiler-generated set-like Mapping IR must not depend on authored dictionary order.
+# Mapping grain order is semantic: declared identity components first, then the
+# remaining set in deterministic order. Physical dict insertion order is irrelevant.
 patch(
     "src/semaloom/compiler/mapping_ir.py",
     '''                    "grain_fields": tuple(grain),
                     "property_fields": tuple(properties),
 ''',
-    '''                    "grain_fields": tuple(sorted(grain)),
+    '''                    "grain_fields": tuple(
+                        key
+                        for key in dict.fromkeys((*obj.identity_keys, *sorted(grain)))
+                        if key in grain
+                    ),
                     "property_fields": tuple(sorted(properties)),
 ''',
 )
@@ -145,16 +150,16 @@ patch(
 ''',
 )
 
-# Bindings may add semantic grain values, but they may never replace identity.
-old_openapi_bindings = (
-    '        params: dict[str, Any] = {**dict(mapping.physical.get("fixedParameters") '
-    'or {}), "tenant": tenant}\n'
-    "        semantic_values: dict[str, IdentityScalar] = "
-    "{**identity_value, **(bindings or {})}\n"
-)
+# Ruff formats the generated _get before pytest imports this hook, so match the
+# formatted block. Semantic bindings can never replace an identity component.
 patch(
     "src/semaloom/adapters/openapi.py",
-    old_openapi_bindings,
+    '''        params: dict[str, Any] = {
+            **dict(mapping.physical.get("fixedParameters") or {}),
+            "tenant": tenant,
+        }
+        semantic_values: dict[str, IdentityScalar] = {**identity_value, **(bindings or {})}
+''',
     '''        params: dict[str, Any] = {
             **dict(mapping.physical.get("fixedParameters") or {}),
             "tenant": tenant,
