@@ -19,25 +19,29 @@ jobs:
           ref: feat/p0-capability-composite-identity
           fetch-depth: 0
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
-      - name: Tighten canonical identity boundary
+      - name: Apply final boundary fixes
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("src/semaloom/app/chat/tools.py")
-          text = path.read_text()
-          text = text.replace(
-              '                    self._identity(item.object_type, body.bindings)\n',
-              '                    self._identity_from_bindings(item.object_type, body.bindings)\n',
-              1,
+          tools = Path("src/semaloom/app/chat/tools.py")
+          text = tools.read_text()
+          replacements = (
+              (
+                  "        self._identity(metric.object_type, selection.bindings)\n",
+                  "        self._identity_from_bindings(metric.object_type, selection.bindings)\n",
+              ),
+              (
+                  "                    self._identity(item.object_type, body.bindings)\n",
+                  "                    self._identity_from_bindings(item.object_type, body.bindings)\n",
+              ),
           )
-          old = '''    def _metric_identity(self, selection: MetricSelect) -> None:
-              metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
-              if metric is None:
-                  raise ValueError("UNKNOWN_METRIC")
-              self._identity(metric.object_type, selection.bindings)
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"unexpected identity caller count: {old!r}")
+              text = text.replace(old, new, 1)
 
-          def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
+          old_identity = '''    def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
               obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
               if obj is None or not obj.identity_keys:
                   raise ValueError("UNSUPPORTED_IDENTITY")
@@ -47,13 +51,7 @@ jobs:
               if (object_type, _identity_tuple(identity)) not in self.identities:
                   raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
           '''
-          new = '''    def _metric_identity(self, selection: MetricSelect) -> None:
-              metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
-              if metric is None:
-                  raise ValueError("UNKNOWN_METRIC")
-              self._identity_from_bindings(metric.object_type, selection.bindings)
-
-          def _identity_from_bindings(self, object_type: str, bindings: dict[str, Any]) -> None:
+          new_identity = '''    def _identity_from_bindings(self, object_type: str, bindings: dict[str, Any]) -> None:
               obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
               if obj is None or not obj.identity_keys or not set(obj.identity_keys) <= set(bindings):
                   raise ValueError("UNSUPPORTED_IDENTITY")
@@ -67,61 +65,120 @@ jobs:
               if (object_type, _identity_tuple(identity)) not in self.identities:
                   raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
           '''
-          if old not in text:
-              raise SystemExit("chat identity block changed")
-          path.write_text(text.replace(old, new, 1))
+          if text.count(old_identity) != 1:
+              raise SystemExit("canonical identity function block changed")
+          tools.write_text(text.replace(old_identity, new_identity, 1))
 
-          path = Path("tests/test_composite_identity_chain.py")
-          text = path.read_text()
-          anchor = '''    with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
-              tools.call(
-                  "semantic_query",
+          compile_test = Path("tests/test_compile.py")
+          text = compile_test.read_text()
+          old_cycle = '''def test_object_link_cycle_is_allowed() -> None:
+              docs = _load(PROCUREMENT)
+              docs.append(
                   {
                       "apiVersion": "semaloom/v0.1",
-                      "select": [
-                          {
-                              "objectType": "demo.Entry",
-                              "identity": {"entryId": "E-1"},
-                              "properties": ["name"],
-                          }
-                      ],
-                      "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
-                  },
+                      "kind": "Link",
+                      "id": "procurement.supplierOrders",
+                      "version": "1.0.0",
+                      "source": "procurement.Supplier",
+                      "target": "procurement.Order",
+                      "cardinality": "MANY",
+                      "identity": [{"source": "supplierId", "target": "supplierId"}],
+                  }
               )
+              result = compile_documents(docs)
+              assert result.ok, [item.model_dump() for item in result.diagnostics]
           '''
-          extra = anchor + '''    with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
-              tools.call(
-                  "semantic_query",
+          new_cycle = '''def test_object_link_cycle_is_allowed() -> None:
+              docs = _load(PROCUREMENT)
+              supplier = next(
+                  item
+                  for item in docs
+                  if item.get("kind") == "ObjectType" and item.get("id") == "procurement.Supplier"
+              )
+              supplier["properties"] = [
+                  *supplier["properties"],
+                  {"id": "orderId", "valueType": "STRING"},
+              ]
+              docs.append(
                   {
                       "apiVersion": "semaloom/v0.1",
-                      "select": [
-                          {
-                              "objectType": "demo.Entry",
-                              "identity": {"ledger": "0L", "entryId": "E-1", "extra": "x"},
-                              "properties": ["name"],
-                          }
-                      ],
-                      "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
+                      "kind": "Link",
+                      "id": "procurement.supplierOrders",
+                      "version": "1.0.0",
+                      "source": "procurement.Supplier",
+                      "target": "procurement.Order",
+                      "cardinality": "MANY",
+                      "identity": [{"source": "orderId", "target": "orderId"}],
+                  }
+              )
+              result = compile_documents(docs)
+              assert result.ok, [item.model_dump() for item in result.diagnostics]
+          '''
+          if text.count(old_cycle) != 1:
+              raise SystemExit("link cycle test block changed")
+          compile_test.write_text(text.replace(old_cycle, new_cycle, 1))
+
+          identity_test = Path("tests/test_composite_identity_chain.py")
+          text = identity_test.read_text()
+          marker = "\n\ndef test_frontend_editor_has_no_legacy_identity_mapping_fields() -> None:\n"
+          extra_test = '''
+
+          def test_ai_object_identity_rejects_extra_components() -> None:
+              bundle = _bundle()
+              provider = FakeProvider()
+              tools = SemanticTools(QueryService(bundle, provider), ACTOR)
+              tools.call(
+                  "find_objects",
+                  {
+                      "objectType": "demo.Entry",
+                      "filters": {"name": "Journal entry"},
+                      "properties": ["name"],
                   },
               )
+              with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
+                  tools.call(
+                      "semantic_query",
+                      {
+                          "apiVersion": "semaloom/v0.1",
+                          "select": [
+                              {
+                                  "objectType": "demo.Entry",
+                                  "identity": {
+                                      "ledger": "0L",
+                                      "entryId": "E-1",
+                                      "extra": "x",
+                                  },
+                                  "properties": ["name"],
+                              }
+                          ],
+                          "context": {
+                              "businessPeriod": {
+                                  "from": "2024-01-01",
+                                  "to": "2025-01-01",
+                              }
+                          },
+                      },
+                  )
           '''
-          if anchor not in text:
-              raise SystemExit("composite identity test anchor changed")
-          path.write_text(text.replace(anchor, extra, 1))
+          if marker not in text:
+              raise SystemExit("composite identity test marker changed")
+          if "def test_ai_object_identity_rejects_extra_components" not in text:
+              text = text.replace(marker, extra_test + marker, 1)
+          identity_test.write_text(text)
           PY
-      - name: Validate backend boundary
+      - name: Validate focused backend changes
         run: |
           uv python install
           uv sync --frozen --all-groups
-          uv run ruff format src/semaloom/app/chat/tools.py tests/test_composite_identity_chain.py
-          uv run ruff check src/semaloom/app/chat/tools.py tests/test_composite_identity_chain.py
+          uv run ruff format src/semaloom/app/chat/tools.py tests/test_compile.py tests/test_composite_identity_chain.py
+          uv run ruff check src/semaloom/app/chat/tools.py tests/test_compile.py tests/test_composite_identity_chain.py
           uv run mypy
-          uv run pytest tests/test_composite_identity_chain.py
+          uv run pytest tests/test_compile.py tests/test_composite_identity_chain.py
       - name: Commit clean boundary fix
         run: |
           rm .github/workflows/p0-final-boundary.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
-          git commit -m "fix: enforce canonical composite identity in AI tools"
+          git commit -m "fix: close composite identity boundary gaps"
           git push origin HEAD:feat/p0-capability-composite-identity
