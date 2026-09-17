@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
+from semaloom.app.chat.compression import build_history_from_turns
 from semaloom.app.chat.confidence import score_answer
 from semaloom.app.chat.intent import TurnIntent
 from semaloom.app.chat.presentation import attach_lineage
@@ -576,11 +577,16 @@ def _persist_prepared(
             },
             service.bundle,
         )
+        new_turn = {"question": original, "answer": answer}
+        compressed_history = build_history_from_turns(
+            [*refreshed.get("turns", []), new_turn],
+            model="qwen3.7-plus",
+        )
         store.save(
             actor,
             refreshed,
-            list(refreshed.get("history") or []),
-            {"question": original, "answer": answer},
+            compressed_history,
+            new_turn,
         )
         prepared["evidence"] = answer["evidence"]
         prepared["textOrigin"] = "ENGINE"

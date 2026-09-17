@@ -53,7 +53,15 @@ class SemanticTools:
         entries = [
             {
                 key: document[key]
-                for key in ("id", "kind", "label", "aliases", "objectType")
+                for key in (
+                    "id",
+                    "kind",
+                    "label",
+                    "aliases",
+                    "objectType",
+                    "rule",
+                    "dimensions",
+                )
                 if key in document
             }
             for document in page["definitions"]
@@ -176,12 +184,32 @@ class SemanticTools:
                 value = value.model_copy(update={"kind": "explanation"})
             if value.kind == "answer":
                 value = value.model_copy(update={"text": evidence_summary(selected)})
+            follow_ups: list[dict[str, str]] = []
+            seen_chips: set[str] = set()
+            for item in selected:
+                res = item.get("result") or {}
+                for check in res.get("checks") or []:
+                    if check.get("error") == "NO_APPLICABLE_POLICY":
+                        sample_dims = check.get("sampleDimensions") or {}
+                        claim_id = check.get("claimId")
+                        if "jurisdiction" in sample_dims and claim_id:
+                            val = sample_dims["jurisdiction"]
+                            chip_label = f"按属地 {val} 重新核验"
+                            if chip_label not in seen_chips:
+                                seen_chips.add(chip_label)
+                                follow_ups.append(
+                                    {
+                                        "label": chip_label,
+                                        "message": f"按属地 {val} 重新核验 {claim_id} 规则",
+                                    }
+                                )
             self.answer = {
                 "kind": value.kind,
                 "textOrigin": "ENGINE" if value.kind == "answer" else "AI",
                 "text": value.text,
                 "evidence": [self.evidence[key] for key in dict.fromkeys(value.evidence_ids)],
                 "releaseDigest": self.query.bundle.digest,
+                "followUps": follow_ups,
             }
             return {"accepted": True, "releaseDigest": self.query.bundle.digest}
         if (
@@ -383,10 +411,19 @@ class SemanticTools:
                     )
                 )
             except EvaluationError as exc:
+                required_dims: set[str] = set()
+                sample_dims: dict[str, str] = {}
+                rule_policies = [p for p in self.query.bundle.policies if p.rule == rule.id]
+                for p in rule_policies:
+                    required_dims.update(p.dimensions.keys())
+                    sample_dims.update(p.dimensions)
                 checks.append(
                     {
                         "claimId": rule.claim,
+                        "ruleId": rule.id,
                         "error": exc.code,
+                        "requiredDimensions": sorted(required_dims),
+                        "sampleDimensions": sample_dims,
                         "releaseDigest": self.query.bundle.digest,
                     }
                 )

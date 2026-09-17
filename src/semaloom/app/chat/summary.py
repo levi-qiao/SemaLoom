@@ -216,10 +216,30 @@ def evidence_summary(evidence: list[dict[str, Any]]) -> str:
                     f"  - 核验说明：{reasons_str}"
                 )
             elif claim_result.get("error"):
-                claims_rows.append(
-                    f"- ⚠️ **规则未完成**（`{claim_result.get('claimId', '未知')}`）："
-                    f"{claim_result['error']}。不能判断为通过。"
-                )
+                claim_id = claim_result.get("claimId", "未知")
+                err_code = claim_result["error"]
+                if err_code == "NO_APPLICABLE_POLICY":
+                    req_dims = claim_result.get("requiredDimensions") or []
+                    sample_dims = claim_result.get("sampleDimensions") or {}
+                    if req_dims:
+                        dims_str = "、".join(req_dims)
+                        sample_str = (
+                            f"（例如 {', '.join(f'{k}={v}' for k, v in sample_dims.items())}）"
+                            if sample_dims
+                            else ""
+                        )
+                        msg = (
+                            f"未匹配到适用政策（NO_APPLICABLE_POLICY：该规则需指定适用维度："
+                            f"{dims_str}{sample_str}，或未覆盖请求期间）"
+                        )
+                    else:
+                        msg = (
+                            "未匹配到适用政策（NO_APPLICABLE_POLICY："
+                            "未覆盖请求期间或未满足政策维度）"
+                        )
+                else:
+                    msg = f"{err_code}"
+                claims_rows.append(f"- ⚠️ **规则未完成**（`{claim_id}`）：{msg}。不能判断为通过。")
     if claims_rows:
         sections.append("### ⚖️ 业务规则与命题核验\n\n" + "\n".join(claims_rows))
 

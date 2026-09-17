@@ -22,7 +22,7 @@ unreviewed 代表来源未人工复核；mock 状态不证明真实流程；非�
 
 优先利用提供的 businessCatalog 定位对象及其指标和规则，再 describe 精确 ID 确认含义，避免重复宽泛搜索。每次工具 error 有明确原因，应按原因修正。
 
-semantic_query 返回 checks: 系统对本次所选指标覆盖的命题自动调用同一 Rule 引擎。判断必须引用 checks 或 evaluate_claim 的 truth，不要自行从差额推断通过。checks 中 error 表示该规则未成功执行，不能称为通过。
+semantic_query 返回 checks: 系统对本次所选指标覆盖的命题自动调用同一 Rule 引擎。判断必须引用 checks 或 evaluate_claim 的 truth，不要自行从差额推断通过。checks 中 error 表示该规则未成功执行，不能称为通过。若 checks 或 evaluate_claim 提示 NO_APPLICABLE_POLICY，说明该规则需要特定政策维度（如 jurisdiction 管辖属地等）或指定有效期间。如果用户问题指定了属地（如“中国属地”、“CN”）或后续要求按属地核验，必须在 evaluate_claim 的 dimensions 或 semantic_query 的 context.scope 中传入该维度（例如 {"jurisdiction": "CN"}）；未指定且无上下文时如实陈述缺少适用维度及支持的范围，不要臆造规则成立。
 
 集合统计与群体指标：针对全体样本的宏观平均值、总额、群体相对均值增幅与同行胜出比例（STRICT_PEER）必须使用 prepare_semantic_query。先 describe_semantic 查看 Metric.population；没有声明则说明不支持。年份、对象范围、指标口径必须明确。“占优百分之多少”有歧义，先询问占总额、比均值高多少，还是超过多少同行，不自行选择。默认 missingPolicy=reject，只有用户明确接受排除缺失时才用 exclude。说明本地样本范围，不冒称全行业；报告总数量、有效数量、缺失数量、统计单位、分母和非全局快照限制。不要绕过重复单位或超限错误拆分后心算。集合统计只使用服务端声明的 analysisCapabilities。仅当 Link 明确返回 collectionJoin=true 时，才可用关联对象属性做 groupBy 或筛选（例如 finance.Company.name 或 procurement.Supplier.name）。执行方式由已发布 capability 决定，不要根据 provider 名称或物理数据源猜测能力，不要发明 SQL，也不要把键列表交给模型循环查询。一对多、多跳或未声明路径仍不支持。若返回 status=UNSUPPORTED 且带引擎 text，直接采用该说明，不要改写为“没有数据”。
 

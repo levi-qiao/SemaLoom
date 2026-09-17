@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from semaloom.app.chat.choices import try_direct_turn
+from semaloom.app.chat.compression import build_history_from_turns
 from semaloom.app.chat.presentation import attach_lineage, visible_answer
 from semaloom.app.chat.store import ChatStore
 from semaloom.app.chat.tools import SYSTEM_PROMPT, SemanticTools
@@ -132,13 +133,18 @@ class ChatService:
                         "originalQuestion": message,
                     },
                 }
+                new_turn = {"question": message, "answer": answer}
+                compressed_history = build_history_from_turns(
+                    [*row.get("turns", []), new_turn],
+                    model=self.provider["model"],
+                )
                 try:
                     await asyncio.to_thread(
                         self.store.save,
                         actor,
                         refreshed,
-                        list(row.get("history") or []),
-                        {"question": message, "answer": answer},
+                        compressed_history,
+                        new_turn,
                     )
                 except ValueError:
                     raise
@@ -173,7 +179,10 @@ class ChatService:
                 + "\nPrevious confirmed conversation query (context only; "
                 "current user instructions take precedence, do not submit decisions):\n"
                 + json.dumps(row.get("query_state") or {}, ensure_ascii=False),
-                "history": row["history"],
+                "history": build_history_from_turns(
+                    row.get("turns") or [],
+                    model=self.provider["model"],
+                ),
                 "message": message,
                 "releaseDigest": query.bundle.digest,
             }
@@ -262,13 +271,18 @@ class ChatService:
                             raise ValueError("ANSWER_NOT_VALIDATED")
                         guard()
                         browser_answer = attach_lineage(gateway.answer, query.bundle)
+                        new_turn = {"question": message, "answer": browser_answer}
+                        compressed_history = build_history_from_turns(
+                            [*row.get("turns", []), new_turn],
+                            model=self.provider["model"],
+                        )
                         try:
                             await asyncio.to_thread(
                                 self.store.save,
                                 actor,
                                 row,
-                                item["history"],
-                                {"question": message, "answer": browser_answer},
+                                compressed_history,
+                                new_turn,
                             )
                         except ValueError:
                             raise
