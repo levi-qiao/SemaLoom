@@ -317,3 +317,31 @@ def test_openapi_composite_identity_requires_every_parameter() -> None:
         identity_value={"ledger": "0L"},
     )
     assert (partial.kind, partial.reason) == ("UNAVAILABLE", "INVALID_MAPPING")
+
+
+def test_openapi_same_first_key_different_second_key_binds_distinct_parameters() -> None:
+    seen: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = {key: request.url.params[key] for key in ("ledger", "entryId")}
+        seen.append(params)
+        name = "Journal" if params["entryId"] == "E-1" else "Other"
+        return httpx.Response(
+            200,
+            json={"ledger": params["ledger"], "entryId": params["entryId"], "name": name},
+        )
+
+    provider = OpenApiReadProvider({"api": _client(handler)})
+    mapping = _composite_object_mapping()
+    first = provider.fetch_object(
+        mapping, tenant="tenant-a", identity_value={"ledger": "0L", "entryId": "E-1"}
+    )
+    second = provider.fetch_object(
+        mapping, tenant="tenant-a", identity_value={"ledger": "0L", "entryId": "E-2"}
+    )
+    assert seen == [
+        {"ledger": "0L", "entryId": "E-1"},
+        {"ledger": "0L", "entryId": "E-2"},
+    ]
+    assert first.values["name"] == "Journal"
+    assert second.values["name"] == "Other"

@@ -26,7 +26,7 @@
 
 | 优先级 / 主责 | 剩余工作 | 必须提供的完成证据 |
 | --- | --- | --- |
-| P0 / 主 agent：通用身份、类型和 provider 契约（M1） | 点查/Link/Action 已传完整结构化身份；集合分析复合 Link 仍拒绝。规则 PRESENT 输入强制 Decimal，属性存在性/类型和 Claim 输出缺完整编译检查；数字结果被当 TRUE。共享 Compiler 仍从 physical 生成 Mapping Capability IR（adapter 边界待继续下沉） | 同第一键不同第二键绝不串对象；身份单独查询验证存在；属性/关系/Action 统一身份契约；金额、整数、布尔、字符串、日期的声明、读取、运算一致；非法 Rule 编译失败；两个协议同语义输入；禁止在 Runtime 加行业或物理分支 |
+| P0 / 主 agent：通用身份、类型和 provider 契约（M1） | 点查/Link/Action 已传完整结构化身份；集合分析（同源 JOIN 与跨源 bind-join）对复合 Link 均明确拒绝。规则 PRESENT 输入强制 Decimal，属性存在性/类型和 Claim 输出缺完整编译检查；数字结果被当 TRUE。共享 Compiler 仍从 physical 生成 Mapping Capability IR（adapter 边界待继续下沉） | 同第一键不同第二键绝不串对象；身份单独查询验证存在；属性/关系/Action 统一身份契约；金额、整数、布尔、字符串、日期的声明、读取、运算一致；非法 Rule 编译失败；两个协议同语义输入；禁止在 Runtime 加行业或物理分支 |
 | P0 / 主 agent：统一身份与权限（M2） | 生产 JWT 验证无实现；当前授权只按粗粒度角色，resource 未形成对象/字段策略；发现、证据、派生值、来源调用和释放响应时的权限撤销未闭合 | 签名/issuer/audience/过期/伪造代理拒绝；两个租户与受限字段；查询、搜索、计数、解释、缓存和图谱均不泄露；撤销后立即拒绝；生产 profile 不用 demo；REST/Studio/MCP 复用可信上下文 |
 | P0 / 主 agent：Action 与版本可靠性（M3） | Action 仍绑启动 bundle；内存 DraftStore 重启丢失；真实 executor、原子前提、超时后的核对、恢复调度未完成 | 计划绑定精确批准 release/profile/参数/目标；激活新版本不偷换计划；并发只有一次效果；模拟外部已成功但响应丢失，进程重启后核对而非重写；业务前提由目标原子验证；无批准/过期/审计故障均拒绝 |
 | P1 / 主 agent：查询与证据可靠性（M2） | 有限 Link 尚未闭合多跳/fan-out；共享依赖去重、请求总预算、取消和快照证据不足；长期解释/历史重放、metadata 迁移与备份恢复不足 | 跨库/API 的调用数、行数、deadline 有界；不截断后断言不存在；共享输入只读一次；来源漂移明确失败；历史回放明确 references/history/snapshot 能力；必要审计失败不假成功；迁移和恢复演练 |

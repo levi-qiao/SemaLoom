@@ -42,6 +42,54 @@ export function documentById(documents: DraftDocument[], id: string | null | und
   return documents.find((item) => item.id === id) ?? null;
 }
 
+/** Normalize Link.identity to the canonical pair-array shape (scalar legacy drafts upgrade in place). */
+export function linkIdentityPairs(identity: unknown): { source: string; target: string }[] {
+  if (Array.isArray(identity)) {
+    return identity
+      .map((pair) => {
+        const row = object(pair);
+        return { source: text(row.source), target: text(row.target) };
+      })
+      .filter((pair) => pair.source || pair.target);
+  }
+  const row = object(identity);
+  if (row.source || row.target) {
+    return [{ source: text(row.source), target: text(row.target) }];
+  }
+  return [];
+}
+
+export function linkIdentitySummary(identity: unknown): { sourceKey: string; targetKey: string } {
+  const pairs = linkIdentityPairs(identity);
+  return {
+    sourceKey: pairs.map((pair) => pair.source).filter(Boolean).join(" + "),
+    targetKey: pairs.map((pair) => pair.target).filter(Boolean).join(" + "),
+  };
+}
+
+/** Default pairs covering every target identity key (name match, then positional zip). */
+export function defaultLinkIdentity(
+  sourceDoc: DraftDocument | null | undefined,
+  targetDoc: DraftDocument | null | undefined,
+): { source: string; target: string }[] {
+  const sourceKeys = array(sourceDoc?.identityKeys).map(String).filter(Boolean);
+  const targetKeys = array(targetDoc?.identityKeys).map(String).filter(Boolean);
+  const sourceProps = array(sourceDoc?.properties)
+    .map((item) => text((item as Record<string, unknown>).id))
+    .filter(Boolean);
+  const sourcePool = sourceKeys.length ? sourceKeys : sourceProps;
+  if (!targetKeys.length) {
+    const source = sourcePool[0] ?? "id";
+    return [{ source, target: source }];
+  }
+  return targetKeys.map((targetKey, index) => ({
+    source: sourcePool.includes(targetKey)
+      ? targetKey
+      : (sourcePool[index] ?? sourcePool[0] ?? "id"),
+    target: targetKey,
+  }));
+}
+
 export function isOpenApi(value: unknown): boolean {
   return text(value) === "openapi";
 }

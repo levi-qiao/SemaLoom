@@ -247,6 +247,10 @@ def _one_link_join(
             continue
         if link.cardinality != "ONE":
             raise AnalysisError("UNBOUNDED_MANY_TO_MANY")
+        # Same-source SQL JOIN and cross-source bind-join share this gate:
+        # collection analysis still requires a single identity pair.
+        if len(link.identity) != 1:
+            raise AnalysisError("LINK_ANALYSIS_UNSUPPORTED")
         mapping = _mapping(service, target.id)
         if mapping.provider != "postgres":
             raise AnalysisError("CROSS_SOURCE_SQL")
@@ -453,15 +457,14 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
                 target_mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
             )
             target_projection = _projection(target_mapping)
-            join_predicates = []
-            for pair in link.identity:
-                source_col = projection.get(pair.source)
-                target_col = target_projection.get(pair.target)
-                if source_col is None or target_col is None:
-                    raise AnalysisError("NO_PATH")
-                join_predicates.append(
-                    f"{alias}.{require_ident(target_col, field='column')} = {source_col}"
-                )
+            pair = _single_link_pair(link)
+            source_col = projection.get(pair.source)
+            target_col = target_projection.get(pair.target)
+            if source_col is None or target_col is None:
+                raise AnalysisError("NO_PATH")
+            join_predicates = [
+                f"{alias}.{require_ident(target_col, field='column')} = {source_col}"
+            ]
             from_sql += (
                 f" LEFT JOIN {target_table} AS {alias} ON {alias}.{target_tenant} = :tenant"
                 + "".join(f" AND {predicate}" for predicate in join_predicates)

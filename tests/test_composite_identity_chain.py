@@ -19,7 +19,15 @@ ACTOR = RequestActor(tenant="tenant-a", subject="reader", roles=("analyst",))
 
 class FakeProvider:
     def __init__(self) -> None:
-        self.last_identity: IdentityValue | None = None
+        self.identities: list[IdentityValue] = []
+        self.rows: dict[tuple[str, str], str] = {
+            ("0L", "E-1"): "Journal entry",
+            ("0L", "E-2"): "Other entry",
+        }
+
+    @property
+    def last_identity(self) -> IdentityValue | None:
+        return self.identities[-1] if self.identities else None
 
     def fetch_metric(
         self,
@@ -38,10 +46,14 @@ class FakeProvider:
         tenant: str,
         identity_value: IdentityValue,
     ) -> ObjectRead:
-        self.last_identity = dict(identity_value)
+        self.identities.append(dict(identity_value))
+        name = self.rows.get(
+            (str(identity_value.get("ledger")), str(identity_value.get("entryId"))),
+            "Journal entry",
+        )
         return ObjectRead(
             kind="PRESENT",
-            values={**identity_value, "name": "Journal entry"},
+            values={**identity_value, "name": name},
             mapping_id=mapping.id,
             source_id=mapping.source_id,
             observed_at="2026-09-16T00:00:00Z",
@@ -218,6 +230,130 @@ def test_query_studio_and_ai_share_exact_composite_identity() -> None:
                 "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
             },
         )
+
+
+def test_same_first_key_different_second_key_never_cross_objects() -> None:
+    """Maturity P0 evidence: shared first key must not select the sibling object."""
+    import json
+
+    bundle = _bundle()
+    provider = FakeProvider()
+    query = QueryService(bundle, provider)
+    period = QueryContext(business_period={"from": "2024-01-01", "to": "2025-01-01"})
+    first = query.execute(
+        QueryRequest(
+            api_version="semaloom/v0.1",
+            select=(
+                ObjectSelect(
+                    object_type="demo.Entry",
+                    identity={"ledger": "0L", "entryId": "E-1"},
+                    properties=("name",),
+                ),
+            ),
+            context=period,
+        ),
+        ACTOR,
+    )
+    second = query.execute(
+        QueryRequest(
+            api_version="semaloom/v0.1",
+            select=(
+                ObjectSelect(
+                    object_type="demo.Entry",
+                    identity={"ledger": "0L", "entryId": "E-2"},
+                    properties=("name",),
+                ),
+            ),
+            context=period,
+        ),
+        ACTOR,
+    )
+    assert first.status == "SUCCEEDED" and second.status == "SUCCEEDED"
+    assert provider.identities == [
+        {"ledger": "0L", "entryId": "E-1"},
+        {"ledger": "0L", "entryId": "E-2"},
+    ]
+    assert json.loads(first.observations[0].value or "{}") == {"name": "Journal entry"}
+    assert json.loads(second.observations[0].value or "{}") == {"name": "Other entry"}
+
+
+def test_postgres_same_first_key_uses_full_composite_where() -> None:
+    import json
+
+    from sqlalchemy import create_engine, text
+
+    from semaloom.adapters.postgres import PostgresReadProvider
+    from semaloom.runtime.fixtures import engines
+
+    engine = engines()["tax_pg"]
+    with engine.connect() as conn:
+        conn.execute(text("CREATE SCHEMA composite_identity_pg"))
+        conn.execute(text("SET search_path TO composite_identity_pg"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE entry (
+                  tenant_id TEXT,
+                  ledger TEXT,
+                  entry_id TEXT,
+                  name TEXT
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO entry (tenant_id, ledger, entry_id, name) VALUES
+                ('tenant-a', '0L', 'E-1', 'Journal entry'),
+                ('tenant-a', '0L', 'E-2', 'Other entry')
+                """
+            )
+        )
+        conn.commit()
+        read_engine = create_engine(
+            engine.url, connect_args={"options": "-csearch_path=composite_identity_pg"}
+        )
+        try:
+            query = QueryService(_bundle(), PostgresReadProvider({"demo_pg": read_engine}))
+            period = QueryContext(business_period={"from": "2024-01-01", "to": "2025-01-01"})
+            first = query.execute(
+                QueryRequest(
+                    api_version="semaloom/v0.1",
+                    select=(
+                        ObjectSelect(
+                            object_type="demo.Entry",
+                            identity={"ledger": "0L", "entryId": "E-1"},
+                            properties=("name",),
+                        ),
+                    ),
+                    context=period,
+                ),
+                ACTOR,
+            )
+            second = query.execute(
+                QueryRequest(
+                    api_version="semaloom/v0.1",
+                    select=(
+                        ObjectSelect(
+                            object_type="demo.Entry",
+                            identity={"ledger": "0L", "entryId": "E-2"},
+                            properties=("name",),
+                        ),
+                    ),
+                    context=period,
+                ),
+                ACTOR,
+            )
+            assert first.status == "SUCCEEDED"
+            assert second.status == "SUCCEEDED"
+            assert json.loads(first.observations[0].value or "{}") == {"name": "Journal entry"}
+            assert json.loads(second.observations[0].value or "{}") == {"name": "Other entry"}
+        finally:
+            read_engine.dispose()
+            with engine.connect() as cleanup:
+                cleanup.execute(text("DROP SCHEMA IF EXISTS composite_identity_pg CASCADE"))
+                cleanup.commit()
 
 
 def test_ai_object_identity_rejects_extra_components() -> None:

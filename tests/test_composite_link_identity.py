@@ -206,3 +206,15 @@ def test_discovery_does_not_advertise_collection_join_for_composite_links() -> N
     described = SemanticDiscovery(bundle()).describe("demo.entryAccount", actor)
     assert described["analysisCapabilities"]["pointLookup"] is True
     assert described["analysisCapabilities"]["collectionJoin"] is False
+
+
+def test_studio_emitted_pair_array_covers_every_target_identity_key() -> None:
+    """Graph/dialog create must emit pair arrays covering target identityKeys (not first-key scalar)."""
+    docs = documents()
+    link = next(item for item in docs if item["kind"] == "Link")
+    target = next(item for item in docs if item["id"] == "demo.Account")
+    assert isinstance(link["identity"], list)
+    assert {pair["target"] for pair in link["identity"]} == set(target["identityKeys"])
+    assert len(link["identity"]) == len(target["identityKeys"])
+    result = compile_documents(docs)
+    assert result.ok, result.diagnostics

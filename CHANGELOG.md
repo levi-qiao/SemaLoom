@@ -39,7 +39,8 @@ versioning for published releases. During `0.x`, incompatible changes are docume
   Studio preview, HTTP tools, AI tools, Link traversal, and Action execution preserve complete
   structured identities, including composite keys; legacy identity mapping fields are rejected
   instead of normalized. Discovery advertises `collectionJoin` only for ONE Links with a single
-  identity pair.
+  identity pair; same-source collection JOIN and cross-source bind-join both reject composite Links
+  with `LINK_ANALYSIS_UNSUPPORTED`.
 - Capability and README wording matches current evidence: local-dev demo tokens only, static
   `/mcp/tools` list rather than MCP transport, exact-decimal rules, in-process Action drafts, and an
   unfinished Studio Rule editor / joint Studio gate. Composite-key cross-source collection analysis

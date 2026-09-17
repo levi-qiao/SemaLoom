@@ -1,6 +1,6 @@
 # Semantic Contract v0.1
 
-当前只读入口补充：`GET /v0.1/describe?semanticId=...` 返回业务定义与 releaseDigest，Mapping/接入/授权配置不属于发现资源；未知 ID 返回 404。`GET /v0.1/search?q=...&limit=...` 按 ID/标签/描述匹配，返回 candidates、requiresSelection、hasMore 和 releaseDigest，limit 为 1–50、默认 20，q 为非空且最多 200 字符。Link 与 Metric 的发现投影含 `analysisCapabilities`：`collectionJoin` 为 true 仅当已声明 FORWARD ONE 且两端同一 PostgreSQL 来源；Link 另有 `pointLookup` / `keyedFind`；Metric 的 `sameTableCollection` 仅在已声明 `population` 时为 true。多候选不得擅自选口径。当前仅粗粒度角色授权，细粒度与历史版本仍待关闭。
+当前只读入口补充：`GET /v0.1/describe?semanticId=...` 返回业务定义与 releaseDigest，Mapping/接入/授权配置不属于发现资源；未知 ID 返回 404。`GET /v0.1/search?q=...&limit=...` 按 ID/标签/描述匹配，返回 candidates、requiresSelection、hasMore 和 releaseDigest，limit 为 1–50、默认 20，q 为非空且最多 200 字符。Link 与 Metric 的发现投影含 `analysisCapabilities`：`collectionJoin` 为 true 仅当已声明 FORWARD ONE、单字段 `Link.identity`，且两端 Mapping 均具备 `EQUI_JOIN` 能力；复合 Link 不广告集合 JOIN。Link 另有 `pointLookup` / `keyedFind`；Metric 的 `sameTableCollection` 仅在已声明 `population` 时为 true。多候选不得擅自选口径。当前仅粗粒度角色授权，细粒度与历史版本仍待关闭。
 
 Query/Claim/上述发现入口接受显式 Bearer，或复用 Studio 服务端会话；cookie POST 复用 Origin/CSRF 校验，错误 Bearer 不回退 cookie，会话撤销和业务角色仍生效。Metric Observation 的 unit/valueType 来自所固定 release 的 Metric 定义。本项不改变 Action 的认证与批准绑定，也不构成生产 JWT/MCP 实现。
 
@@ -301,7 +301,7 @@ Studio 使用独立管理权限读取模型、来源元数据和草稿；样本�
 - Rule 输入按声明的 INTEGER/DECIMAL/BOOLEAN/STRING/DATE/DATETIME 解析。STRING/DATE/DATETIME 使用同名小写 literal op，BOOLEAN 使用 `bool`；DATE 必须 ISO 日期，DATETIME 必须有时区。数字拒绝 NaN/Infinity。表达式最多 256 节点、32 层，round places 为 0–28；数值采用既有 Decimal 运算上下文。
 - Compiler 拒绝不存在的属性、重复输入、类型不匹配、非 BOOLEAN Claim、重复输出和依赖环；`outputMetric` 经相同解释器计算派生指标，返回 unit/valueType/ruleId 及源活动。缺必需输入为 UNKNOWN/无派生值，不当零。可选输入的 and/or 遵循三值逻辑；运行失败保留诊断。
 - ObjectType 可声明 `period: {fromProperty: periodStart, toProperty: periodTo}`，两属性必须为 DATE。其 Metric 请求 businessPeriod 必须与对象实际半开期间完全一致；不一致为 PERIOD_MISMATCH，无有效值。对象资料读取不以期间过滤，因此 AI 可先定位实例并读取实际期间。未声明 period 的对象不承诺从 context 自动过滤数据。
-- Metric 必须给出完整 grain（固定 perspective 可由定义提供），未知额外 binding 拒绝。省略歧义口径为 AMBIGUOUS_MAPPING，缺年度等粒度为 INVALID_BINDINGS，不等到数据碰巧多行才报错。对象仅选择身份时仍读取来源验证存在。`ObjectType.identityKeys` 可为多键：点查、实例搜索、Studio 预览、AI 工具与 Link 遍历 MUST 传递完整结构化身份，禁止截取第一键；集合分析沿 Link 做 bind-join 时仍仅支持单字段 `Link.identity`，复合 Link 返回明确 `LINK_ANALYSIS_UNSUPPORTED`。禁止在 Mapping 中声明 `identityColumn(s)` / `identityPointer(s)` / `identityParameter(s)` 等遗留字段。
+- Metric 必须给出完整 grain（固定 perspective 可由定义提供），未知额外 binding 拒绝。省略歧义口径为 AMBIGUOUS_MAPPING，缺年度等粒度为 INVALID_BINDINGS，不等到数据碰巧多行才报错。对象仅选择身份时仍读取来源验证存在。`ObjectType.identityKeys` 可为多键：点查、实例搜索、Studio 预览、AI 工具、Link 遍历与 Action 目标 MUST 传递完整结构化身份，禁止截取第一键；集合分析沿 Link 做同源 SQL JOIN 或跨源 bind-join 时仍仅支持单字段 `Link.identity`，复合 Link 返回明确 `LINK_ANALYSIS_UNSUPPORTED`（不得截断或静默降级）。禁止在 Mapping 中声明 `identityColumn(s)` / `identityPointer(s)` / `identityParameter(s)` 等遗留字段。
 - `POST /v0.1/objects/search` 接受 objectType、精确 filters、properties 和 limit（1–50）。仅针对单一明确 Mapping，强制租户、固定过滤和显式投影；返回 identity、properties、hasMore、requiresSelection、releaseDigest、sourceActivities。hasMore 不可用来推断全量或不存在；当前无翻页/模糊检索。固定 GET API 不支持列表时返回 SEARCH_NOT_SUPPORTED。
 - `GET /v0.1/agent/tools` 返回五个 HTTP 工具及完整输入 Schema：search_semantics、describe_semantic、find_objects、semantic_query、evaluate_claim。它不是 MCP transport。Claim 响应包含 evidenceRefs 对应的 sourceActivities。每个请求固定租户当前版本；跨请求工具链需要核对 digest，不声称数据库快照一致。
 

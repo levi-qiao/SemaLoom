@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { LOCAL_ID, array, identityPropertyId, makeObjectType, object, text } from "./doc";
+import { LOCAL_ID, array, defaultLinkIdentity, makeObjectType, object, text } from "./doc";
 import { cardinalityHint, cardinalityLabel } from "./labels";
 import { useRowKeys } from "./rowKeys";
 
@@ -177,7 +177,7 @@ function ObjectFields({ document, onChange }: { document: DraftDocument; onChang
 }
 
 
-function LinkFields({ document, objects, onChange }: { document: DraftDocument; objects: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
+export function LinkFields({ document, objects, onChange }: { document: DraftDocument; objects: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
   const identity = array(document.identity) as Record<string, unknown>[];
   const sourceProps = array(objects.find((item) => item.id === text(document.source))?.properties) as Record<string, unknown>[];
   const targetProps = array(objects.find((item) => item.id === text(document.target))?.properties) as Record<string, unknown>[];
@@ -271,7 +271,17 @@ function makeDocument(kind: string, id: string, documents: DraftDocument[], labe
   const base = { apiVersion: "semaloom/v0.1", kind, id, version: "1.0.0", label };
   const firstObject = documents.find((item) => item.kind === "ObjectType");
   if (kind === "ObjectType") return makeObjectType(id.split(".")[0] ?? "procurement", id.split(".").slice(1).join("."), label);
-  if (kind === "Link") { const key = array(firstObject?.identityKeys).map(String)[0] ?? identityPropertyId(String(firstObject?.id.split(".").at(-1) ?? "id")); return { ...base, source: firstObject?.id ?? "", target: firstObject?.id ?? "", identity: [{ source: key, target: key }], cardinality: "ONE", traversal: "FORWARD" }; }
+  if (kind === "Link") {
+    const identity = defaultLinkIdentity(firstObject, firstObject);
+    return {
+      ...base,
+      source: firstObject?.id ?? "",
+      target: firstObject?.id ?? "",
+      identity,
+      cardinality: "ONE",
+      traversal: "FORWARD",
+    };
+  }
   if (kind === "Rule") return { ...base, inputs: [], expression: { op: "bool", value: true } };
   return { ...base, targetObject: firstObject?.id ?? "", effect: "Describe the business effect", preconditions: [], parameters: [] };
 }
