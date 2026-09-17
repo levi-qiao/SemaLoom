@@ -91,11 +91,6 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/semaloom/runtime/analysis.py" = ["E501", "RUF001"]
-"src/semaloom/adapters/openapi.py" = ["E501"]
-"src/semaloom/runtime/query.py" = ["E501"]
-"src/semaloom/runtime/studio.py" = ["E501"]
-"tests/test_composite_identity_chain.py" = ["E501"]
-"tests/test_openapi_provider.py" = ["E501"]
 "tests/test_chat_choices.py" = ["RUF001"]
 "tests/test_semantic_closure.py" = ["RUF001"]
 
