@@ -120,7 +120,7 @@ test("api mapping preview succeeds and recovers from a distinct api failure", as
   const apiCard = page.locator(".mapping-card").filter({ has: page.getByLabel("接口") });
   await expect(apiCard).toBeVisible();
   await expect(apiCard.getByLabel("接口")).not.toHaveValue("");
-  await apiCard.getByLabel("试读 orderId").fill("PO-001");
+  await apiCard.getByLabel("试读业务键 orderId").fill("PO-001");
   await expect(apiCard.getByRole("button", { name: "试读", exact: true })).toBeEnabled();
   await apiCard.getByRole("button", { name: "试读", exact: true }).click();
   await expect(apiCard.getByText(/命中/)).toBeVisible({ timeout: 15_000 });
@@ -133,7 +133,7 @@ test("api mapping preview succeeds and recovers from a distinct api failure", as
     await expect(apiCard.getByRole("button", { name: "试读", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: "草稿保存" }).click();
     await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
-    await apiCard.getByLabel("试读 orderId").fill("PO-001");
+    await apiCard.getByLabel("试读业务键 orderId").fill("PO-001");
     await apiCard.getByRole("button", { name: "试读", exact: true }).click();
     await expect(apiCard.locator(".field-error")).toContainText(/接口/, { timeout: 15_000 });
     await expect(apiCard.getByText(/数据库中没有这条记录|数据库连接失败|数据库读取失败/)).toHaveCount(0);
@@ -349,7 +349,7 @@ test("numeric property mapping preview after save", async ({ page }) => {
 
   const mapping = page.locator(".mapping-card").first();
   await expect(mapping.getByLabel("amount 列")).toHaveValue("amount");
-  await mapping.getByLabel("试读 orderId").fill("PO-001");
+  await mapping.getByLabel("试读业务键 orderId").fill("PO-001");
   await mapping.getByRole("button", { name: "试读", exact: true }).click();
   await expect(mapping.getByText(/命中/)).toBeVisible({ timeout: 15_000 });
 });
