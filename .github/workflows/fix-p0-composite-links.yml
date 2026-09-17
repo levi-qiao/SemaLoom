@@ -19,6 +19,45 @@ jobs:
         with:
           ref: feat/p0-capability-composite-identity
           fetch-depth: 0
+      - name: Align helper migration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/scripts/fix_p0_composite_links.py')
+          text = p.read_text()
+          marker = '# Frontend relation editor supports an arbitrary non-empty list of identity pairs.'
+          start = text.index('p = Path("src/semaloom/runtime/query.py")\ntext = p.read_text()\nold = dedent(', text.index('# Runtime resolves'))
+          end = text.index(marker, start)
+          replacement = '''replace_between(
+              "src/semaloom/runtime/query.py",
+              "    def _object_mapping_for_property(\\n",
+              "    def _mapping_for_target(\\n",
+              """
+                  def _object_mapping_for_properties(
+                      self, object_type: str, property_ids: tuple[str, ...]
+                  ) -> tuple[MappingDef | None, str | None]:
+                      required = set(property_ids)
+                      candidates = [
+                          mapping
+                          for mapping in self.bundle.mappings
+                          if mapping.target == object_type and required <= _mapped_object_fields(mapping)
+                      ]
+                      if len(candidates) == 1:
+                          return candidates[0], None
+                      if len(candidates) > 1:
+                          return None, "AMBIGUOUS_MAPPING"
+                      return None, "NO_MAPPING"
+
+                  def _object_mapping_for_property(
+                      self, object_type: str, property_id: str
+                  ) -> tuple[MappingDef | None, str | None]:
+                      return self._object_mapping_for_properties(object_type, (property_id,))
+              """,
+          )
+
+          '''
+          p.write_text(text[:start] + replacement + text[end:])
+          PY
       - name: Apply migration
         run: python .github/scripts/fix_p0_composite_links.py
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
