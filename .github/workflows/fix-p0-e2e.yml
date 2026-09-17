@@ -1,0 +1,45 @@
+name: Fix P0 E2E selectors
+
+on:
+  push:
+    branches:
+      - feat/p0-capability-composite-identity
+    paths:
+      - .github/workflows/fix-p0-e2e.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/p0-capability-composite-identity
+          fetch-depth: 0
+      - name: Apply focused selector migration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("frontend/tests/studio.spec.ts")
+          text = path.read_text()
+          replacements = {
+              'apiCard.getByLabel("试读 orderId")': 'apiCard.getByLabel("试读业务键 orderId")',
+              'mapping.getByLabel("试读 orderId")': 'mapping.getByLabel("试读业务键 orderId")',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f"missing expected selector: {old}")
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+      - name: Remove temporary workflow and commit
+        run: |
+          rm .github/workflows/fix-p0-e2e.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/tests/studio.spec.ts .github/workflows/fix-p0-e2e.yml
+          git commit -m "test: align property preview selectors with identity UI"
+          git push origin HEAD:feat/p0-capability-composite-identity
