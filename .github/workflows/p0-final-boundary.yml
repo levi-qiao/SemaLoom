@@ -1,0 +1,127 @@
+name: Finalize P0 identity boundary
+
+on:
+  push:
+    branches:
+      - feat/p0-capability-composite-identity
+    paths:
+      - .github/workflows/p0-final-boundary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/p0-capability-composite-identity
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+      - name: Tighten canonical identity boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/semaloom/app/chat/tools.py")
+          text = path.read_text()
+          text = text.replace(
+              '                    self._identity(item.object_type, body.bindings)\n',
+              '                    self._identity_from_bindings(item.object_type, body.bindings)\n',
+              1,
+          )
+          old = '''    def _metric_identity(self, selection: MetricSelect) -> None:
+              metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
+              if metric is None:
+                  raise ValueError("UNKNOWN_METRIC")
+              self._identity(metric.object_type, selection.bindings)
+
+          def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
+              obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
+              if obj is None or not obj.identity_keys:
+                  raise ValueError("UNSUPPORTED_IDENTITY")
+              if not set(obj.identity_keys) <= set(bindings):
+                  raise ValueError("UNSUPPORTED_IDENTITY")
+              identity = {key: str(bindings[key]) for key in obj.identity_keys}
+              if (object_type, _identity_tuple(identity)) not in self.identities:
+                  raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
+          '''
+          new = '''    def _metric_identity(self, selection: MetricSelect) -> None:
+              metric = next((m for m in self.query.bundle.metrics if m.id == selection.metric), None)
+              if metric is None:
+                  raise ValueError("UNKNOWN_METRIC")
+              self._identity_from_bindings(metric.object_type, selection.bindings)
+
+          def _identity_from_bindings(self, object_type: str, bindings: dict[str, Any]) -> None:
+              obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
+              if obj is None or not obj.identity_keys or not set(obj.identity_keys) <= set(bindings):
+                  raise ValueError("UNSUPPORTED_IDENTITY")
+              self._identity(object_type, {key: bindings[key] for key in obj.identity_keys})
+
+          def _identity(self, object_type: str, bindings: dict[str, Any]) -> None:
+              obj = next((o for o in self.query.bundle.object_types if o.id == object_type), None)
+              if obj is None or not obj.identity_keys or set(bindings) != set(obj.identity_keys):
+                  raise ValueError("UNSUPPORTED_IDENTITY")
+              identity = {key: str(bindings[key]) for key in obj.identity_keys}
+              if (object_type, _identity_tuple(identity)) not in self.identities:
+                  raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
+          '''
+          if old not in text:
+              raise SystemExit("chat identity block changed")
+          path.write_text(text.replace(old, new, 1))
+
+          path = Path("tests/test_composite_identity_chain.py")
+          text = path.read_text()
+          anchor = '''    with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
+              tools.call(
+                  "semantic_query",
+                  {
+                      "apiVersion": "semaloom/v0.1",
+                      "select": [
+                          {
+                              "objectType": "demo.Entry",
+                              "identity": {"entryId": "E-1"},
+                              "properties": ["name"],
+                          }
+                      ],
+                      "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
+                  },
+              )
+          '''
+          extra = anchor + '''    with pytest.raises(ValueError, match="UNSUPPORTED_IDENTITY"):
+              tools.call(
+                  "semantic_query",
+                  {
+                      "apiVersion": "semaloom/v0.1",
+                      "select": [
+                          {
+                              "objectType": "demo.Entry",
+                              "identity": {"ledger": "0L", "entryId": "E-1", "extra": "x"},
+                              "properties": ["name"],
+                          }
+                      ],
+                      "context": {"businessPeriod": {"from": "2024-01-01", "to": "2025-01-01"}},
+                  },
+              )
+          '''
+          if anchor not in text:
+              raise SystemExit("composite identity test anchor changed")
+          path.write_text(text.replace(anchor, extra, 1))
+          PY
+      - name: Validate backend boundary
+        run: |
+          uv python install
+          uv sync --frozen --all-groups
+          uv run ruff format src/semaloom/app/chat/tools.py tests/test_composite_identity_chain.py
+          uv run ruff check src/semaloom/app/chat/tools.py tests/test_composite_identity_chain.py
+          uv run mypy
+          uv run pytest tests/test_composite_identity_chain.py
+      - name: Commit clean boundary fix
+        run: |
+          rm .github/workflows/p0-final-boundary.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: enforce canonical composite identity in AI tools"
+          git push origin HEAD:feat/p0-capability-composite-identity
