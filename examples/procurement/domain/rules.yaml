@@ -50,5 +50,8 @@
   id: procurement.defaultAccess
   version: "1.0.0"
   roles: [buyer, approver]
-  capabilities: [query, evaluateClaim, planAction]
+  capabilities:
+    - query
+    - evaluateClaim
+    - planAction
   resourceTypes: [procurement.Order, procurement.Supplier]

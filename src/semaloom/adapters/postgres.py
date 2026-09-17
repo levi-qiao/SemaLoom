@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import ObjectRead, ObjectSearch
+from semaloom.core.provider import IdentityScalar, IdentityValue, ObjectRead, ObjectSearch
 from semaloom.core.results import Observation
 from semaloom.core.semantic_query import AnalysisError, PlanRef, QueryResult, SemanticQuery
 
@@ -43,21 +43,26 @@ class PostgresReadProvider:
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
-        extra_filters: dict[str, str] | None = None,
+        identity_value: IdentityValue,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Observation:
         physical = mapping.physical
         observed = datetime.now(UTC).isoformat()
         try:
             engine = self._engine(mapping.source_id, tenant)
             table = require_ident(physical.get("table"), field="table")
-            identity_col = require_ident(physical.get("identityColumn"), field="identityColumn")
             value_col = require_ident(physical.get("valueColumn"), field="valueColumn")
             tenant_col = require_ident(
                 physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
             )
-            params: dict[str, Any] = {"tenant": tenant, "identity": identity_value}
-            clauses = [f"{identity_col} = :identity", f"{tenant_col} = :tenant"]
+            identity_columns = _identity_columns(mapping, identity_value)
+            params: dict[str, Any] = {"tenant": tenant}
+            clauses = [f"{tenant_col} = :tenant"]
+            for index, (semantic, value) in enumerate(identity_value.items()):
+                column = identity_columns[semantic]
+                pname = f"i_{index}"
+                clauses.append(f"{column} = :{pname}")
+                params[pname] = value
             filters = physical.get("filters")
             if isinstance(filters, dict):
                 for key, value in filters.items():
@@ -67,10 +72,13 @@ class PostgresReadProvider:
                     pname = f"f_{column}"
                     clauses.append(f"{column} = :{pname}")
                     params[pname] = value
-            if extra_filters:
-                for key, value in extra_filters.items():
-                    column = require_ident(key, field=f"binding.{key}")
-                    pname = f"b_{column}"
+            if bindings:
+                grain = mapping.physical.get("grainColumns")
+                if not isinstance(grain, dict):
+                    raise ValueError("grainColumns must be an object")
+                for index, (semantic, value) in enumerate(bindings.items()):
+                    column = require_ident(grain.get(semantic), field=f"binding.{semantic}")
+                    pname = f"b_{index}"
                     clauses.append(f"{column} = :{pname}")
                     params[pname] = value
             sql = text(
@@ -135,34 +143,31 @@ class PostgresReadProvider:
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
+        identity_value: IdentityValue,
     ) -> ObjectRead:
         observed = datetime.now(UTC).isoformat()
         try:
             engine = self._engine(mapping.source_id, tenant)
             table = require_ident(mapping.physical.get("table"), field="table")
-            identity_col = require_ident(
-                mapping.physical.get("identityColumn"), field="identityColumn"
-            )
             tenant_col = require_ident(
                 mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
             )
+            identity_columns = _identity_columns(mapping, identity_value)
             projection = _object_projection(mapping)
             if not projection:
                 raise ValueError("object mapping has no approved projection")
             selected = ", ".join(
                 f'{column} AS "{semantic}"' for semantic, column in projection.items()
             )
-            sql = text(
-                f"SELECT {selected} FROM {table} WHERE {identity_col} = :identity "
-                f"AND {tenant_col} = :tenant LIMIT 2"
-            )
+            params: dict[str, Any] = {"tenant": tenant}
+            clauses = [f"{tenant_col} = :tenant"]
+            for index, (semantic, value) in enumerate(identity_value.items()):
+                pname = f"i_{index}"
+                clauses.append(f"{identity_columns[semantic]} = :{pname}")
+                params[pname] = value
+            sql = text(f"SELECT {selected} FROM {table} WHERE {' AND '.join(clauses)} LIMIT 2")
             with _read_transaction(engine) as conn:
-                rows = (
-                    conn.execute(sql, {"identity": identity_value, "tenant": tenant})
-                    .mappings()
-                    .all()
-                )
+                rows = conn.execute(sql, params).mappings().all()
         except (SQLAlchemyError, KeyError, ValueError):
             return ObjectRead(
                 kind="UNAVAILABLE",
@@ -213,9 +218,6 @@ class PostgresReadProvider:
             tenant_col = require_ident(
                 mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
             )
-            identity_col = require_ident(
-                mapping.physical.get("identityColumn"), field="identityColumn"
-            )
             if not properties or (set(properties) | set(filters)) - set(projection):
                 raise ValueError("unmapped property")
             params: dict[str, Any] = {"tenant": tenant, "limit": limit + 1}
@@ -230,9 +232,11 @@ class PostgresReadProvider:
                     clauses.append(f"{col} = :f{index}")
                     params[f"f{index}"] = value
             selected = ", ".join(f'{projection[key]} AS "{key}"' for key in properties)
+            order_columns = [projection[key] for key in mapping.identity_fields]
+            order_by = ", ".join(order_columns)
             statement = text(
                 f"SELECT {selected} FROM {table} WHERE {' AND '.join(clauses)} "
-                f"ORDER BY {identity_col} LIMIT :limit"
+                f"ORDER BY {order_by} LIMIT :limit"
             )
             with _read_transaction(self._engine(mapping.source_id, tenant)) as conn:
                 rows = conn.execute(statement, params).mappings().all()
@@ -338,6 +342,21 @@ def _object_projection(mapping: MappingDef) -> dict[str, str]:
             alias = require_ident(semantic, field=f"{field}.semantic")
             projection[alias] = require_ident(physical, field=f"{field}.{semantic}")
     return projection
+
+
+def _identity_columns(mapping: MappingDef, identity_value: IdentityValue) -> dict[str, str]:
+    if set(identity_value) != set(mapping.identity_fields):
+        raise ValueError("identity does not match compiled mapping")
+    grain = mapping.physical.get("grainColumns")
+    if not isinstance(grain, dict):
+        raise ValueError("grainColumns must be an object")
+    columns = {
+        semantic: require_ident(grain.get(semantic), field=f"identity.{semantic}")
+        for semantic in mapping.identity_fields
+    }
+    if len(set(columns.values())) != len(columns):
+        raise ValueError("identity keys must map to distinct physical columns")
+    return columns
 
 
 class _AnalysisConnection:

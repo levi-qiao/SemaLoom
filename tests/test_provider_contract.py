@@ -4,7 +4,7 @@ from typing import NoReturn
 
 from semaloom.app.bootstrap import compile_examples
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import ObjectRead
+from semaloom.core.provider import IdentityValue, ObjectRead
 from semaloom.core.results import (
     ObjectSelect,
     Observation,
@@ -23,7 +23,7 @@ class UnavailableObjectProvider:
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
+        identity_value: IdentityValue,
         extra_filters: dict[str, str] | None = None,
     ) -> Observation:
         raise AssertionError("metric read was not expected")
@@ -33,7 +33,7 @@ class UnavailableObjectProvider:
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
+        identity_value: IdentityValue,
     ) -> ObjectRead:
         return ObjectRead(
             kind="UNAVAILABLE",
@@ -50,7 +50,7 @@ class NeverReadProvider(UnavailableObjectProvider):
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
+        identity_value: IdentityValue,
     ) -> NoReturn:
         raise AssertionError("ambiguous mapping must fail before source access")
 

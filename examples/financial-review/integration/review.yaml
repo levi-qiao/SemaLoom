@@ -18,7 +18,6 @@
   completeness: PARTIAL
   physical:
     table: sample_financial_review
-    identityColumn: id
     tenantColumn: tenant_id
     grainColumns:
       caseId: id

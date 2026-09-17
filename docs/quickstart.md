@@ -257,6 +257,7 @@ uv build
 docker compose down   # only if you started Compose
 ```
 
-Performance, production identity, real MCP transport, composite-key query, BOOLEAN/STRING/DATE
-rules, Action crash recovery, and a signed SBOM are **not** accepted on this path. See
+Performance, production identity, real MCP transport, composite-key collection-analysis
+joins, Action crash recovery, and a signed SBOM are **not** accepted on this path. Point
+reads and Link traversal already preserve complete structured identities; see
 [capabilities](capabilities.md).

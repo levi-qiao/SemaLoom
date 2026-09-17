@@ -102,7 +102,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="读取 TAXPAYER-A 在 2024 年申报口径的 tax.reportedIncome。",
         typed_request=_query_metric(
             "tax.reportedIncome",
-            {"taxpayer": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
+            {"taxpayerId": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
             PERIOD_2024,
         ),
         acceptance=("A40", "A44", "A46", "A60"),
@@ -131,7 +131,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="查询 TAXPAYER-A 2024 年的营业收入,不指定申报或审计口径。",
         typed_request=_query_metric(
             "tax.operatingRevenue",
-            {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
             PERIOD_2024,
         ),
         acceptance=("A04", "A06", "A40", "A41", "A46"),
@@ -143,7 +143,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="查询 TAXPAYER-A 的 tax.reportedIncome,不给所属期。",
         typed_request=_query_metric(
             "tax.reportedIncome",
-            {"taxpayer": "TAXPAYER-A", "perspective": "TAX_RETURN"},
+            {"taxpayerId": "TAXPAYER-A", "perspective": "TAX_RETURN"},
             PERIOD_2024,
         ),
         acceptance=("A11", "A40", "A46"),
@@ -155,7 +155,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="评估 TAXPAYER-A 2025 年 tax.incomeReconciles 是否成立。",
         typed_request=_claim(
             "tax.incomeReconciles",
-            {"taxpayer": "TAXPAYER-A", "taxYear": 2025},
+            {"taxpayerId": "TAXPAYER-A", "taxYear": 2025},
             PERIOD_2025,
             {"jurisdiction": "CN"},
         ),
@@ -167,7 +167,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="评估 TAXPAYER-B 2024 年 tax.incomeReconciles 是否成立。",
         typed_request=_claim(
             "tax.incomeReconciles",
-            {"taxpayer": "TAXPAYER-B", "taxYear": 2024},
+            {"taxpayerId": "TAXPAYER-B", "taxYear": 2024},
             PERIOD_2024,
             {"jurisdiction": "CN"},
         ),
@@ -204,7 +204,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="读取 TAXPAYER-B 2025 年申报口径 reportedIncome。",
         typed_request=_query_metric(
             "tax.reportedIncome",
-            {"taxpayer": "TAXPAYER-B", "taxYear": 2025, "perspective": "TAX_RETURN"},
+            {"taxpayerId": "TAXPAYER-B", "taxYear": 2025, "perspective": "TAX_RETURN"},
             PERIOD_2025,
         ),
         acceptance=("A10", "A18", "A46"),
@@ -215,7 +215,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="读取 TAXPAYER-A 2025 年审计口径 auditIncome。",
         typed_request=_query_metric(
             "tax.auditIncome",
-            {"taxpayer": "TAXPAYER-A", "taxYear": 2025, "perspective": "AUDIT_REPORT"},
+            {"taxpayerId": "TAXPAYER-A", "taxYear": 2025, "perspective": "AUDIT_REPORT"},
             PERIOD_2025,
         ),
         acceptance=("A10", "A18", "A46"),
@@ -238,7 +238,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="解释刚才 TAXPAYER-A 2024 申报收入是怎么得到的。",
         typed_request=_query_metric(
             "tax.reportedIncome",
-            {"taxpayer": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
+            {"taxpayerId": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
             PERIOD_2024,
         ),
         acceptance=("A25", "A27", "A40", "A46"),
@@ -253,7 +253,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
             "body": {
                 "metric": "tax.reportedIncome",
                 "bindings": {
-                    "taxpayer": "TAXPAYER-A",
+                    "taxpayerId": "TAXPAYER-A",
                     "taxYear": 2024,
                     "perspective": "TAX_RETURN",
                 },
@@ -283,7 +283,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="激活新的语义版本后再查询 tax.reportedIncome,已开始的请求不能混版。",
         typed_request=_query_metric(
             "tax.reportedIncome",
-            {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
             PERIOD_2024,
         ),
         acceptance=("A28", "A40", "A46"),
@@ -327,7 +327,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
             "headers": {"Authorization": ANALYST},
             "body": {
                 "metric": "tax.reportedIncome",
-                "bindings": {"sql": "SELECT amount FROM tax_metric", "taxpayer": "TAXPAYER-A"},
+                "bindings": {"sql": "SELECT amount FROM tax_metric", "taxpayerId": "TAXPAYER-A"},
                 **PERIOD_2024,
             },
         },
@@ -345,7 +345,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
                 "bindings": {
                     "url": "https://evil.example/tax",
                     "permissions": "admin",
-                    "taxpayer": "TAXPAYER-A",
+                    "taxpayerId": "TAXPAYER-A",
                 },
                 **PERIOD_2024,
             },
@@ -358,7 +358,7 @@ GOLD_QUESTIONS: tuple[GoldQuestion, ...] = (
         nl_intent="比较 2024 与 2025 的 incomeReconciles 政策是否同一规则。",
         typed_request=_claim(
             "tax.incomeReconciles",
-            {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
             PERIOD_2024,
             {"jurisdiction": "CN"},
         ),

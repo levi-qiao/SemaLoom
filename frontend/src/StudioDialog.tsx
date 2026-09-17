@@ -5,15 +5,17 @@ import {
   LOCAL_ID,
   array,
   attachMapping,
+  defaultLinkIdentity,
   documentById,
+  linkIdentityPairs,
   makeObjectType,
-  object,
   ownedByEntity,
   referencesEntity,
   replaceDocument,
   text,
 } from "./doc";
-import { cardinalityHint, cardinalityLabel, namespaceLabel, publishedExecutionHint } from "./labels";
+import { LinkFields } from "./DraftEditor";
+import { namespaceLabel, publishedExecutionHint } from "./labels";
 import { MappingEditor, makeMappingDocument } from "./MappingEditor";
 import { PropertyMappingSheet } from "./PropertyMappingSheet";
 import {
@@ -246,8 +248,6 @@ export function EntityEditor({
       id = `${ns}.${local}${n}`;
       n += 1;
     }
-    const sourceKey = identityKeys[0] ?? "id";
-    const targetKey = String(array(target.identityKeys)[0] ?? "id");
     onChange([
       ...documents,
       {
@@ -260,7 +260,7 @@ export function EntityEditor({
         target: target.id,
         cardinality: "ONE",
         traversal: "FORWARD",
-        identity: { source: sourceKey, target: targetKey },
+        identity: defaultLinkIdentity(document, target),
       },
     ]);
     onError(null);
@@ -465,50 +465,24 @@ function MappingList({
 
 export function LinkEditor({ document, documents, onChange }: { document: DraftDocument; documents: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
   const objects = documents.filter((item) => item.kind === "ObjectType");
-  const identity = object(document.identity);
   const sourceDoc = documentById(objects, text(document.source));
   const targetDoc = documentById(objects, text(document.target));
-  const sourceProps = array(sourceDoc?.properties) as Record<string, unknown>[];
-  const targetProps = array(targetDoc?.properties) as Record<string, unknown>[];
-  const sourceLabel = text(sourceDoc?.label) || text(document.source) || "源";
-  const targetLabel = text(targetDoc?.label) || text(document.target) || "目标";
+  const identity = Array.isArray(document.identity)
+    ? document.identity
+    : linkIdentityPairs(document.identity);
+  const working: DraftDocument = {
+    ...document,
+    identity: identity.length ? identity : defaultLinkIdentity(sourceDoc, targetDoc),
+  };
   return (
     <>
-      <div className="form-grid">
-        <label className="form-field"><span>显示名称</span>
-          <input aria-label="显示名称" value={text(document.label)} onChange={(event) => onChange({ ...document, label: event.target.value })} />
-        </label>
-        <label className="form-field"><span>基数</span>
-          <select aria-label="基数" value={text(document.cardinality) || "ONE"} onChange={(event) => onChange({ ...document, cardinality: event.target.value })}>
-            <option value="ONE">{cardinalityLabel("ONE")}</option>
-            <option value="MANY">{cardinalityLabel("MANY")}</option>
-          </select>
-        </label>
-        <label className="form-field"><span>起点</span>
-          <select aria-label="起点实体" value={text(document.source)} onChange={(event) => onChange({ ...document, source: event.target.value })}>
-            {objects.map((item) => <option key={item.id} value={item.id}>{text(item.label) || item.id}</option>)}
-          </select>
-        </label>
-        <label className="form-field"><span>终点</span>
-          <select aria-label="终点实体" value={text(document.target)} onChange={(event) => onChange({ ...document, target: event.target.value })}>
-            {objects.map((item) => <option key={item.id} value={item.id}>{text(item.label) || item.id}</option>)}
-          </select>
-        </label>
-        <label className="form-field"><span>起点业务键</span>
-          <select aria-label="起点业务键" value={text(identity.source)} onChange={(event) => onChange({ ...document, identity: { ...identity, source: event.target.value } })}>
-            {sourceProps.map((item) => <option key={text(item.id)} value={text(item.id)}>{text(item.label) || text(item.id)}</option>)}
-          </select>
-        </label>
-        <label className="form-field"><span>终点业务键</span>
-          <select aria-label="终点业务键" value={text(identity.target)} onChange={(event) => onChange({ ...document, identity: { ...identity, target: event.target.value } })}>
-            {targetProps.map((item) => <option key={text(item.id)} value={text(item.id)}>{text(item.label) || text(item.id)}</option>)}
-          </select>
-        </label>
-      </div>
-      <label className="form-field"><span>描述（给 AI 和同事看）</span>
-        <textarea rows={3} aria-label="关系描述" value={text(document.description)} onChange={(event) => onChange({ ...document, description: event.target.value || undefined })} placeholder="这条关系在业务上表示什么" />
+      <label className="form-field"><span>显示名称</span>
+        <input aria-label="显示名称" value={text(document.label)} onChange={(event) => onChange({ ...working, label: event.target.value })} />
       </label>
-      <p className="mapping-hint">{cardinalityHint(sourceLabel, targetLabel, text(document.cardinality) || "ONE")}。这不是 1:1。</p>
+      <LinkFields document={working} objects={objects} onChange={onChange} />
+      <label className="form-field"><span>描述（给 AI 和同事看）</span>
+        <textarea rows={3} aria-label="关系描述" value={text(document.description)} onChange={(event) => onChange({ ...working, description: event.target.value || undefined })} placeholder="这条关系在业务上表示什么" />
+      </label>
     </>
   );
 }

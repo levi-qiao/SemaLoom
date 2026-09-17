@@ -10,7 +10,7 @@ from typing import Any
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.diagnostics import Diagnostic
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import ObjectSearch, ReadProvider
+from semaloom.core.provider import IdentityValue, ObjectSearch, ReadProvider
 from semaloom.core.results import (
     EvidenceEnvelope,
     MetricSelect,
@@ -51,22 +51,6 @@ class QueryService:
         diagnostics: list[Diagnostic] = []
         for item in request.select:
             if isinstance(item, MetricSelect):
-                try:
-                    item = item.model_copy(update={"bindings": self.normalize_bindings(item)})
-                except ValueError:
-                    observations.append(
-                        Observation(
-                            kind="UNAVAILABLE", target=item.metric, reason="INVALID_BINDINGS"
-                        )
-                    )
-                    diagnostics.append(
-                        Diagnostic(
-                            code="INVALID_BINDINGS",
-                            path=item.metric,
-                            message="conflicting identity aliases",
-                        )
-                    )
-                    continue
                 metric = next((m for m in self.bundle.metrics if m.id == item.metric), None)
                 if metric is not None:
                     mapping_perspectives = {
@@ -166,29 +150,6 @@ class QueryService:
             extras={"decisionId": decision.decision_id, "tenant": actor.tenant},
         )
 
-    def normalize_bindings(self, item: MetricSelect) -> dict[str, str | int]:
-        """Accept legacy identity aliases only when approved mappings prove their meaning."""
-        bindings = dict(item.bindings)
-        metric = next((m for m in self.bundle.metrics if m.id == item.metric), None)
-        if metric is None:
-            return bindings
-        obj = next(o for o in self.bundle.object_types if o.id == metric.object_type)
-        if len(obj.identity_keys) != 1:
-            return bindings
-        canonical = obj.identity_keys[0]
-        for mapping in self.bundle.mappings:
-            if mapping.object_type != obj.id:
-                continue
-            for alias, column in _grain_columns(mapping).items():
-                if alias == canonical or column != mapping.physical.get("identityColumn"):
-                    continue
-                if alias in bindings and alias not in metric.grain:
-                    value = bindings[alias]
-                    if canonical in bindings and str(bindings[canonical]) != str(value):
-                        raise ValueError("conflicting identity aliases")
-                    bindings[canonical] = bindings.pop(alias)
-        return bindings
-
     def _check_metric_period(
         self,
         object_id: str,
@@ -230,7 +191,7 @@ class QueryService:
         if not decision.allowed:
             raise PermissionError("FORBIDDEN")
         obj = next((o for o in self.bundle.object_types if o.id == request.object_type), None)
-        if obj is None or len(obj.identity_keys) != 1:
+        if obj is None:
             raise ValueError("UNKNOWN_OR_UNSUPPORTED_OBJECT")
         definitions = {p.id: p for p in obj.properties}
         fields = set(request.properties) | set(request.filters) | set(obj.identity_keys)
@@ -289,22 +250,23 @@ class QueryService:
                 sec_m, _ = self._object_mapping_for_property(obj.id, prop)
                 if sec_m:
                     for row in page.rows:
-                        id_key = str(row.get(obj.identity_keys[0]))
+                        identity_value = _row_identity(row, obj.identity_keys)
                         sec_res = self.provider.fetch_object(
-                            sec_m, tenant=actor.tenant, identity_value=id_key
+                            sec_m, tenant=actor.tenant, identity_value=identity_value
                         )
                         if sec_res.values and prop in sec_res.values:
                             row[prop] = sec_res.values[prop]
         records = []
-        seen: set[str] = set()
+        seen: set[tuple[tuple[str, str], ...]] = set()
         for row in page.rows:
-            key = str(row.get(obj.identity_keys[0]))
-            if key in seen or row.get(obj.identity_keys[0]) is None:
+            identity_value = _row_identity(row, obj.identity_keys)
+            key = tuple((name, str(identity_value[name])) for name in obj.identity_keys)
+            if key in seen:
                 raise ValueError("CARDINALITY_VIOLATION")
             seen.add(key)
             records.append(
                 {
-                    "identity": {obj.identity_keys[0]: key},
+                    "identity": {name: str(identity_value[name]) for name in obj.identity_keys},
                     "properties": {k: None if row.get(k) is None else str(row[k]) for k in fields},
                 }
             )
@@ -331,7 +293,7 @@ class QueryService:
         self,
         *,
         link_id: str,
-        source_identity: str,
+        source_identity: IdentityValue,
         actor: RequestActor,
     ) -> EvidenceEnvelope:
         request_id = uuid.uuid4().hex
@@ -355,11 +317,48 @@ class QueryService:
                 diagnostics=(Diagnostic(code="NO_PATH", path=link_id, message="unknown link"),),
                 status="FAILED",
             )
-        source_mapping, source_error = self._object_mapping_for_property(
-            link.source, link.identity.source
+        source_obj = next(item for item in self.bundle.object_types if item.id == link.source)
+        target_obj = next(item for item in self.bundle.object_types if item.id == link.target)
+        if set(source_identity) != set(source_obj.identity_keys):
+            return EvidenceEnvelope(
+                request_id=request_id,
+                release_digest=self.bundle.digest,
+                observations=(),
+                diagnostics=(
+                    Diagnostic(
+                        code="INVALID_BINDINGS",
+                        path=link_id,
+                        message="source identity must contain every declared identity component",
+                    ),
+                ),
+                status="FAILED",
+            )
+        target_fields = tuple(pair.target for pair in link.identity)
+        if len(target_fields) != len(target_obj.identity_keys) or set(target_fields) != set(
+            target_obj.identity_keys
+        ):
+            return EvidenceEnvelope(
+                request_id=request_id,
+                release_digest=self.bundle.digest,
+                observations=(),
+                diagnostics=(
+                    Diagnostic(
+                        code="INVALID_LINK_IDENTITY",
+                        path=link_id,
+                        message="link identity does not cover the target object identity",
+                    ),
+                ),
+                status="FAILED",
+            )
+        source_identity_value: IdentityValue = {
+            key: source_identity[key] for key in source_obj.identity_keys
+        }
+        source_fields = tuple(pair.source for pair in link.identity)
+        source_mapping, source_error = self._object_mapping_for_properties(
+            link.source, source_fields
         )
-        target_mapping, target_error = self._object_mapping_for_property(
-            link.target, link.identity.target
+        target_mapping, target_error = self._object_mapping_for_properties(
+            link.target, target_obj.identity_keys
         )
         if source_mapping is None or target_mapping is None:
             error = source_error or target_error or "NO_MAPPING"
@@ -373,87 +372,108 @@ class QueryService:
                 status="FAILED",
             )
         source_read = self.provider.fetch_object(
-            source_mapping, tenant=actor.tenant, identity_value=source_identity
+            source_mapping, tenant=actor.tenant, identity_value=source_identity_value
         )
         source_activity = SourceActivity(
             activity_id=uuid.uuid4().hex,
             mapping_id=source_mapping.id,
             source_id=source_mapping.source_id,
             query_digest=_digest(
-                {"link": link_id, "sourceIdentity": source_identity, "tenant": actor.tenant}
+                {"link": link_id, "sourceIdentity": source_identity_value, "tenant": actor.tenant}
             ),
             observed_at=source_read.observed_at,
             authorization_ref=decision.decision_id,
         )
-        if source_read.kind == "UNAVAILABLE":
-            reason = source_read.reason or "PROVIDER_ERROR"
+        if source_read.kind != "PRESENT":
+            reason = source_read.reason or (
+                "NOT_FOUND" if source_read.kind == "MISSING" else "PROVIDER_ERROR"
+            )
             return EvidenceEnvelope(
                 request_id=request_id,
                 release_digest=self.bundle.digest,
-                observations=(Observation(kind="UNAVAILABLE", target=link.target, reason=reason),),
-                source_activities=(source_activity,),
-                diagnostics=(Diagnostic(code=reason, path=link_id, message="source read failed"),),
-                status="FAILED",
-            )
-        key = (
-            source_read.values.get(link.identity.source) if source_read.kind == "PRESENT" else None
-        )
-        keys = [] if key is None else [str(key)]
-        observations: list[Observation] = []
-        activities: list[SourceActivity] = [source_activity]
-        diagnostics: list[Diagnostic] = []
-        for key in keys:
-            target_read = self.provider.fetch_object(
-                target_mapping, tenant=actor.tenant, identity_value=key
-            )
-            observed = Observation(
-                kind=target_read.kind,
-                target=link.target,
-                bindings={"id": key},
-                value=(
-                    str(target_read.values.get("name") or key)
-                    if target_read.kind == "PRESENT"
-                    else None
+                observations=(
+                    Observation(kind=source_read.kind, target=link.target, reason=reason),
                 ),
-                reason=target_read.reason,
-                mapping_id=target_mapping.id,
-                source_id=target_mapping.source_id,
-                observed_at=target_read.observed_at,
+                source_activities=(source_activity,),
+                diagnostics=(
+                    (Diagnostic(code=reason, path=link_id, message="source read failed"),)
+                    if source_read.kind == "UNAVAILABLE"
+                    else ()
+                ),
+                status="FAILED" if source_read.kind == "UNAVAILABLE" else "SUCCEEDED",
             )
-            observations.append(observed)
-            if target_read.kind == "UNAVAILABLE":
-                diagnostics.append(
-                    Diagnostic(
-                        code=target_read.reason or "PROVIDER_ERROR",
-                        path=link_id,
-                        message="target read failed",
-                    )
+
+        target_values: IdentityValue = {}
+        for pair in link.identity:
+            value = source_read.values.get(pair.source)
+            if value is None:
+                return EvidenceEnvelope(
+                    request_id=request_id,
+                    release_digest=self.bundle.digest,
+                    observations=(
+                        Observation(
+                            kind="MISSING", target=link.target, reason="LINK_IDENTITY_MISSING"
+                        ),
+                    ),
+                    source_activities=(source_activity,),
+                    status="SUCCEEDED",
                 )
-            activities.append(
-                SourceActivity(
-                    activity_id=uuid.uuid4().hex,
-                    mapping_id=target_mapping.id,
-                    source_id=target_mapping.source_id,
-                    query_digest=_digest({"link": link_id, "key": key, "tenant": actor.tenant}),
-                    observed_at=target_read.observed_at,
-                    authorization_ref=decision.decision_id,
+            target_values[pair.target] = value
+        target_identity: IdentityValue = {
+            key: target_values[key] for key in target_obj.identity_keys
+        }
+        target_read = self.provider.fetch_object(
+            target_mapping, tenant=actor.tenant, identity_value=target_identity
+        )
+        target_activity = SourceActivity(
+            activity_id=uuid.uuid4().hex,
+            mapping_id=target_mapping.id,
+            source_id=target_mapping.source_id,
+            query_digest=_digest(
+                {"link": link_id, "targetIdentity": target_identity, "tenant": actor.tenant}
+            ),
+            observed_at=target_read.observed_at,
+            authorization_ref=decision.decision_id,
+        )
+        observation = Observation(
+            kind=target_read.kind,
+            target=link.target,
+            bindings=target_identity,
+            value=(
+                str(
+                    target_read.values.get("name")
+                    or " / ".join(str(target_identity[key]) for key in target_obj.identity_keys)
                 )
+                if target_read.kind == "PRESENT"
+                else None
+            ),
+            reason=target_read.reason,
+            mapping_id=target_mapping.id,
+            source_id=target_mapping.source_id,
+            observed_at=target_read.observed_at,
+        )
+        diagnostics = (
+            (
+                Diagnostic(
+                    code=target_read.reason or "PROVIDER_ERROR",
+                    path=link_id,
+                    message="target read failed",
+                ),
             )
+            if target_read.kind == "UNAVAILABLE"
+            else ()
+        )
         return EvidenceEnvelope(
             request_id=request_id,
             release_digest=self.bundle.digest,
-            observations=tuple(observations),
-            source_activities=tuple(activities),
-            diagnostics=tuple(diagnostics),
-            status=(
-                "FAILED"
-                if any(item.kind == "UNAVAILABLE" for item in observations)
-                else "SUCCEEDED"
-            ),
+            observations=(observation,),
+            source_activities=(source_activity, target_activity),
+            diagnostics=diagnostics,
+            status="FAILED" if target_read.kind == "UNAVAILABLE" else "SUCCEEDED",
             extras={
                 "sourceSourceId": source_mapping.source_id,
                 "targetSourceId": target_mapping.source_id,
-                "keys": keys,
+                "targetIdentity": target_identity,
             },
         )
 
@@ -479,8 +499,20 @@ class QueryService:
                 None,
                 Diagnostic(code=reason, path=item.metric, message="mapping is not resolvable"),
             )
+        metric_def = next((entry for entry in self.bundle.metrics if entry.id == item.metric), None)
+        if metric_def is None:
+            return (
+                Observation(kind="UNAVAILABLE", target=item.metric, reason="UNKNOWN_METRIC"),
+                None,
+                Diagnostic(
+                    code="UNKNOWN_METRIC", path=item.metric, message="metric is not declared"
+                ),
+            )
+        object_type = next(
+            entry for entry in self.bundle.object_types if entry.id == metric_def.object_type
+        )
         try:
-            identity_key = _identity_binding(item.bindings, mapping)
+            identity_value = _identity_bindings(item.bindings, object_type.identity_keys)
         except ValueError:
             return (
                 Observation(kind="UNAVAILABLE", target=item.metric, reason="INVALID_BINDINGS"),
@@ -488,32 +520,25 @@ class QueryService:
                 Diagnostic(
                     code="INVALID_BINDINGS",
                     path=item.metric,
-                    message="identity binding is required",
+                    message="all object identity bindings are required",
                 ),
             )
-        metric_def = next((entry for entry in self.bundle.metrics if entry.id == item.metric), None)
-        allowed = set(metric_def.grain) if metric_def is not None else set(item.bindings)
-        grain = _grain_columns(mapping)
-        extra = {
-            grain[key]: str(value)
+        bindings = {
+            key: value
             for key, value in item.bindings.items()
-            if key in allowed
-            and key in grain
-            and grain[key] != mapping.physical.get("identityColumn")
+            if key in metric_def.grain and key not in identity_value
         }
         observation = self.provider.fetch_metric(
             mapping,
             tenant=tenant,
-            identity_value=identity_key,
-            extra_filters=extra or None,
+            identity_value=identity_value,
+            bindings=bindings or None,
         )
         observation = observation.model_copy(
             update={
                 "bindings": {str(k): v for k, v in item.bindings.items()},
-                "unit": metric_def.unit if metric_def is not None else observation.unit,
-                "value_type": (
-                    metric_def.value_type if metric_def is not None else observation.value_type
-                ),
+                "unit": metric_def.unit,
+                "value_type": metric_def.value_type,
             }
         )
         activity = SourceActivity(
@@ -527,7 +552,7 @@ class QueryService:
             observed_at=observation.observed_at,
             source_version=observation.source_version,
         )
-        if observation.kind == "PRESENT" and metric_def is not None:
+        if observation.kind == "PRESENT":
             try:
                 scalar_value(observation.value or "", metric_def.value_type or "DECIMAL")
             except ValueError:
@@ -577,24 +602,7 @@ class QueryService:
             )
         descriptive = {entry.id for entry in object_type.properties if not entry.unit}
         requested = (set(item.properties) or descriptive) - set(object_type.identity_keys)
-        if len(object_type.identity_keys) != 1:
-            return (
-                Observation(
-                    kind="UNAVAILABLE",
-                    target=item.object_type,
-                    reason="COMPOSITE_IDENTITY_NOT_SUPPORTED",
-                ),
-                (),
-                (
-                    Diagnostic(
-                        code="COMPOSITE_IDENTITY_NOT_SUPPORTED",
-                        path=item.object_type,
-                        message="use a declared stable scalar identity",
-                    ),
-                ),
-            )
         if not requested:
-            # Identity-only reads must establish that the object actually exists.
             requested = set(object_type.identity_keys)
         assignments: dict[str, set[str]] = {}
         mappings: dict[str, MappingDef] = {}
@@ -617,7 +625,9 @@ class QueryService:
                 )
             mappings[mapping.id] = mapping
             assignments.setdefault(mapping.id, set()).add(property_id)
-        identity_value = item.identity[object_type.identity_keys[0]]
+        identity_value: IdentityValue = {
+            key: item.identity[key] for key in object_type.identity_keys
+        }
         values: dict[str, Any] = dict(item.identity)
         activities: list[SourceActivity] = []
         diagnostics: list[Diagnostic] = []
@@ -684,19 +694,25 @@ class QueryService:
             (),
         )
 
-    def _object_mapping_for_property(
-        self, object_type: str, property_id: str
+    def _object_mapping_for_properties(
+        self, object_type: str, property_ids: tuple[str, ...]
     ) -> tuple[MappingDef | None, str | None]:
+        required = set(property_ids)
         candidates = [
             mapping
             for mapping in self.bundle.mappings
-            if mapping.target == object_type and property_id in _mapped_object_fields(mapping)
+            if mapping.target == object_type and required <= _mapped_object_fields(mapping)
         ]
         if len(candidates) == 1:
             return candidates[0], None
         if len(candidates) > 1:
             return None, "AMBIGUOUS_MAPPING"
         return None, "NO_MAPPING"
+
+    def _object_mapping_for_property(
+        self, object_type: str, property_id: str
+    ) -> tuple[MappingDef | None, str | None]:
+        return self._object_mapping_for_properties(object_type, (property_id,))
 
     def _mapping_for_target(
         self, target: str, perspective: str | None
@@ -718,39 +734,28 @@ def _select_target(item: MetricSelect | ObjectSelect) -> str:
     return item.metric if isinstance(item, MetricSelect) else item.object_type
 
 
-def _grain_columns(mapping: MappingDef) -> dict[str, str]:
-    raw = mapping.physical.get("grainColumns")
-    if not isinstance(raw, dict):
-        return {}
-    return {str(key): str(value) for key, value in raw.items()}
-
-
 def _descriptive_object_fields(
     mapping: MappingDef, measure_ids: set[str], identity: set[str]
 ) -> set[str]:
-    fields: set[str] = set()
-    for key in ("propertyColumns", "propertyPointers"):
-        raw = mapping.physical.get(key)
-        if isinstance(raw, dict):
-            fields.update(str(item) for item in raw)
-    return fields - measure_ids - identity
+    return set(mapping.property_fields) - measure_ids - identity
 
 
 def _mapped_object_fields(mapping: MappingDef) -> set[str]:
-    fields: set[str] = set()
-    for key in ("grainColumns", "propertyColumns", "grainPointers", "propertyPointers"):
-        raw = mapping.physical.get(key)
-        if isinstance(raw, dict):
-            fields.update(str(item) for item in raw)
-    return fields
+    return set(mapping.grain_fields) | set(mapping.property_fields)
 
 
-def _identity_binding(bindings: dict[str, str | int], mapping: MappingDef) -> str:
-    identity_col = mapping.physical.get("identityColumn")
-    for key, column in _grain_columns(mapping).items():
-        if column == identity_col and key in bindings:
-            return str(bindings[key])
-    raise ValueError("identity binding is required")
+def _identity_bindings(
+    bindings: dict[str, str | int], identity_keys: tuple[str, ...]
+) -> IdentityValue:
+    if not identity_keys or not set(identity_keys) <= set(bindings):
+        raise ValueError("identity binding is required")
+    return {key: bindings[key] for key in identity_keys}
+
+
+def _row_identity(row: dict[str, Any], identity_keys: tuple[str, ...]) -> IdentityValue:
+    if not identity_keys or any(row.get(key) is None for key in identity_keys):
+        raise ValueError("CARDINALITY_VIOLATION")
+    return {key: str(row[key]) for key in identity_keys}
 
 
 def _digest(payload: dict[str, Any]) -> str:

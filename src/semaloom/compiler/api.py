@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from copy import deepcopy
 from graphlib import CycleError, TopologicalSorter
 from itertools import pairwise
 from pathlib import Path
@@ -14,6 +13,7 @@ from pydantic import ValidationError
 
 from semaloom import __version__
 from semaloom.compiler.digest import canonical_json, physical_digest, sha256_digest
+from semaloom.compiler.mapping_ir import compile_mapping_ir, derive_metric_mapping
 from semaloom.compiler.yaml_load import load_yaml_documents
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.diagnostics import Diagnostic
@@ -171,6 +171,7 @@ def compile_documents(
     mappings = [item for item in parsed if isinstance(item, MappingDef)]
     bindings = [item for item in parsed if isinstance(item, ActionBindingDef)]
 
+    mappings = compile_mapping_ir(objects, mappings, diagnostics)
     metrics = _metrics_from_properties(objects, metrics, mappings)
     metrics = _materialize_metrics(objects, metrics, mappings, diagnostics)
     mappings, integrations = _bind_metric_mappings(metrics, mappings, integrations)
@@ -270,21 +271,11 @@ def _sorted(items: Iterable[Any]) -> list[Any]:
 
 
 def _physical_slots(mapping: MappingDef) -> dict[str, str]:
-    slots: dict[str, str] = {}
-    for field in ("grainColumns", "propertyColumns", "grainPointers", "propertyPointers"):
-        raw = mapping.physical.get(field)
-        if isinstance(raw, dict):
-            slots.update({str(key): str(value) for key, value in raw.items()})
-    return slots
+    return {key: key for key in (*mapping.grain_fields, *mapping.property_fields)}
 
 
 def _grain_slots(mapping: MappingDef) -> dict[str, str]:
-    slots: dict[str, str] = {}
-    for field in ("grainColumns", "grainPointers"):
-        raw = mapping.physical.get(field)
-        if isinstance(raw, dict):
-            slots.update({str(key): str(value) for key, value in raw.items()})
-    return slots
+    return {key: key for key in mapping.grain_fields}
 
 
 def _metrics_from_properties(
@@ -433,45 +424,7 @@ def _bind_metric_mappings(
                 mapping_id = f"{metric.id}.via_{source.id.rpartition('.')[-1]}"
             if mapping_id in existing_ids or mapping_id in owners:
                 continue
-            physical = deepcopy(dict(source.physical))
-            slots = _physical_slots(source)
-            column = slots[metric.property]
-            if source.physical.get("propertyPointers") and metric.property in dict(
-                source.physical.get("propertyPointers") or {}
-            ):
-                physical["valuePointer"] = column
-            else:
-                physical["valueColumn"] = column
-            filters = dict(physical.get("filters") or {})
-            for key, value in metric.select.items():
-                selected = slots.get(key)
-                if selected:
-                    filters[selected] = value
-            if metric.perspective:
-                perspective_col = slots.get("perspective")
-                if perspective_col:
-                    filters.setdefault(perspective_col, metric.perspective)
-            if filters:
-                physical["filters"] = filters
-            extra.append(
-                MappingDef.model_validate(
-                    {
-                        "apiVersion": "semaloom/v0.1",
-                        "kind": "Mapping",
-                        "id": mapping_id,
-                        "version": source.version,
-                        "label": metric.label or metric.id,
-                        "target": metric.id,
-                        "sourceId": source.source_id,
-                        "provider": source.provider,
-                        "objectType": metric.object_type,
-                        "perspective": metric.perspective,
-                        "expectedCardinality": source.expected_cardinality,
-                        "completeness": source.completeness,
-                        "physical": physical,
-                    }
-                )
-            )
+            extra.append(derive_metric_mapping(source, metric, mapping_id))
             owners[mapping_id] = source.id
             existing_ids.add(mapping_id)
     if not extra:
@@ -753,45 +706,70 @@ def _check_links(
 ) -> None:
     object_index = _index(objects)
     for link in links:
-        if link.source not in object_index:
+        source = object_index.get(link.source)
+        target = object_index.get(link.target)
+        if source is None:
             diagnostics.append(
                 Diagnostic(code="DANGLING_REF", path=f"{link.id}.source", message=link.source)
             )
-        if link.target not in object_index:
+        if target is None:
             diagnostics.append(
                 Diagnostic(code="DANGLING_REF", path=f"{link.id}.target", message=link.target)
             )
-        if not link.identity.source or not link.identity.target:
-            diagnostics.append(
-                Diagnostic(
-                    code="MISSING_LINK_IDENTITY",
-                    path=link.id,
-                    message="link identity keys are required",
-                )
-            )
+        if source is None or target is None:
             continue
-        source = object_index.get(link.source)
-        target = object_index.get(link.target)
-        if source is not None and link.identity.source not in {
-            prop.id for prop in source.properties
-        }:
+
+        source_types = {prop.id: prop.value_type for prop in source.properties}
+        target_types = {prop.id: prop.value_type for prop in target.properties}
+        source_fields = [pair.source for pair in link.identity]
+        target_fields = [pair.target for pair in link.identity]
+        if len(source_fields) != len(set(source_fields)) or len(target_fields) != len(
+            set(target_fields)
+        ):
             diagnostics.append(
                 Diagnostic(
                     code="MISSING_LINK_IDENTITY",
-                    path=f"{link.id}.identity.source",
-                    message=link.identity.source,
+                    path=f"{link.id}.identity",
+                    message="link identity fields must be unique",
                 )
             )
-        if target is not None and link.identity.target not in {
-            prop.id for prop in target.properties
-        }:
+        if len(target_fields) != len(target.identity_keys) or set(target_fields) != set(
+            target.identity_keys
+        ):
             diagnostics.append(
                 Diagnostic(
                     code="MISSING_LINK_IDENTITY",
-                    path=f"{link.id}.identity.target",
-                    message=link.identity.target,
+                    path=f"{link.id}.identity",
+                    message="link identity must cover every target identity key exactly once",
                 )
             )
+        for index, pair in enumerate(link.identity):
+            if pair.source not in source_types:
+                diagnostics.append(
+                    Diagnostic(
+                        code="MISSING_LINK_IDENTITY",
+                        path=f"{link.id}.identity.{index}.source",
+                        message=pair.source,
+                    )
+                )
+                continue
+            if pair.target not in target_types:
+                diagnostics.append(
+                    Diagnostic(
+                        code="MISSING_LINK_IDENTITY",
+                        path=f"{link.id}.identity.{index}.target",
+                        message=pair.target,
+                    )
+                )
+                continue
+            if source_types[pair.source] != target_types[pair.target]:
+                diagnostics.append(
+                    Diagnostic(
+                        code="TYPE_MISMATCH",
+                        path=f"{link.id}.identity.{index}",
+                        message="linked identity fields must have the same value type",
+                    )
+                )
 
 
 def _check_rules(
@@ -1085,11 +1063,7 @@ def _check_mappings(
 def _object_mapping_properties_are_disjoint(mappings: Sequence[MappingDef]) -> bool:
     seen: set[str] = set()
     for mapping in mappings:
-        current: set[str] = set()
-        for field in ("propertyColumns", "propertyPointers"):
-            value = mapping.physical.get(field)
-            if isinstance(value, dict):
-                current.update(str(key) for key in value)
+        current = set(mapping.property_fields)
         if not current or seen & current:
             return False
         seen.update(current)

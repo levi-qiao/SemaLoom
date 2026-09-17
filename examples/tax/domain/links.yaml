@@ -8,6 +8,6 @@
   target: tax.Taxpayer
   cardinality: ONE
   identity:
-    source: taxpayerId
-    target: taxpayerId
+    - source: taxpayerId
+      target: taxpayerId
   traversal: FORWARD

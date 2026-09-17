@@ -153,3 +153,28 @@ def test_discovery_marks_one_same_source_link_join(population_query: Any) -> Non
     metric = service.describe("finance.declaredRevenue", actor)
     assert metric["analysisCapabilities"]["collectionJoin"] is True
     assert "physical" not in link
+
+
+def test_same_source_collection_join_rejects_composite_link(population_query: Any) -> None:
+    """Prepare path: composite Links fail with LINK_ANALYSIS_UNSUPPORTED, not multi-ON SQL."""
+    from semaloom.runtime.query import QueryService
+
+    link = next(
+        item for item in population_query.bundle.links if item.id == "finance.returnCompany"
+    )
+    pair = link.identity[0]
+    composite = link.model_copy(update={"identity": (pair, pair)})
+    links = tuple(
+        composite if item.id == "finance.returnCompany" else item
+        for item in population_query.bundle.links
+    )
+    service = QueryService(
+        population_query.bundle.model_copy(update={"links": links}),
+        population_query.provider,
+    )
+    discovery = SemanticDiscovery(service.bundle).describe("finance.returnCompany", ACTOR)
+    assert discovery["analysisCapabilities"]["collectionJoin"] is False
+    prepared = prepare(service, _query(), ACTOR)
+    assert prepared.status == "UNSUPPORTED"
+    assert prepared.capability == "LINK_ANALYSIS_UNSUPPORTED"
+    assert prepared.error_message == "LINK_ANALYSIS_UNSUPPORTED"

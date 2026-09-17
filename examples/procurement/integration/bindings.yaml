@@ -42,8 +42,8 @@
     operationId: getOrderRisk
     method: GET
     path: /order-risk
-    identityParameter: orderId
-    identityPointer: /orderId
+    parameterBindings:
+      orderId: orderId
     grainPointers:
       orderId: /orderId
     propertyPointers:
@@ -61,7 +61,6 @@
   completeness: AUTHORITATIVE
   physical:
     table: proc_order
-    identityColumn: order_id
     grainColumns:
       orderId: order_id
     propertyColumns:
@@ -83,7 +82,6 @@
   completeness: AUTHORITATIVE
   physical:
     table: proc_organization
-    identityColumn: organization_id
     grainColumns:
       organizationId: organization_id
     propertyColumns:
@@ -102,7 +100,6 @@
   completeness: AUTHORITATIVE
   physical:
     table: proc_supplier
-    identityColumn: supplier_id
     grainColumns:
       supplierId: supplier_id
     propertyColumns:

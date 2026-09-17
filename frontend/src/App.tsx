@@ -13,6 +13,7 @@ import {
   type StudioSession,
 } from "./api";
 import { ChatPage } from "./ChatPage";
+import { defaultLinkIdentity, linkIdentitySummary } from "./doc";
 import { EntityPage } from "./EntityPage";
 import { GraphCanvas } from "./GraphCanvas";
 import { draftSaveLabel, gateErrorMessage } from "./labels";
@@ -304,17 +305,15 @@ export default function App() {
       documents
         .filter((item) => item.kind === "Link")
         .map((item) => {
-          const identity = item.identity && typeof item.identity === "object" && !Array.isArray(item.identity)
-            ? (item.identity as Record<string, unknown>)
-            : {};
+          const summary = linkIdentitySummary(item.identity);
           return {
             id: item.id,
             label: String(item.label || "关联"),
             source: String(item.source ?? ""),
             target: String(item.target ?? ""),
             cardinality: String(item.cardinality || "ONE"),
-            sourceKey: String(identity.source ?? ""),
-            targetKey: String(identity.target ?? ""),
+            sourceKey: summary.sourceKey,
+            targetKey: summary.targetKey,
           };
         }),
     [documents],
@@ -429,8 +428,6 @@ export default function App() {
                   }
                   const sourceDoc = documents.find((item) => item.id === source);
                   const targetDoc = documents.find((item) => item.id === target);
-                  const sourceKey = Array.isArray(sourceDoc?.identityKeys) ? String(sourceDoc.identityKeys[0] ?? "id") : "id";
-                  const targetKey = Array.isArray(targetDoc?.identityKeys) ? String(targetDoc.identityKeys[0] ?? "id") : "id";
                   const ns = source.split(".")[0] ?? "procurement";
                   const id = `${ns}.${source.split(".").at(-1)}To${target.split(".").at(-1)}`;
                   changeDocuments([
@@ -445,7 +442,7 @@ export default function App() {
                       target,
                       cardinality: "ONE",
                       traversal: "FORWARD",
-                      identity: { source: sourceKey, target: targetKey },
+                      identity: defaultLinkIdentity(sourceDoc, targetDoc),
                     },
                   ]);
                   setSelectedEdge(id);

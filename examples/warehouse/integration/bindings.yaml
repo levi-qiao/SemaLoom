@@ -19,7 +19,6 @@
   physical:
     table: warehouse_sku
     tenantColumn: tenant_id
-    identityColumn: sku_id
     grainColumns:
       skuId: sku_id
     propertyColumns:

@@ -31,7 +31,6 @@
   physical:
     table: sample_taxpayer
     tenantColumn: tenant_id
-    identityColumn: id
     grainColumns:
       companyId: id
     propertyColumns:
@@ -49,7 +48,6 @@
   physical:
     table: sample_declaration
     tenantColumn: tenant_id
-    identityColumn: id
     grainColumns:
       returnId: id
     propertyColumns:
@@ -74,7 +72,6 @@
   physical:
     table: sample_audit_report
     tenantColumn: tenant_id
-    identityColumn: id
     grainColumns:
       reportId: id
       companyId: taxpayer_id
@@ -95,7 +92,6 @@
   physical:
     table: sample_audit_factor
     tenantColumn: tenant_id
-    identityColumn: id
     grainColumns:
       factorId: id
       reportId: report_id
@@ -118,7 +114,6 @@
   physical:
     table: sample_declaration_line
     tenantColumn: tenant_id
-    identityColumn: id
     grainColumns:
       lineId: id
     propertyColumns:
@@ -139,8 +134,8 @@
     operationId: getSampleAuditReview
     method: GET
     path: /mock/audit-review
-    identityParameter: reportId
-    identityPointer: /reportId
+    parameterBindings:
+      reportId: reportId
     grainPointers:
       reportId: /reportId
     propertyPointers:

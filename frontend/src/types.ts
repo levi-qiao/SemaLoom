@@ -50,7 +50,8 @@ export type Mapping = {
   expectedCardinality: string;
   perspective: string | null;
   targetKind: "object" | "metric";
-  identityField: string;
+  identityFields: string[];
+  capabilities: string[];
   requiredBindings: string[];
 };
 

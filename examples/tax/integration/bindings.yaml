@@ -29,12 +29,10 @@
   completeness: AUTHORITATIVE
   physical:
     table: tax_taxpayer
-    identityColumn: taxpayer_id
     propertyColumns:
       name: name
       jurisdiction: jurisdiction
     grainColumns:
-      taxpayer: taxpayer_id
       taxpayerId: taxpayer_id
 
 - apiVersion: semaloom/v0.1
@@ -49,7 +47,6 @@
   completeness: AUTHORITATIVE
   physical:
     table: tax_metric
-    identityColumn: taxpayer_id
     grainColumns:
       taxpayerId: taxpayer_id
       taxYear: tax_year

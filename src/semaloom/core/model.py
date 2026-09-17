@@ -12,6 +12,7 @@ from semaloom.core.wire import wire_config
 ValueType = Literal["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME"]
 Cardinality = Literal["ONE", "MANY"]
 Aggregation = Literal["NONE", "SUM", "MAX", "MIN"]
+MappingCapability = Literal["POINT_READ", "COLLECTION_READ", "EQUI_JOIN"]
 PolicyEnd = str | None
 
 
@@ -76,7 +77,7 @@ class MetricDef(_Doc):
     derived_from: tuple[str, ...] = ()
 
 
-class LinkIdentity(BaseModel):
+class LinkIdentityPair(BaseModel):
     model_config = wire_config()
 
     source: str
@@ -87,7 +88,7 @@ class LinkDef(_Doc):
     kind: Literal["Link"] = "Link"
     source: str
     target: str
-    identity: LinkIdentity
+    identity: tuple[LinkIdentityPair, ...] = Field(min_length=1)
     cardinality: Cardinality
     traversal: Literal["FORWARD"] = "FORWARD"
 
@@ -186,6 +187,10 @@ class MappingDef(_Doc):
     perspective: str | None = None
     expected_cardinality: Cardinality
     completeness: Literal["AUTHORITATIVE", "PARTIAL"] = "PARTIAL"
+    identity_fields: tuple[str, ...] = ()
+    grain_fields: tuple[str, ...] = ()
+    property_fields: tuple[str, ...] = ()
+    capabilities: tuple[MappingCapability, ...] = ()
     physical: dict[str, Any]
 
 

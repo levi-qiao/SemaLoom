@@ -42,58 +42,108 @@ export function documentById(documents: DraftDocument[], id: string | null | und
   return documents.find((item) => item.id === id) ?? null;
 }
 
+/** Normalize Link.identity to the canonical pair-array shape (scalar legacy drafts upgrade in place). */
+export function linkIdentityPairs(identity: unknown): { source: string; target: string }[] {
+  if (Array.isArray(identity)) {
+    return identity
+      .map((pair) => {
+        const row = object(pair);
+        return { source: text(row.source), target: text(row.target) };
+      })
+      .filter((pair) => pair.source || pair.target);
+  }
+  const row = object(identity);
+  if (row.source || row.target) {
+    return [{ source: text(row.source), target: text(row.target) }];
+  }
+  return [];
+}
+
+export function linkIdentitySummary(identity: unknown): { sourceKey: string; targetKey: string } {
+  const pairs = linkIdentityPairs(identity);
+  return {
+    sourceKey: pairs.map((pair) => pair.source).filter(Boolean).join(" + "),
+    targetKey: pairs.map((pair) => pair.target).filter(Boolean).join(" + "),
+  };
+}
+
+/** Default pairs covering every target identity key (name match, then positional zip). */
+export function defaultLinkIdentity(
+  sourceDoc: DraftDocument | null | undefined,
+  targetDoc: DraftDocument | null | undefined,
+): { source: string; target: string }[] {
+  const sourceKeys = array(sourceDoc?.identityKeys).map(String).filter(Boolean);
+  const targetKeys = array(targetDoc?.identityKeys).map(String).filter(Boolean);
+  const sourceProps = array(sourceDoc?.properties)
+    .map((item) => text((item as Record<string, unknown>).id))
+    .filter(Boolean);
+  const sourcePool = sourceKeys.length ? sourceKeys : sourceProps;
+  if (!targetKeys.length) {
+    const source = sourcePool[0] ?? "id";
+    return [{ source, target: source }];
+  }
+  return targetKeys.map((targetKey, index) => ({
+    source: sourcePool.includes(targetKey)
+      ? targetKey
+      : (sourcePool[index] ?? sourcePool[0] ?? "id"),
+    target: targetKey,
+  }));
+}
+
 export function isOpenApi(value: unknown): boolean {
   return text(value) === "openapi";
 }
 
-export function emptyMappingPhysical(provider: string, identityKey: string): Record<string, unknown> {
+function identityList(identityKeys: string[]): string[] {
+  return identityKeys.map(String).filter(Boolean);
+}
+
+export function emptyMappingPhysical(
+  provider: string,
+  identityKeys: string[],
+): Record<string, unknown> {
+  const identities = identityList(identityKeys);
   if (provider === "openapi") {
     return {
       method: "GET",
       path: "",
       operationId: "",
-      identityParameter: identityKey,
-      identityPointer: `/${identityKey}`,
-      grainPointers: { [identityKey]: `/${identityKey}` },
+      parameterBindings: Object.fromEntries(identities.map((key) => [key, key])),
+      grainPointers: Object.fromEntries(identities.map((key) => [key, `/${key}`])),
       propertyPointers: {},
     };
   }
   return {
     table: "",
     tenantColumn: "tenant_id",
-    identityColumn: "",
-    grainColumns: { [identityKey]: "" },
+    grainColumns: Object.fromEntries(identities.map((key) => [key, ""])),
     propertyColumns: {},
   };
 }
 
 export function emptyMetricPhysical(
   provider: string,
-  identityKey: string,
+  identityKeys: string[],
   grain: string[],
 ): Record<string, unknown> {
-  const dims = grain.length ? grain : [identityKey];
+  const identities = identityList(identityKeys);
+  const dims = grain.length ? grain : identities;
   if (provider === "openapi") {
-    const grainPointers: Record<string, string> = {};
-    for (const dim of dims) grainPointers[dim] = `/${dim}`;
+    const grainPointers = Object.fromEntries(dims.map((dim) => [dim, `/${dim}`]));
     return {
       method: "GET",
       path: "",
       operationId: "",
-      identityParameter: identityKey,
-      identityPointer: `/${identityKey}`,
+      parameterBindings: Object.fromEntries(identities.map((key) => [key, key])),
       valuePointer: "/value",
       grainPointers,
     };
   }
-  const grainColumns: Record<string, string> = {};
-  for (const dim of dims) grainColumns[dim] = "";
   return {
     table: "",
     tenantColumn: "tenant_id",
-    identityColumn: "",
     valueColumn: "",
-    grainColumns,
+    grainColumns: Object.fromEntries(dims.map((dim) => [dim, ""])),
     filters: {},
   };
 }
@@ -138,7 +188,7 @@ export function makeMetric(
   propertyId?: string,
 ): DraftDocument {
   const namespace = objectType.id.split(".")[0] ?? "domain";
-  const identity = String(array(objectType.identityKeys)[0] ?? "id");
+  const identities = array(objectType.identityKeys).map(String).filter(Boolean);
   const property = propertyId || text(measureProperties(objectType)[0]?.id);
   const document: DraftDocument = {
     apiVersion: "semaloom/v0.1",
@@ -157,7 +207,7 @@ export function makeMetric(
   } else {
     document.valueType = "DECIMAL";
     document.unit = unit.trim();
-    document.grain = [identity];
+    document.grain = identities.length ? identities : ["id"];
   }
   return document;
 }

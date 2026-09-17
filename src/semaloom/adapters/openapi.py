@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 
 from semaloom.core.model import MappingDef
-from semaloom.core.provider import ObjectRead
+from semaloom.core.provider import IdentityScalar, IdentityValue, ObjectRead, ObjectSearch
 from semaloom.core.results import Observation
 
 
@@ -31,7 +31,7 @@ class OpenApiReadProvider:
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
+        identity_value: IdentityValue,
     ) -> ObjectRead:
         observed = _now()
         outcome = self._get(mapping, tenant=tenant, identity_value=identity_value)
@@ -53,8 +53,20 @@ class OpenApiReadProvider:
                 observed_at=observed,
             )
         assert record is not None
-        identity_pointer = str(mapping.physical.get("identityPointer", "/id"))
-        if str(_pointer(record, identity_pointer)) != identity_value:
+        try:
+            pointers = _identity_pointers(mapping, identity_value)
+        except ValueError:
+            return ObjectRead(
+                kind="UNAVAILABLE",
+                reason="INVALID_MAPPING",
+                mapping_id=mapping.id,
+                source_id=mapping.source_id,
+                observed_at=observed,
+            )
+        if any(
+            str(_pointer(record, pointers[key])) != str(value)
+            for key, value in identity_value.items()
+        ):
             return ObjectRead(
                 kind="UNAVAILABLE",
                 reason="IDENTITY_MISMATCH",
@@ -62,10 +74,12 @@ class OpenApiReadProvider:
                 source_id=mapping.source_id,
                 observed_at=observed,
             )
-        pointers = mapping.physical.get("propertyPointers", {})
-        if not isinstance(pointers, dict):
-            pointers = {}
-        values = {str(key): _pointer(record, str(pointer)) for key, pointer in pointers.items()}
+        property_pointers = mapping.physical.get("propertyPointers", {})
+        if not isinstance(property_pointers, dict):
+            property_pointers = {}
+        values = {
+            str(key): _pointer(record, str(pointer)) for key, pointer in property_pointers.items()
+        }
         grain = mapping.physical.get("grainPointers", {})
         if isinstance(grain, dict):
             values.update(
@@ -84,15 +98,15 @@ class OpenApiReadProvider:
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
-        extra_filters: dict[str, str] | None = None,
+        identity_value: IdentityValue,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Observation:
         observed = _now()
         outcome = self._get(
             mapping,
             tenant=tenant,
             identity_value=identity_value,
-            extra_filters=extra_filters,
+            bindings=bindings,
         )
         if isinstance(outcome, str):
             return _metric_outcome(mapping, observed, outcome)
@@ -100,8 +114,14 @@ class OpenApiReadProvider:
         if error is not None:
             return _metric_outcome(mapping, observed, error)
         assert record is not None
-        identity = _pointer(record, str(mapping.physical.get("identityPointer", "/id")))
-        if str(identity) != identity_value:
+        try:
+            pointers = _identity_pointers(mapping, identity_value)
+        except ValueError:
+            return _metric_outcome(mapping, observed, "INVALID_MAPPING")
+        if any(
+            str(_pointer(record, pointers[key])) != str(value)
+            for key, value in identity_value.items()
+        ):
             return _metric_outcome(mapping, observed, "IDENTITY_MISMATCH")
         raw = _pointer(record, str(mapping.physical.get("valuePointer", "/value")))
         if raw is None:
@@ -137,11 +157,13 @@ class OpenApiReadProvider:
         mapping: MappingDef,
         *,
         tenant: str,
-        identity_value: str,
-        extra_filters: dict[str, str] | None = None,
+        identity_value: IdentityValue,
+        bindings: dict[str, IdentityScalar] | None = None,
     ) -> Any | str:
         if str(mapping.physical.get("method", "GET")).upper() != "GET":
             return "READ_METHOD_REQUIRED"
+        if set(identity_value) != set(mapping.identity_fields):
+            return "INVALID_MAPPING"
         client = self._client(tenant, mapping.source_id)
         path = mapping.physical.get("path")
         if (
@@ -151,10 +173,30 @@ class OpenApiReadProvider:
             or path.startswith("//")
         ):
             return "PROVIDER_NOT_CONFIGURED"
-        identity_parameter = str(mapping.physical.get("identityParameter", "id"))
-        if identity_parameter == "tenant":
+        parameter_bindings = mapping.physical.get("parameterBindings")
+        if not isinstance(parameter_bindings, dict):
             return "INVALID_MAPPING"
-        params = {**(extra_filters or {}), identity_parameter: identity_value, "tenant": tenant}
+        params: dict[str, Any] = {
+            **dict(mapping.physical.get("fixedParameters") or {}),
+            "tenant": tenant,
+        }
+        binding_values = bindings or {}
+        if set(identity_value) & set(binding_values):
+            return "INVALID_BINDINGS"
+        semantic_values: dict[str, IdentityScalar] = {
+            **identity_value,
+            **binding_values,
+        }
+        for semantic, value in semantic_values.items():
+            parameter = parameter_bindings.get(semantic)
+            if (
+                not isinstance(parameter, str)
+                or not parameter
+                or parameter == "tenant"
+                or parameter in params
+            ):
+                return "INVALID_MAPPING"
+            params[parameter] = value
         try:
             response = client.get(path, params=params)
         except httpx.TimeoutException:
@@ -169,6 +211,17 @@ class OpenApiReadProvider:
             return response.json()
         except ValueError:
             return "INVALID_RESPONSE"
+
+    def search_objects(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        filters: dict[str, Any],
+        properties: tuple[str, ...],
+        limit: int,
+    ) -> ObjectSearch:
+        return ObjectSearch(kind="UNAVAILABLE", reason="SEARCH_NOT_SUPPORTED", observed_at=_now())
 
     def close(self) -> None:
         for client in {*self._clients.values(), *self._dynamic_clients.values()}:
@@ -192,6 +245,21 @@ class OpenApiReadProvider:
                     self._dynamic_clients[key] = client
                 return client
         return self._clients.get(source_id)
+
+
+def _identity_pointers(mapping: MappingDef, identity_value: IdentityValue) -> dict[str, str]:
+    if set(identity_value) != set(mapping.identity_fields):
+        raise ValueError("identity does not match compiled mapping")
+    grain = mapping.physical.get("grainPointers")
+    if not isinstance(grain, dict):
+        raise ValueError("grainPointers must be an object")
+    pointers: dict[str, str] = {}
+    for semantic in mapping.identity_fields:
+        pointer = grain.get(semantic)
+        if not isinstance(pointer, str) or not pointer:
+            raise ValueError("invalid identity pointer")
+        pointers[semantic] = pointer
+    return pointers
 
 
 def _single_record(

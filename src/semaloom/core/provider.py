@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from semaloom.core.model import MappingDef
 from semaloom.core.results import Observation
 
+IdentityScalar = str | int | bool
+IdentityValue = dict[str, IdentityScalar]
+
 
 class ObjectRead(BaseModel):
     """Normalized outcome of reading one business object from a source."""
@@ -23,27 +26,6 @@ class ObjectRead(BaseModel):
     observed_at: str
 
 
-class ReadProvider(Protocol):
-    """Small runtime seam implemented by database and API adapters."""
-
-    def fetch_metric(
-        self,
-        mapping: MappingDef,
-        *,
-        tenant: str,
-        identity_value: str,
-        extra_filters: dict[str, str] | None = None,
-    ) -> Observation: ...
-
-    def fetch_object(
-        self,
-        mapping: MappingDef,
-        *,
-        tenant: str,
-        identity_value: str,
-    ) -> ObjectRead: ...
-
-
 class ObjectSearch(BaseModel):
     """A bounded page of source objects; has_more is never a completeness claim."""
 
@@ -53,3 +35,34 @@ class ObjectSearch(BaseModel):
     has_more: bool = False
     reason: str | None = None
     observed_at: str = ""
+
+
+class ReadProvider(Protocol):
+    """Runtime seam. All keys are semantic; adapters own physical translation."""
+
+    def fetch_metric(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        identity_value: IdentityValue,
+        bindings: dict[str, IdentityScalar] | None = None,
+    ) -> Observation: ...
+
+    def fetch_object(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        identity_value: IdentityValue,
+    ) -> ObjectRead: ...
+
+    def search_objects(
+        self,
+        mapping: MappingDef,
+        *,
+        tenant: str,
+        filters: dict[str, Any],
+        properties: tuple[str, ...],
+        limit: int,
+    ) -> ObjectSearch: ...

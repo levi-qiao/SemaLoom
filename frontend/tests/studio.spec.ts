@@ -16,7 +16,7 @@ test("model, source and definition workflow is complete", async ({ page }) => {
   await expect(page.getByRole("button", { name: "在实体中完整编辑" })).toBeVisible();
 
   await page.getByRole("button", { name: /来源/ }).click();
-  await page.getByPlaceholder("例如 PO-001").first().fill("PO-001");
+  await page.getByLabel("试读 orderId").first().fill("PO-001");
   await page.getByRole("button", { name: "试读", exact: true }).first().click();
   await expect(page.getByText(/命中/)).toBeVisible({ timeout: 10_000 });
 
@@ -120,7 +120,7 @@ test("api mapping preview succeeds and recovers from a distinct api failure", as
   const apiCard = page.locator(".mapping-card").filter({ has: page.getByLabel("接口") });
   await expect(apiCard).toBeVisible();
   await expect(apiCard.getByLabel("接口")).not.toHaveValue("");
-  await apiCard.getByPlaceholder("例如 PO-001").fill("PO-001");
+  await apiCard.getByLabel("试读业务键 orderId").fill("PO-001");
   await expect(apiCard.getByRole("button", { name: "试读", exact: true })).toBeEnabled();
   await apiCard.getByRole("button", { name: "试读", exact: true }).click();
   await expect(apiCard.getByText(/命中/)).toBeVisible({ timeout: 15_000 });
@@ -133,7 +133,7 @@ test("api mapping preview succeeds and recovers from a distinct api failure", as
     await expect(apiCard.getByRole("button", { name: "试读", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: "草稿保存" }).click();
     await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
-    await apiCard.getByPlaceholder("例如 PO-001").fill("PO-001");
+    await apiCard.getByLabel("试读业务键 orderId").fill("PO-001");
     await apiCard.getByRole("button", { name: "试读", exact: true }).click();
     await expect(apiCard.locator(".field-error")).toContainText(/接口/, { timeout: 15_000 });
     await expect(apiCard.getByText(/数据库中没有这条记录|数据库连接失败|数据库读取失败/)).toHaveCount(0);
@@ -349,7 +349,7 @@ test("numeric property mapping preview after save", async ({ page }) => {
 
   const mapping = page.locator(".mapping-card").first();
   await expect(mapping.getByLabel("amount 列")).toHaveValue("amount");
-  await mapping.getByPlaceholder("例如 PO-001").fill("PO-001");
+  await mapping.getByLabel("试读业务键 orderId").fill("PO-001");
   await mapping.getByRole("button", { name: "试读", exact: true }).click();
   await expect(mapping.getByText(/命中/)).toBeVisible({ timeout: 15_000 });
 });
@@ -359,7 +359,7 @@ test("published query and claims return evidence for tax and procurement", async
     headers: { Authorization: "Bearer tenant-a-analyst" },
     data: {
       metric: "tax.reportedIncome",
-      bindings: { taxpayer: "TAXPAYER-A", taxYear: 2024, perspective: "TAX_RETURN" },
+      bindings: { taxpayerId: "TAXPAYER-A", taxYear: 2024, perspective: "TAX_RETURN" },
       periodFrom: "2024-01-01",
       periodTo: "2025-01-01",
     },
@@ -391,7 +391,7 @@ test("published query and claims return evidence for tax and procurement", async
     headers: { Authorization: "Bearer tenant-a-analyst" },
     data: {
       claimId: "tax.incomeReconciles",
-      bindings: { taxpayer: "TAXPAYER-A", taxYear: 2024 },
+      bindings: { taxpayerId: "TAXPAYER-A", taxYear: 2024 },
       periodFrom: "2024-01-01",
       periodTo: "2025-01-01",
       dimensions: { jurisdiction: "CN" },
@@ -498,7 +498,7 @@ test("draft save validate independent review publish and public query use the di
     headers: { Authorization: "Bearer tenant-a-analyst" },
     data: {
       metric: "tax.reportedIncome",
-      bindings: { taxpayer: "TAXPAYER-A", taxYear: 2024, perspective: "TAX_RETURN" },
+      bindings: { taxpayerId: "TAXPAYER-A", taxYear: 2024, perspective: "TAX_RETURN" },
       periodFrom: "2024-01-01",
       periodTo: "2025-01-01",
     },

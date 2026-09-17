@@ -293,7 +293,7 @@ def test_studio_session_csrf_origin_capabilities_and_revocation() -> None:
         headers={"Origin": "http://testserver", "X-CSRF-Token": viewer_csrf},
         json={
             "objectId": "procurement.Order",
-            "identity": "PO-001",
+            "identity": {"orderId": "PO-001"},
             "properties": ["status"],
         },
     )
@@ -312,7 +312,7 @@ def test_studio_mapping_preview_reads_draft_mapping() -> None:
         headers=trusted,
         json={
             "mappingId": "procurement.Order.orders",
-            "identity": "PO-001",
+            "identity": {"orderId": "PO-001"},
             "draftId": "default",
         },
     )
@@ -327,7 +327,7 @@ def test_studio_mapping_preview_reads_draft_mapping() -> None:
     missing = client.post(
         "/v0.1/studio/sample",
         headers=trusted,
-        json={"mappingId": "procurement.Order.orders", "identity": "PO-MISSING"},
+        json={"mappingId": "procurement.Order.orders", "identity": {"orderId": "PO-MISSING"}},
     )
     assert missing.status_code == 200
     assert missing.json()["kind"] == "MISSING"
@@ -337,7 +337,7 @@ def test_studio_mapping_preview_reads_draft_mapping() -> None:
         headers=trusted,
         json={
             "mappingId": "tax.reportedIncome.pg",
-            "identity": "TAXPAYER-A",
+            "identity": {"taxpayerId": "TAXPAYER-A"},
             "bindings": {"taxYear": "2024"},
         },
     )
@@ -350,7 +350,7 @@ def test_studio_mapping_preview_reads_draft_mapping() -> None:
     unknown = client.post(
         "/v0.1/studio/sample",
         headers=trusted,
-        json={"mappingId": "does.not.exist", "identity": "PO-001"},
+        json={"mappingId": "does.not.exist", "identity": {"orderId": "PO-001"}},
     )
     assert unknown.status_code == 404
 
@@ -494,7 +494,6 @@ def test_metric_document_save_reload_impacts_and_revision_conflict() -> None:
         "completeness": "AUTHORITATIVE",
         "physical": {
             "table": "tax_metric",
-            "identityColumn": "taxpayer_id",
             "valueColumn": "amount",
             "grainColumns": {
                 "taxpayerId": "taxpayer_id",
@@ -528,7 +527,7 @@ def test_metric_document_save_reload_impacts_and_revision_conflict() -> None:
         headers=headers,
         json={
             "mappingId": "tax.g2DraftMetric.tax_pg",
-            "identity": "TAXPAYER-A",
+            "identity": {"taxpayerId": "TAXPAYER-A"},
             "draftId": "default",
             "bindings": {"taxYear": "2024"},
         },
@@ -560,7 +559,7 @@ def test_published_query_and_claim_evidence_for_tax_and_procurement() -> None:
         json={
             "metric": "tax.reportedIncome",
             "bindings": {
-                "taxpayer": "TAXPAYER-A",
+                "taxpayerId": "TAXPAYER-A",
                 "taxYear": 2024,
                 "perspective": "TAX_RETURN",
             },
@@ -596,7 +595,7 @@ def test_published_query_and_claim_evidence_for_tax_and_procurement() -> None:
         headers=headers,
         json={
             "claimId": "tax.incomeReconciles",
-            "bindings": {"taxpayer": "TAXPAYER-A", "taxYear": 2024},
+            "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024},
             "periodFrom": "2024-01-01",
             "periodTo": "2025-01-01",
             "dimensions": {"jurisdiction": "CN"},

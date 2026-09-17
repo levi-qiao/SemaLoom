@@ -347,7 +347,16 @@ def documents_from_bundle(bundle: CompiledBundle) -> tuple[Document, ...]:
     for collection in _BUNDLE_COLLECTIONS:
         for item in getattr(bundle, collection):
             dumped = item.model_dump(mode="json", by_alias=True, exclude_none=True)
-            documents.append(dict(dumped))
+            document = dict(dumped)
+            if document.get("kind") == "Mapping":
+                for field in (
+                    "identityFields",
+                    "grainFields",
+                    "propertyFields",
+                    "capabilities",
+                ):
+                    document.pop(field, None)
+            documents.append(document)
     return tuple(sorted(documents, key=lambda item: (str(item["kind"]), str(item["id"]))))
 
 

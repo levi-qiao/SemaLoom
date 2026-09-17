@@ -249,7 +249,7 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 | 任务 | 状态 | 说明 |
 | --- | --- | --- |
 | T00 | 完成 | Python 工程基座、identity、import 方向、发行物检查 |
-| T01 | 基础切片完成，通用契约待闭合 | `compile_paths` 与合成包已验；复合身份、Rule 属性/输出类型及协议中立编译仍由 M1 关闭 |
+| T01 | 基础切片完成，通用契约待闭合 | `compile_paths` 与合成包已验；点查/Link 复合身份与 Capability IR 已落地，Rule 属性/输出类型及物理编译继续下沉 adapter 仍由 M1 跟踪 |
 | T02 | 合成切片 | PostgreSQL 点查与双库 Link；预算、快照、只读角色仍待验收 |
 | T03 | 合成切片 | Decimal Claim 与 TRUE/FALSE/UNKNOWN；容量和组合规则仍待验收 |
 | T04 | 合成切片 | `semaloom_meta` release 指针与摘要校验；发布身份和迁移仍待验收 |
@@ -274,9 +274,9 @@ G1–G5 已交回切片，后续以 [通用平台收口清单](maturity-closure.
 
 用户收窄目标为可运行且准确的企业业务分析，主 agent 负责领域定义、数据和核心实现，独立 agent 仅测试。验收范围与工具使用见 [AI 分析](ai-analysis.md)，[测试任务](analysis-test-goals.md)。本切片依赖既有 T01/T02/T03/T04 运行骨架，不将全部生产 gate 设为前置。
 
-已实现：typed Rule 与输出检查、派生 Metric、身份存在性及复合身份显式拒绝、完整粒度、可声明的对象期间校验；实例精确搜索与五个 HTTP 工具 Schema；financial-review 的分析视图、指标和规则。私有样本独立对数通过，扩展测试交独立 agent，不冒充全部验收关闭。
+已实现：typed Rule 与输出检查、派生 Metric、身份存在性及完整结构化身份（点查/Studio/HTTP/AI/Link/Action；集合分析复合 Link 仍明确拒绝）、完整粒度、可声明的对象期间校验；实例精确搜索与五个 HTTP 工具 Schema；financial-review 的分析视图、指标和规则。私有样本独立对数通过，扩展测试交独立 agent，不冒充全部验收关闭。
 
-T01 的复合身份/协议中立边界、T06 的真实 MCP/JWT、T05 的 Action 恢复、T09 的 Rule 编辑/完整联合 gate 均保留原状态。本轮不执行真实发布，不关闭 T08A/T08B。旧 M1–M3 广义工作安排是路线图，当前范围以此处优先级为准。
+T01 的物理 Mapping IR 继续下沉 adapter、T06 的真实 MCP/JWT、T05 的 Action 恢复、T09 的 Rule 编辑/完整联合 gate 均保留原状态。本轮不执行真实发布，不关闭 T08A/T08B。旧 M1–M3 广义工作安排是路线图，当前范围以此处优先级为准。
 
 ### T06 Chat Harness 切片（2026-09-14 用户新增范围）
 

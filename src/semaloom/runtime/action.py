@@ -29,13 +29,13 @@ class DraftStore:
         self, *, idempotency_key: str, payload: dict[str, Any], expected_version: int | None = None
     ) -> str:
         if idempotency_key in self.idempotency:
-            existing = self.idempotency[idempotency_key]
-            stored = self.rows[existing]
+            existing_key = self.idempotency[idempotency_key]
+            stored = self.rows[existing_key]
             if stored["payload_digest"] != _digest(payload):
                 raise ValueError("IDEMPOTENCY_CONFLICT")
-            return existing
-        target = str(payload.get("target"))
-        current = self.rows.get(target)
+            return str(stored["ref"])
+        target_key = _draft_target_key(payload.get("target"))
+        current = self.rows.get(target_key)
         if (
             expected_version is not None
             and current is not None
@@ -44,18 +44,18 @@ class DraftStore:
             raise ValueError("STALE_PLAN")
         ref = uuid.uuid4().hex
         version = 1 if current is None else int(current["version"]) + 1
-        self.rows[target] = {
+        self.rows[target_key] = {
             "ref": ref,
             "payload": payload,
             "payload_digest": _digest(payload),
             "version": version,
         }
-        self.idempotency[idempotency_key] = target
+        self.idempotency[idempotency_key] = target_key
         self.writes += 1
         return ref
 
-    def get(self, target: str) -> dict[str, Any] | None:
-        return self.rows.get(target)
+    def get(self, target: object) -> dict[str, Any] | None:
+        return self.rows.get(_draft_target_key(target))
 
 
 class ActionService:
@@ -217,7 +217,7 @@ class ActionService:
         try:
             ref = self.drafts.create(
                 idempotency_key=f"{plan.tenant}:{plan.plan_id}",
-                payload={"target": next(iter(plan.target.values())), "parameters": plan.parameters},
+                payload={"target": dict(plan.target), "parameters": plan.parameters},
             )
         except ValueError:
             with self.engine.begin() as conn:
@@ -289,6 +289,13 @@ def _plan_body(plan: ActionPlan) -> dict[str, Any]:
         "parameters": plan.parameters,
         "release": plan.release_digest,
     }
+
+
+def _draft_target_key(target: object) -> str:
+    """Stable draft row key for scalar or structured ObjectIdentity targets."""
+    if isinstance(target, dict):
+        return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
+    return str(target)
 
 
 def _digest(payload: dict[str, Any]) -> str:

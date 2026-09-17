@@ -6,6 +6,7 @@ import unicodedata
 from typing import Any
 
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.model import LinkDef, MappingCapability
 from semaloom.runtime.auth import RequestActor, authorize_query
 
 
@@ -77,42 +78,39 @@ class SemanticDiscovery:
         }
 
 
-def _postgres_object_mapping(bundle: CompiledBundle, object_type_id: str) -> Any:
-    matches = [
-        item
-        for item in bundle.mappings
-        if item.target == object_type_id and item.provider == "postgres"
-    ]
-    if len(matches) != 1:
-        return None
-    return matches[0]
-
-
-def _link_collection_join(
-    bundle: CompiledBundle, source: str, target: str, cardinality: str
+def _object_has_capability(
+    bundle: CompiledBundle, object_type_id: str, capability: MappingCapability
 ) -> bool:
-    if cardinality != "ONE":
-        return False
-    source_mapping = _postgres_object_mapping(bundle, source)
-    target_mapping = _postgres_object_mapping(bundle, target)
-    return source_mapping is not None and target_mapping is not None
+    return any(
+        item.target == object_type_id and capability in item.capabilities
+        for item in bundle.mappings
+    )
+
+
+def _link_supports_collection_join(bundle: CompiledBundle, link: LinkDef) -> bool:
+    """Collection analysis still requires a single identity pair (not composite Links)."""
+    return (
+        link.cardinality == "ONE"
+        and len(link.identity) == 1
+        and _object_has_capability(bundle, link.source, "EQUI_JOIN")
+        and _object_has_capability(bundle, link.target, "EQUI_JOIN")
+    )
 
 
 def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle) -> dict[str, Any]:
     """Project the current collection-analysis boundary onto discovery documents."""
     kind = document.get("kind")
     if kind == "Link":
+        source = str(document.get("source") or "")
+        target = str(document.get("target") or "")
+        link = next((item for item in bundle.links if item.id == document.get("id")), None)
         return {
             **document,
             "analysisCapabilities": {
-                "pointLookup": True,
-                "keyedFind": True,
-                "collectionJoin": _link_collection_join(
-                    bundle,
-                    str(document.get("source") or ""),
-                    str(document.get("target") or ""),
-                    str(document.get("cardinality") or ""),
-                ),
+                "pointLookup": _object_has_capability(bundle, source, "POINT_READ")
+                and _object_has_capability(bundle, target, "POINT_READ"),
+                "keyedFind": _object_has_capability(bundle, target, "COLLECTION_READ"),
+                "collectionJoin": link is not None and _link_supports_collection_join(bundle, link),
             },
         }
     if kind == "Metric":
@@ -120,9 +118,10 @@ def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle
         return {
             **document,
             "analysisCapabilities": {
-                "sameTableCollection": document.get("population") is not None,
+                "sameTableCollection": document.get("population") is not None
+                and _object_has_capability(bundle, object_type, "COLLECTION_READ"),
                 "collectionJoin": any(
-                    _link_collection_join(bundle, link.source, link.target, link.cardinality)
+                    _link_supports_collection_join(bundle, link)
                     for link in bundle.links
                     if link.source == object_type
                 ),
