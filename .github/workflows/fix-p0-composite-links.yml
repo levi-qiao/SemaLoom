@@ -31,14 +31,17 @@ jobs:
           test "$code" -eq 1
           printf '%s\n' "$output" | grep -q "query mapping helper block changed"
       - name: Finish migration
-        run: python .github/scripts/finish_p0_composite_links.py
+        run: |
+          python .github/scripts/finish_p0_composite_links.py
+          rm .github/scripts/fix_p0_composite_links.py
+          rm .github/scripts/finish_p0_composite_links.py
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
       - name: Backend checks
         run: |
           uv python install
           uv sync --frozen --all-groups
-          uv run ruff format .github/scripts/fix_p0_composite_links.py .github/scripts/finish_p0_composite_links.py src/semaloom/core/model.py src/semaloom/compiler/api.py src/semaloom/runtime/query.py src/semaloom/runtime/studio.py src/semaloom/adapters/analysis.py tests/test_composite_link_identity.py
-          uv run ruff check .github/scripts/fix_p0_composite_links.py .github/scripts/finish_p0_composite_links.py src/semaloom/core/model.py src/semaloom/compiler/api.py src/semaloom/runtime/query.py src/semaloom/runtime/studio.py src/semaloom/adapters/analysis.py tests/test_composite_link_identity.py
+          uv run ruff format src/semaloom/core/model.py src/semaloom/compiler/api.py src/semaloom/runtime/query.py src/semaloom/runtime/studio.py src/semaloom/adapters/analysis.py tests/test_composite_link_identity.py
+          uv run ruff check src/semaloom/core/model.py src/semaloom/compiler/api.py src/semaloom/runtime/query.py src/semaloom/runtime/studio.py src/semaloom/adapters/analysis.py tests/test_composite_link_identity.py
           uv run mypy
           uv run pytest tests/test_composite_link_identity.py tests/test_composite_identity_chain.py
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -54,8 +57,6 @@ jobs:
           pnpm build
       - name: Commit clean implementation
         run: |
-          rm .github/scripts/fix_p0_composite_links.py
-          rm .github/scripts/finish_p0_composite_links.py
           rm .github/workflows/fix-p0-composite-links.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
