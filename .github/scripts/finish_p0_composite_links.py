@@ -60,7 +60,7 @@ if anchor not in text:
 text = text.replace(
     anchor,
     anchor
-    + '\n\ndef _single_link_pair(link: LinkDef):\n'
+    + '\n\ndef _single_link_pair(link: LinkDef) -> Any:\n'
     + '    if len(link.identity) != 1:\n'
     + '        raise AnalysisError("LINK_ANALYSIS_UNSUPPORTED")\n'
     + '    return link.identity[0]\n',
@@ -132,6 +132,17 @@ text = text.replace(
 if "link.identity.source" in text or "link.identity.target" in text:
     raise SystemExit("analysis scalar link identity residue remains")
 p.write_text(text)
+
+# Studio graph keeps its compact display strings, but derives them from all identity pairs.
+p = Path("src/semaloom/runtime/studio.py")
+text = p.read_text()
+old = '''            "sourceKey": item.identity.source,
+            "targetKey": item.identity.target,'''
+new = '''            "sourceKey": " + ".join(pair.source for pair in item.identity),
+            "targetKey": " + ".join(pair.target for pair in item.identity),'''
+if old not in text:
+    raise SystemExit("studio link summary block changed")
+p.write_text(text.replace(old, new))
 
 # Reuse the already-written tail for frontend, examples, tests and residue assertions.
 source = Path(".github/scripts/fix_p0_composite_links.py").read_text()
