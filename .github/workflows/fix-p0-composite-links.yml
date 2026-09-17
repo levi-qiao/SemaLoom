@@ -6,6 +6,7 @@ on:
       - feat/p0-capability-composite-identity
     paths:
       - .github/scripts/fix_p0_composite_links.py
+      - .github/scripts/finish_p0_composite_links.py
       - .github/workflows/fix-p0-composite-links.yml
 
 permissions:
@@ -19,47 +20,18 @@ jobs:
         with:
           ref: feat/p0-capability-composite-identity
           fetch-depth: 0
-      - name: Align helper migration
+      - name: Apply first-stage migration
+        shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('.github/scripts/fix_p0_composite_links.py')
-          text = p.read_text()
-          marker = '# Frontend relation editor supports an arbitrary non-empty list of identity pairs.'
-          start = text.index('p = Path("src/semaloom/runtime/query.py")\ntext = p.read_text()\nold = dedent(', text.index('# Runtime resolves'))
-          end = text.index(marker, start)
-          replacement = '''replace_between(
-              "src/semaloom/runtime/query.py",
-              "    def _object_mapping_for_property(\\n",
-              "    def _mapping_for_target(\\n",
-              """
-                  def _object_mapping_for_properties(
-                      self, object_type: str, property_ids: tuple[str, ...]
-                  ) -> tuple[MappingDef | None, str | None]:
-                      required = set(property_ids)
-                      candidates = [
-                          mapping
-                          for mapping in self.bundle.mappings
-                          if mapping.target == object_type and required <= _mapped_object_fields(mapping)
-                      ]
-                      if len(candidates) == 1:
-                          return candidates[0], None
-                      if len(candidates) > 1:
-                          return None, "AMBIGUOUS_MAPPING"
-                      return None, "NO_MAPPING"
-
-                  def _object_mapping_for_property(
-                      self, object_type: str, property_id: str
-                  ) -> tuple[MappingDef | None, str | None]:
-                      return self._object_mapping_for_properties(object_type, (property_id,))
-              """,
-          )
-
-          '''
-          p.write_text(text[:start] + replacement + text[end:])
-          PY
-      - name: Apply migration
-        run: python .github/scripts/fix_p0_composite_links.py
+          set +e
+          output="$(python .github/scripts/fix_p0_composite_links.py 2>&1)"
+          code=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$code" -eq 1
+          printf '%s\n' "$output" | grep -q "query mapping helper block changed"
+      - name: Finish migration
+        run: python .github/scripts/finish_p0_composite_links.py
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
       - name: Backend checks
         run: |
@@ -83,10 +55,10 @@ jobs:
       - name: Commit clean implementation
         run: |
           rm .github/scripts/fix_p0_composite_links.py
+          rm .github/scripts/finish_p0_composite_links.py
           rm .github/workflows/fix-p0-composite-links.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
           git commit -m "feat: make link traversal composite-identity complete"
           git push origin HEAD:feat/p0-capability-composite-identity
-# rerun aligned helper
