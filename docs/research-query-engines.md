@@ -1,6 +1,6 @@
 # 语义查询与 SQL 编译开源项目调研
 
-> **优先级**：选型已由 [ADR-0011](adr/0011-semantic-query-planner.md) 与 [主责收口](semantic-query-closure.md) 冻结（SQLAlchemy + SQLGlot；不纳入 Wren 发行物）。本文保留为历史调研，不覆盖当前实现优先级。
+> **优先级**：选型已由 [ADR-0011](adr/0011-semantic-query-planner.md) 与 [能力边界](capabilities.md) 冻结（SQLAlchemy + SQLGlot；不纳入 Wren 发行物）。本文保留为历史调研，不覆盖当前实现优先级。
 
 调研日期：2026-09-14。本文是 MetricFlow、SQLGlot、Ibis 三者范围内的备选研究，只核查了项目自己的仓库、源码和文档，不按 GitHub stars 判断成熟度，也没有安装依赖或访问业务数据。综合架构决策以 [semantic-query-design.md](semantic-query-design.md) 为准；当前总体顺序是优先验证 Wren 可嵌入 planner。本文提出的 `SemanticQuery -> RelationalPlan` 是接口和验收目标，不把先编写自研关系执行器当作既定决策。重点是回答一个架构问题：企业只配置业务本体和来源绑定后，core 能否用同一套逻辑回答新的聚合、筛选、分组和比较问题。
 

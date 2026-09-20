@@ -689,8 +689,8 @@ def test_unavailable_source_via_runtime_is_not_false_or_zero(client: TestClient)
     for mapping in payload["mappings"]:
         if mapping["id"] == "tax.reportedIncome.pg":
             mapping["physical"]["table"] = "no_such_relation"
-    from semaloom.compiler.digest import sha256_digest
     from semaloom.core.bundle import CompiledBundle
+    from semaloom.core.digest import sha256_digest
 
     payload.pop("digest", None)
     payload["digest"] = sha256_digest(payload)

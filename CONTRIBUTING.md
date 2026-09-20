@@ -28,6 +28,13 @@ T09 按 [DESIGN](docs/DESIGN.md) 创建 `frontend/`，采用 React/TypeScript/Vi
 
 ## Review and completion
 
+隔离浏览器回归使用 `SEMALOOM_E2E_ISOLATED=1 corepack pnpm --dir frontend e2e`。
+PostgreSQL 的 `initdb` / `pg_ctl` 须在 PATH，或设置 `SEMALOOM_E2E_PG_BINDIR`
+（Homebrew 示例：`/opt/homebrew/opt/postgresql@16/bin`）。测试使用临时数据库，拒绝复用已占用的端口；
+可用 `SEMALOOM_E2E_HTTP_PORT` / `SEMALOOM_E2E_PG_PORT` 调整端口，
+`SEMALOOM_E2E_SCRATCH` 指向已存在的临时目录。退出时停止任务数据库并清理其子目录。
+隔离 Chat 使用确定性 faux worker，浏览器通过不代表真实模型问答准确率。
+
 变更描述说明业务触发条件、结果、对应验收 ID、验证结果和已知限制。语义变更同时更新规范、Schema、fixture 和兼容性说明。文档 Schema 校验通过不等于 Runtime 验收通过。
 
 发布物由经审查的源码构建，生成内容摘要和可追踪依赖。发行名是 `semaloom`，语义契约 `v0.1`，`apiVersion` 为 `semaloom/v0.1`。V0.x 允许经过记录的破坏性变更，仍须显式升级 apiVersion/迁移策略，不静默重解释历史 release。本仓库当前 **不授权** 推送、PyPI 发布、签名或部署；发布身份与渠道由维护者另行提供。

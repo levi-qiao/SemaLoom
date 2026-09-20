@@ -17,7 +17,7 @@ import {
   text,
   uniqueDocumentId,
 } from "./doc";
-import { ActionFields, LinkFields, RuleFields } from "./DraftEditor";
+import { ActionFields, LinkFields, RuleFields } from "./DefinitionFields";
 import { EntityDslEditor } from "./EntityDslEditor";
 import { namespaceLabel, publishedExecutionHint, type PackLabel } from "./labels";
 import { MappingEditor, makeMappingDocument } from "./MappingEditor";
@@ -604,7 +604,7 @@ function MappingList({
   );
 }
 
-export function LinkEditor({ document, documents, onChange }: { document: DraftDocument; documents: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
+function LinkEditor({ document, documents, onChange }: { document: DraftDocument; documents: DraftDocument[]; onChange: (next: DraftDocument) => void }) {
   const objects = documents.filter((item) => item.kind === "ObjectType");
   const sourceDoc = documentById(objects, text(document.source));
   const targetDoc = documentById(objects, text(document.target));

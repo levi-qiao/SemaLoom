@@ -20,7 +20,7 @@ export function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-export function identityPropertyId(local: string): string {
+function identityPropertyId(local: string): string {
   const base = local.charAt(0).toLowerCase() + local.slice(1);
   return /Id$/.test(base) ? base : `${base}Id`;
 }
@@ -215,31 +215,10 @@ export function metricById(documents: DraftDocument[], id: unknown): DraftDocume
   return documents.find((item) => item.kind === "Metric" && item.id === id) ?? null;
 }
 
-export function measureProperties(objectType: DraftDocument): Record<string, unknown>[] {
+function measureProperties(objectType: DraftDocument): Record<string, unknown>[] {
   return array(objectType.properties)
     .map(object)
     .filter((item) => Boolean(text(item.unit)) || text(item.valueType) === "DECIMAL" || text(item.valueType) === "INTEGER");
-}
-
-export function coveringObjectMapping(
-  documents: DraftDocument[],
-  objectTypeId: string,
-  propertyId: string,
-): DraftDocument | null {
-  if (!propertyId) return null;
-  return (
-    documents.find((item) => {
-      if (item.kind !== "Mapping" || item.target !== objectTypeId) return false;
-      const physical = object(item.physical);
-      const slots = {
-        ...object(physical.propertyColumns),
-        ...object(physical.propertyPointers),
-        ...object(physical.grainColumns),
-        ...object(physical.grainPointers),
-      };
-      return propertyId in slots;
-    }) ?? null
-  );
 }
 
 /** Optional Metric vocabulary entry (aliases / select / label). Not a physical Mapping class. */
@@ -282,10 +261,6 @@ export function canonicalMetric(document: DraftDocument): DraftDocument {
   return next;
 }
 
-export function ownedByMetric(document: DraftDocument, metricId: string): boolean {
-  return document.kind === "Mapping" && document.target === metricId;
-}
-
 export function attachMapping(documents: DraftDocument[], mapping: DraftDocument): DraftDocument[] {
   if (documents.some((item) => item.id === mapping.id)) {
     return rehomeMapping(documents, mapping.id, text(mapping.sourceId), text(mapping.provider));
@@ -317,13 +292,6 @@ export function detachMapping(documents: DraftDocument[], mappingId: string): Dr
     if (!mappings.includes(mappingId)) return item;
     return { ...item, mappings: mappings.filter((id) => id !== mappingId) };
   });
-}
-
-export function removeMetric(documents: DraftDocument[], metricId: string): DraftDocument[] {
-  const owned = documents.filter((item) => ownedByMetric(item, metricId)).map((item) => item.id);
-  let next = documents.filter((item) => item.id !== metricId && !ownedByMetric(item, metricId));
-  for (const mappingId of owned) next = detachMapping(next, mappingId);
-  return next;
 }
 
 export function mappingResourceLabel(mapping: DraftDocument): string {

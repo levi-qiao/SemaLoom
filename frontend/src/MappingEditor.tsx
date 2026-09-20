@@ -843,7 +843,7 @@ export function previewFailureFromHttp(provider: string, message: string) {
   return previewOutcomeText(provider, "UNAVAILABLE", message);
 }
 
-export function newMappingId(objectTypeId: string, sourceId: string, documents: DraftDocument[]) {
+function newMappingId(objectTypeId: string, sourceId: string, documents: DraftDocument[]) {
   let suffix = sourceId;
   let id = `${objectTypeId}.${suffix}`;
   let n = 2;

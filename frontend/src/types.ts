@@ -1,4 +1,4 @@
-export type Counts = {
+type Counts = {
   objects: number;
   links: number;
   mappings: number;
@@ -65,41 +65,6 @@ export type Source = {
   targets: string[];
   namespaces: string[];
   status: string;
-};
-
-export type Inspector = {
-  id: string;
-  label: string;
-  version: string;
-  namespace: string;
-  identityKeys: string[];
-  properties: { id: string; label?: string; valueType: string; required?: boolean; unit?: string }[];
-  metrics: {
-    id: string;
-    label: string;
-    valueType: string;
-    unit: string;
-    perspective: string | null;
-    grain?: string[];
-  }[];
-  mappings: Mapping[];
-  rules: { id: string; label: string; claim: string | null }[];
-  actions: {
-    id: string;
-    label: string;
-    effect: string;
-    preconditions: string[];
-    parameters: { name: string; valueType: string; required: boolean }[];
-    bindings: { id: string; sourceId: string; provider: string }[];
-  }[];
-  relations: {
-    id: string;
-    label: string;
-    direction: string;
-    target: string;
-    targetLabel: string;
-    cardinality: string;
-  }[];
 };
 
 export type DraftDocument = Record<string, unknown> & {

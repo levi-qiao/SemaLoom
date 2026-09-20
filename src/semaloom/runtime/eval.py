@@ -24,8 +24,6 @@ from semaloom.core.values import Scalar, scalar_value
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
 
-RoundingName = Literal["ROUND_HALF_UP", "ROUND_HALF_EVEN"]
-
 
 class EvaluationError(Exception):
     def __init__(self, code: str, message: str) -> None:

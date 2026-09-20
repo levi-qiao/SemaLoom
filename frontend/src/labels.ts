@@ -60,7 +60,7 @@ export function previewOutcomeText(provider: string, kind: string, reason: strin
   return previewFailureText(provider, reason);
 }
 
-export function previewFailureText(provider: string, reason: string | null) {
+function previewFailureText(provider: string, reason: string | null) {
   const api = provider === "openapi";
   if (reason === "SOURCE_UNAVAILABLE" || reason === "PROVIDER_NOT_CONFIGURED" || reason === "BINDING_NOT_RESOLVED") {
     return api ? "接口无法连接，可检查来源后重试" : "数据库连接失败，可检查来源后重试";

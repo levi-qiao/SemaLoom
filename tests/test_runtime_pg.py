@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 
 from semaloom.app.bootstrap import AppServices, build_services, compile_examples
 from semaloom.app.factory import create_app
-from semaloom.compiler.digest import sha256_digest
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.digest import sha256_digest
 from semaloom.core.results import MetricSelect, ObjectSelect, QueryContext, QueryRequest
 from semaloom.runtime.action import ActionService, DraftStore
 from semaloom.runtime.auth import RequestActor

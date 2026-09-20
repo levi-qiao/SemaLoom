@@ -12,11 +12,11 @@ from typing import Any, Literal
 from pydantic import ValidationError
 
 from semaloom import __version__
-from semaloom.compiler.digest import physical_digest, sha256_digest
 from semaloom.compiler.yaml_load import load_yaml_documents
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.compilation import MappingCompiler
 from semaloom.core.diagnostics import Diagnostic
+from semaloom.core.digest import sha256_digest
 from semaloom.core.expr import collect_refs, expression_type
 from semaloom.core.ids import (
     API_VERSION,
@@ -219,9 +219,9 @@ def compile_documents(
 
     physical: dict[str, str] = {}
     for mapping in mappings:
-        physical[mapping.id] = physical_digest(mapping.physical)
+        physical[mapping.id] = sha256_digest(mapping.physical)
     for binding in bindings:
-        physical[binding.id] = physical_digest(binding.physical)
+        physical[binding.id] = sha256_digest(binding.physical)
     payload = {
         "apiVersion": API_VERSION,
         "formatVersion": BUNDLE_FORMAT,

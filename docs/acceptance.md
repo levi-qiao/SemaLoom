@@ -166,9 +166,9 @@ T09C 完成且 A64–A69 全部通过才表示工作台完成。A64/A69 的合�
 A70：独立 SQL 对照 mean/sum/min/max/count，明确单位、年度与去重单位；缺失/重复/50-51边界/错误不能伪装完整结果。A71：shareOfTotal、percentAboveMean、outperforms 的分子分母、并列、负数和零分母。A72：REST、pi 工具与 Chat 同一结果，浏览器表字段不泄露给模型/普通 analyst，历史重新限权。A73：图谱就地新建与原草稿保存路径、曲线标签可读、连线模式及取消。对应测试与独立复核任务见 [分析质量](analysis-quality.md)，新增验收不关闭旧未完成 gate。
 
 
-A70–A73 审计修订复验要求：明确比较不得仅引用均值；未授权缺失排除须在执行前拒绝；主体 filters 不改变分母；指标改名/保存/重载保留 aliases/population；390px 画布高度非零、1280px 初始节点完整、工具栏不遮标签；模型 schema 嵌套对象能经 pi 校验并调用 Python；保存失败无 answer/done。结果与未覆盖项见 [审计修复](audit-fixes.md)，不能将本轮通过等同于全部生产 gate 关闭。
+A70–A73 审计修订复验要求：明确比较不得仅引用均值；未授权缺失排除须在执行前拒绝；主体 filters 不改变分母；指标改名/保存/重载保留 aliases/population；390px 画布高度非零、1280px 初始节点完整、工具栏不遮标签；模型 schema 嵌套对象能经 pi 校验并调用 Python；保存失败无 answer/done。结果与未覆盖项见 [分析验证](analysis-quality.md)，不能将本轮通过等同于全部生产 gate 关闭。
 
-A70–A72 主责复验新增：多指标不能只执行首项；分组叙述不能只取首行；AVG 排序不能按 SUM；同年度冲突不能当作空集合；来源错误不得变成年份不可用候选；NULL 主体不得误作不存在；明确用户约束不能由模型改写；选择完成的保存失败保留可重试 pending；仅配置 fiscalCycle 等新年度属性仍可运行；确定性散文保留 Rule UNKNOWN。实现与未关闭算子见 [主责收口](semantic-query-closure.md)，测试 `tests/test_semantic_closure.py`。
+A70–A72 主责复验新增：多指标不能只执行首项；分组叙述不能只取首行；AVG 排序不能按 SUM；同年度冲突不能当作空集合；来源错误不得变成年份不可用候选；NULL 主体不得误作不存在；明确用户约束不能由模型改写；选择完成的保存失败保留可重试 pending；仅配置 fiscalCycle 等新年度属性仍可运行；确定性散文保留 Rule UNKNOWN。实现与未关闭算子见 [能力边界](capabilities.md)，测试 `tests/test_semantic_closure.py`。
 
 ### 本体发现与布局补充回归（2026-09-15）
 

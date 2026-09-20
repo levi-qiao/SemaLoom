@@ -345,7 +345,7 @@ Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实�
 
 ### 主责复验增补：组合结果与澄清
 
-当前实现与未闭合目标以 [主责收口](../semantic-query-closure.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺年度/缺聚合仍返回选择题。Chat 在唯一指标已识别时可用来源最新年度和可加性合计作答，并在回答中标注假设与置信度；这不是用户已提交的选择，也不把模型自报 confidence 当正确性证明。规则检查只用于评分，不阻止回答。未要求明细时不默认按对象分组。多年度以类型化筛选表达，统计单位按声明年度组合检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
+当前实现与未闭合目标以 [能力边界](../capabilities.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺年度/缺聚合仍返回选择题。Chat 在唯一指标已识别时可用来源最新年度和可加性合计作答，并在回答中标注假设与置信度；这不是用户已提交的选择，也不把模型自报 confidence 当正确性证明。规则检查只用于评分，不阻止回答。未要求明细时不默认按对象分组。多年度以类型化筛选表达，统计单位按声明年度组合检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
 
 ChoiceKind 增加 AGGREGATION、COMPARISON、FILTER、OTHER、CLAIM；FILTER 的 predicate 由服务器保留。DIMENSION_VALUE 由 Property.values 发射。选择题必须同时提供 OTHER 与 ABORT。`ChoiceQuestion.control` 由服务器按 live option 的 ChoiceKind 输出 `SELECT` 或 `CARDS`；前端不得按 slot 名或领域 ID 再决定控件，也不得同时重复渲染两套控件。前端只提交 option id。OTHER 就地提交 `otherText`，服务端并入原问题再解释。歧义指标、比较口径、比较主体、维值和同字段冲突 EQ 仍用选择式澄清。模型不能提交 decisions，不能改写用于校验的原始问题。明确缺失拒绝不能被模型排除策略覆盖。失败保留 pending，保存答案/清除 pending 原子完成。判断题命中 Rule 别名时直接 `evaluate_claim`，不送模型。
 

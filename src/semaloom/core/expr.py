@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from semaloom.core.values import scalar_value
 
-RoundingMode = Literal["ROUND_HALF_UP", "ROUND_HALF_EVEN"]
 ARITHMETIC_OPS = frozenset({"add", "sub", "mul", "div"})
 COMPARE_OPS = frozenset({"eq", "ne", "lt", "le", "gt", "ge"})
 BOOL_OPS = frozenset({"and", "or"})

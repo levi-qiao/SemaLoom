@@ -72,7 +72,7 @@ export SEMALOOM_CHAT_CONFIG="$PWD/.agents/chat-harness/provider.json"
 uv run semaloom serve --host 127.0.0.1 --port 8000
 ```
 
-当前本机的私有配置已经写好，现有样本 runtime.env 已加入配置路径。启动后打开 `/studio/?view=chat`，使用带分析权限的 `studio-admin`。单独 modeler/viewer 不自动获得业务数据读取权限。
+按上文配置私有 provider 文件与环境变量后，打开 `/studio/?view=chat`，在 local-dev 使用带分析权限的 `studio-admin`。仓库不提供模型凭证；单独 modeler/viewer 不自动获得业务数据读取权限。
 
 provider 端点来自用户配置，调用已验证 `/models` 存在的 `qwen3.7-plus`。保留 Token Plan 的 key/URL 配对，不自动改到按量计费。其 OpenAI-compatible 接入方式与配对要求见 [百炼官方说明](https://help.aliyun.com/zh/model-studio/more-tools)。API key 仅在服务端；不经前端表单传输、不回显、不进入 source control。
 

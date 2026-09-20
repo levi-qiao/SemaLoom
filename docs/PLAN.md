@@ -253,7 +253,7 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 | 任务 | 状态 | 说明 |
 | --- | --- | --- |
 | T00 | 完成 | Python 工程基座、identity、import 方向、发行物检查 |
-| T01 | 基础切片完成，通用契约待闭合 | `compile_paths` 与合成包已验；点查/Link 复合身份与 Capability IR 已落地，Rule 属性/输出类型及物理编译继续下沉 adapter 仍由 M1 跟踪 |
+| T01 | 基础切片完成，通用契约待闭合 | `compile_paths` 与合成包已验；点查/Link 复合身份、Capability IR、typed Rule 与 adapter 物理编译已落地；生产门槛见能力清单 |
 | T02 | 合成切片 | PostgreSQL 点查与双库 Link；预算、快照、只读角色仍待验收 |
 | T03 | 合成切片 | Decimal Claim 与 TRUE/FALSE/UNKNOWN；容量和组合规则仍待验收 |
 | T04 | 合成切片 | `semaloom_meta` release 指针与摘要校验；发布身份和迁移仍待验收 |
@@ -263,58 +263,15 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 | T08A | 进行中 | [quickstart](quickstart.md)、[capabilities](capabilities.md)、CI 与社区文件 |
 | T08B | 未关闭 | [pilot-plan](pilot-plan.md)；A47–A48 未通过 |
 | T09A | 切片已验，联合未关闭 | G1 图谱/目录/检查器、深链接及小屏已验；密集图和 200% 缩放待补证据 |
-| T09B | 切片已验，联合未关闭 | G1/G2 实体/属性/Mapping/可选指标词条持久化已验；Rule 编辑依赖 M1，导入导出等需联合回归 |
+| T09B | 切片已验，联合未关闭 | 实体/属性/Mapping/可选指标词条持久化已验；结构化 Rule 编辑、导入导出等需联合回归 |
 | T09C | 切片已验，联合未关闭 | G3 独立审核/激活及本地会话已验；对象/字段权限、完整 A64–A69 和最新发行物联合验收仍开 |
 
 检查命令见仓库根 README；每次交付的实测结果记录在对应 `.agents/*/handoff.md`。
 
-### 2026-09-14 数据准备与后续分工
+### 当前维护范围
 
-授权 remote-dev 只读样本已进入独立本地库，financial-review 声明包与同进程 mock 完成混合读取。公共 Query/Claim、Studio 已发布视图及 CLI 查询已切换到租户激活版本；这只关闭版本路由局部缺口，不关闭 Action、生产授权或 T08B。复现见 [本地业务样本](local-business-samples.md)。
+已交付的 SemanticQuery、Chat、词条/可加性/字典与 Python SDK 以 [能力清单](capabilities.md)、[架构](architecture.md) 和相应 ADR 为准，不重复保留历史派工提示词与分轮测试数字。
 
-G1–G5 已交回切片，后续以 [通用平台收口清单](maturity-closure.md) 统一跟踪，不重新派发已做完的工作。原 [goal 提示词](agent-goals.md) 保留任务来源。主 agent 持有公共架构、复杂数据与最终联合验收；T09 状态已纠正为切片通过而非整个产品完成。
+当前 T08A 清理公开仓库：移除已替代入口、重复声明、过时执行报告和私有数据导入脚本；保持语义契约、领域包、验收失败门槛与 SDK 行为不变。验证包含静态检查、Python/数据库回归、前端构建、浏览器路径及发行物检查。任务证据保存在忽略的 `.agents/repository-cleanup/`。
 
-### 当前优先切片：只读业务分析（2026-09-14）
-
-用户收窄目标为可运行且准确的企业业务分析，主 agent 负责领域定义、数据和核心实现，独立 agent 仅测试。验收范围与工具使用见 [AI 分析](ai-analysis.md)，[测试任务](analysis-test-goals.md)。本切片依赖既有 T01/T02/T03/T04 运行骨架，不将全部生产 gate 设为前置。
-
-已实现：typed Rule 与输出检查、派生 Metric、身份存在性及完整结构化身份（点查/Studio/HTTP/AI/Link/Action；集合分析复合 Link 仍明确拒绝）、完整粒度、可声明的对象期间校验；实例精确搜索与五个 HTTP 工具 Schema；financial-review 的分析视图、指标和规则。私有样本独立对数通过，扩展测试交独立 agent，不冒充全部验收关闭。
-
-T01 的物理 Mapping IR 继续下沉 adapter、T06 的真实 MCP/JWT、T05 的 Action 恢复、T09 的 Rule 编辑/完整联合 gate 均保留原状态。本轮不执行真实发布，不关闭 T08A/T08B。旧 M1–M3 广义工作安排是路线图，当前范围以此处优先级为准。
-
-### T06 Chat Harness 切片（2026-09-14 用户新增范围）
-
-用户明确要求 pi core/plugin、内置 Chat 与百炼联通，覆盖本任务原“不包含完整聊天产品”的限制。按 [ADR-0010](adr/0010-pi-chat-harness.md) 实施可选模块，复用既有业务工具/规则和 Studio 会话。
-
-交付：官方 pi-core/pi-ai 锁定依赖、SemaLoom hooks、受控 IPC 网关、服务器证据提交与自动 covered-rule 校验、会话历史、取消/预算、页面问答和 provider 私有配置。选型与命令见 [Chat Harness](chat-harness.md)。真实 MCP/JWT、Action 写入及广义生产 gate 仍不因本切片关闭。
-
-## 用户追加：集合分析与证据体验（T02/T06/T07/T09）
-
-交付受控年度 population 统计、独立数值对照、浏览器元数据表格、图谱就地工具；边界与验收提示词见 [分析质量](analysis-quality.md)。不依赖未就绪的 MCP/JWT，不关闭这些 gate。证据明细每指标最多 50 行分页，不把对象集合硬限制为 50；不提供无限 SQL/任意跨表分组。
-
-
-## 独立质量审计修复（用户授权增补）
-
-主责范围：A70–A73 的真实意图/确定性说明、模型工具 schema、企业本体配置保留、证据类型和图谱交互。依赖现有集合引擎与 Chat harness；维持领域/接入/协议中立核心的边界。分阶段实测及剩余限制以 [审计修复](audit-fixes.md) 为准；不改变 T06 JWT、原生 MCP 与整体生产 gate 状态。
-
-## 通用语义查询研究（用户后续方向）
-
-已完成开源源码/文档对照，结论与可验证迁移步骤见 [通用语义查询建议](semantic-query-design.md)。Q0 已在隔离 PostgreSQL 上运行 Wren 与 SQLAlchemy/SQLGlot，并冻结契约：[ADR-0011](adr/0011-semantic-query-planner.md)、[直接计算样例](spec/samples/semantic-query-direct.json)、[两轮选择样例](spec/samples/semantic-query-two-round.json)。主实现为 SQLAlchemy 参数化 SQL + SQLGlot allowlist，不把 Wren 纳入发行物。Q0 不声称产品迁移完成。
-
-## 通用查询与选择式澄清派工
-
-用户新增要求：可确定即明确回答；影响结果的信息不全时主动提供选择题、持久化补全后继续；优先实测官方插件/SDK，缺口才最小实现；迁移删除重复逻辑。任务 Q0–Q4 与依赖、所有权、交接要求统一见 [派工提示词](semantic-query-goals.md)。Q0 契约版本 `semaloom/v0.1` SemanticQuery 已冻结。Q1 拥有 core/compiler/runtime/adapters；Q2 拥有 app/chat 与 harness；Q3 拥有 frontend；Q4 只新增独立测试与报告。
-
-### Q0–Q4 主责复验（2026-09-14）
-
-主责修复与实际能力见 [收口报告](semantic-query-closure.md)。同表通用分析、选择式澄清、表格证据和对应独立回归已收口；Q1 已声明 ONE PostgreSQL Link 集合（同源 SQL JOIN、跨源引擎 bind-join）已交付，多指标联合排序/比较与一对多仍未闭合。Q4 原报告的离线 PASS 不替代本轮真实模型与反例验证。MCP/JWT/生产 Pilot 状态不变。
-
-### 本体目录问答与图谱布局修正（2026-09-15）
-
-用户追加的当前范围：修复开放式本体目录介绍被事实校验拒绝、图谱线条/文字混乱。采用固定版本的分页业务定义工具与明确区分的 AI 本体说明，保留事实计算边界；图谱复用 ELK 统一正交布局，删除旧曲线与标签排布。Python、HTTP、真实模型及浏览器检查记录在 `.agents/ontology-discovery-layout/handoff.md`。本轮不关闭跨表集合查询、生产身份、原生 MCP 或任意自然语言准确性 gate。
-
-### 确定性结果组合呈现（2026-09-20）
-
-Chat 已增加受限 `ResultPresentation` 目录，将已授权 Evidence 中的引擎值投影为 KPI、表格、柱状图和趋势图，并保留原 EvidenceCard 负责完整口径与物理来源。后续纵向切片把投影所有权收回 Chat 应用层：adapter 提供通用列角色/类型/单位，浏览器只验证版本化 projection，不再按行业 ID 或展示文案推断图表。该切片不允许任意网络、URL、业务 Action 或浏览器计算进入目录，也不改变 Python 查询、授权和证据事实；实现决策见 [ADR-0009](adr/0009-progressive-studio-dependencies.md)，验证记录见 `.agents/json-render-results/handoff.md` 与 `.agents/deterministic-presentation-contract/handoff.md`。这扩展 T06/T09 的确定性展示能力，不关闭生产身份、Action 或 T09 联合 gate。
-
-自适应问答纵向切片进一步收口：选择控件由服务器按 ChoiceKind 决定，前端删除 slot 名分支和重复下拉/卡片；显式多年度与“近 N 年趋势”固定为年度 grain；报告只从聚合 QueryResult.values 生成，逐条 EvidenceTable 保持审计用途。timeGrain 默认趋势图、单维默认分布、多维默认表格，仍允许用户切换。本体没有增加组件或布局字段，Pi 仍只处理开放语言与工具编排。验证记录见 `.agents/adaptive-query-experience/handoff.md`。
+下一步仍为生产身份、原生 MCP、Action 持久恢复及 Studio 联合验收；本次仓库整理不关闭这些 gate，也不声称模型具备普适准确率。

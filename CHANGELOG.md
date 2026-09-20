@@ -5,6 +5,15 @@ versioning for published releases. During `0.x`, incompatible changes are docume
 
 ## [Unreleased]
 
+### Repository maintenance
+
+- Remove the unreachable draft editor, duplicate frontend types/helpers and the compiler digest
+  forwarding module. Shared definition fields and core digest code retain one implementation.
+- Retire superseded agent prompts, execution reports and private sample-import workflows from
+  the public tree. Current behavior and limits live in architecture, capabilities and acceptance.
+- Reuse real application assembly for isolated browser tests; load only synthetic fixtures,
+  reject occupied database ports, support configurable PostgreSQL binaries and clean up on exit.
+
 ### Added
 
 - Embedded read-only `semaloom.sdk.SemanticEngine`, sharing the application runtime with pinned

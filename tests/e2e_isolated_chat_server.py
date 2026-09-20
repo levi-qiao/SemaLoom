@@ -3,65 +3,32 @@
 from __future__ import annotations
 
 import os
+import shutil
+import signal
 import socket
 import subprocess
-import time
-from dataclasses import dataclass
+import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from semaloom.adapters.postgres import PostgresReadProvider
-from semaloom.app.chat.service import ChatService
-from semaloom.app.chat.store import ChatStore
-from semaloom.app.factory import _mount_studio, create_app
-from semaloom.app.http import router
-from semaloom.core.bundle import CompiledBundle
-from semaloom.runtime.action import ActionService, DraftStore
-from semaloom.runtime.fixtures import ensure_control_schema
-from semaloom.runtime.query import QueryService
-from semaloom.runtime.registry import Registry
-from semaloom.runtime.session import StudioSessionService
-from semaloom.runtime.source_registry import SourceProfileService
-from semaloom.runtime.studio_control import StudioDraftService
-from semaloom.runtime.studio_release import StudioReleaseService
-from semaloom.sdk import compile_paths
+from semaloom.app.factory import create_app
 
 REPO = Path(__file__).resolve().parents[1]
 HARNESS = REPO / "harness"
-PG16 = Path("/opt/homebrew/opt/postgresql@16/bin")
 HTTP_PORT = int(os.getenv("SEMALOOM_E2E_HTTP_PORT", "18082"))
 PG_PORT = int(os.getenv("SEMALOOM_E2E_PG_PORT", "55433"))
-SCRATCH = Path(
-    os.getenv(
-        "SEMALOOM_E2E_SCRATCH",
-        "/var/folders/w6/c0cnf1y93l92d34q4bjq90r40000gn/T/grok-goal-14052e0ed963/implementer",
-    )
-)
 
 
-@dataclass
-class IsolatedServices:
-    bundle: CompiledBundle
-    query: QueryService
-    registry: Registry
-    actions: ActionService
-    drafts: DraftStore
-    provider: PostgresReadProvider
-    studio_drafts: StudioDraftService
-    source_profiles: SourceProfileService
-    environment_bindings: dict[str, str]
-    studio_releases: StudioReleaseService
-    sessions: StudioSessionService
-    environment: str = "dev"
-
-    def query_active(self, tenant: str | None = None) -> QueryService:
-        return self.query
-
-    def close(self) -> None:
-        self.provider.close()
+def postgres_binary(name: str) -> str:
+    bindir = os.getenv("SEMALOOM_E2E_PG_BINDIR")
+    executable = str(Path(bindir) / name) if bindir else shutil.which(name)
+    if not executable or not Path(executable).is_file():
+        raise RuntimeError(f"Install PostgreSQL and set SEMALOOM_E2E_PG_BINDIR: missing {name}")
+    return executable
 
 
 def _port_open(port: int) -> bool:
@@ -70,43 +37,43 @@ def _port_open(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-def ensure_postgres() -> str:
+def ensure_postgres(scratch: Path) -> str:
+    if _port_open(PG_PORT):
+        raise RuntimeError(f"Refusing to reuse occupied PostgreSQL port {PG_PORT}")
     url = f"postgresql+psycopg://semaloom@127.0.0.1:{PG_PORT}/q3_e2e"
-    pgdata = SCRATCH / "q3-pgdata"
-    if not _port_open(PG_PORT):
-        pgdata.mkdir(parents=True, exist_ok=True)
-        if not (pgdata / "PG_VERSION").exists():
-            subprocess.check_call(
-                [
-                    str(PG16 / "initdb"),
-                    "-D",
-                    str(pgdata),
-                    "--auth=trust",
-                    "--username=semaloom",
-                    "--encoding=UTF8",
-                    "--locale=C",
-                    "--no-instructions",
-                ]
-            )
-            conf = pgdata / "postgresql.conf"
-            conf.write_text(
-                conf.read_text(encoding="utf-8") + "\nlisten_addresses = '127.0.0.1'\n"
-                f"port = {PG_PORT}\n"
-                "unix_socket_directories = ''\n",
-                encoding="utf-8",
-            )
+    pgdata = scratch / "q3-pgdata"
+    pgdata.mkdir(parents=True, exist_ok=True)
+    if not (pgdata / "PG_VERSION").exists():
         subprocess.check_call(
             [
-                str(PG16 / "pg_ctl"),
+                postgres_binary("initdb"),
                 "-D",
                 str(pgdata),
-                "-l",
-                str(SCRATCH / "q3-pg.log"),
-                "-w",
-                "start",
+                "--auth=trust",
+                "--username=semaloom",
+                "--encoding=UTF8",
+                "--locale=C",
+                "--no-instructions",
             ]
         )
-        time.sleep(0.3)
+        conf = pgdata / "postgresql.conf"
+        conf.write_text(
+            conf.read_text(encoding="utf-8") + "\nlisten_addresses = '127.0.0.1'\n"
+            f"port = {PG_PORT}\n"
+            "unix_socket_directories = ''\n",
+            encoding="utf-8",
+        )
+    subprocess.check_call(
+        [
+            postgres_binary("pg_ctl"),
+            "-D",
+            str(pgdata),
+            "-l",
+            str(scratch / "q3-pg.log"),
+            "-w",
+            "start",
+        ]
+    )
     probe = create_engine(
         f"postgresql+psycopg://semaloom@127.0.0.1:{PG_PORT}/postgres",
         isolation_level="AUTOCOMMIT",
@@ -185,57 +152,61 @@ def load_review_table(engine: Engine) -> None:
         )
 
 
-def build_app() -> FastAPI:
-    url = ensure_postgres()
-    engine = create_engine(url)
-    ensure_control_schema(engine)
-    load_review_table(engine)
-    bundle = compile_paths([REPO / "examples" / "financial-review"]).bundle
-    if bundle is None:
-        raise RuntimeError("financial-review failed to compile")
-    provider = PostgresReadProvider({"sample_pg": engine})
-    query = QueryService(bundle, provider)
-    registry = Registry(engine)
-    drafts = DraftStore()
-    source_profiles = SourceProfileService(engine)
-    studio_drafts = StudioDraftService(engine, bundle)
-    services = IsolatedServices(
-        bundle=bundle,
-        query=query,
-        registry=registry,
-        actions=ActionService(bundle, engine, drafts),
-        drafts=drafts,
-        provider=provider,
-        studio_drafts=studio_drafts,
-        source_profiles=source_profiles,
-        environment_bindings={},
-        studio_releases=StudioReleaseService(engine, studio_drafts, source_profiles, registry),
-        sessions=StudioSessionService(engine),
+def build_app(scratch: Path) -> FastAPI:
+    url = ensure_postgres(scratch)
+    # All source and metadata writes stay inside this task-owned PostgreSQL instance.
+    for name in ("TAX", "ORDERS", "SUPPLIERS", "META"):
+        os.environ[f"SEMALOOM_{name}_DATABASE_URL"] = url
+    os.environ.pop("SEMALOOM_SAMPLE_DATABASE_URL", None)
+    os.environ["SEMALOOM_PACK_PATHS"] = os.pathsep.join(
+        str(REPO / "examples" / name) for name in ("tax", "procurement", "financial-review")
     )
-    config = SCRATCH / "q3-provider.json"
+    for name in ("TAX", "PROCUREMENT"):
+        os.environ[f"SEMALOOM_{name}_API_URL"] = f"http://127.0.0.1:{HTTP_PORT}"
+    config = scratch / "provider.json"
     config.write_text(
         '{"apiKey":"e2e-not-used","baseUrl":"https://example.invalid/v1","model":"faux-e2e"}',
         encoding="utf-8",
     )
-    app = create_app(load_services=False)
-    from semaloom.app.chat.http import router as chat_router
-
-    app.include_router(router)
-    app.include_router(chat_router)
-    _mount_studio(app)
-    app.state.services = services
-    app.state.chat = ChatService(ChatStore(engine), config)
+    os.environ["SEMALOOM_CHAT_CONFIG"] = str(config)
+    app = create_app(profile="local-dev", load_fixtures=True)
+    services = app.state.services
+    load_review_table(services.studio_drafts.engine)
+    services.environment_bindings["env:SEMALOOM_E2E_REVIEW_URL"] = url
+    for tenant in ("tenant-a", "tenant-b"):
+        services.source_profiles.save(
+            tenant=tenant,
+            actor="e2e",
+            source_id="sample_pg",
+            expected_revision=0,
+            label="Synthetic financial review",
+            provider="postgres",
+            binding_ref="env:SEMALOOM_E2E_REVIEW_URL",
+            secret_ref=None,
+            settings={},
+        )
     app.state.chat.worker = HARNESS / "e2e-faux-worker.mjs"
     return app
 
 
 def main() -> None:
-    SCRATCH.mkdir(parents=True, exist_ok=True)
-    app = build_app()
     import uvicorn
 
-    print(f"Q3_E2E_READY http://127.0.0.1:{HTTP_PORT}", flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=HTTP_PORT, log_level="warning")
+    # Uvicorn re-raises SIGTERM after shutdown; unwind our owned database lifecycle too.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    with TemporaryDirectory(prefix="semaloom-e2e-", dir=os.getenv("SEMALOOM_E2E_SCRATCH")) as root:
+        scratch = Path(root)
+        try:
+            app = build_app(scratch)
+            print(f"E2E_READY http://127.0.0.1:{HTTP_PORT}", flush=True)
+            uvicorn.run(app, host="127.0.0.1", port=HTTP_PORT, log_level="warning")
+        finally:
+            pgdata = scratch / "q3-pgdata"
+            if (pgdata / "postmaster.pid").exists():
+                subprocess.run(
+                    [postgres_binary("pg_ctl"), "-D", str(pgdata), "-m", "fast", "-w", "stop"],
+                    check=True,
+                )
 
 
 if __name__ == "__main__":
