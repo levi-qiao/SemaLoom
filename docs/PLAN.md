@@ -2,6 +2,10 @@
 
 ## 1. 目标与当前状态
 
+### 用户追加：架构收口与嵌入式 Python SDK（2026-09-20）
+
+依赖已有 T01/T02/T03/T06 只读能力。范围：落实 ADR-0006 的物理编译注入、单一 Runtime 的只读 SDK、版本/授权/缺失及失败回归、发行物完整性与开源文件检查。维持核心领域中立，不增加自然语言正确性或生产 IAM 承诺。接口见 [Python SDK](python-sdk.md)，审查结论见 [architecture review](architecture-review.md)。不关闭 T05 恢复、T06 生产身份、T08B 或 Studio 联合 gate。
+
 SemaLoom 是 **Python 编写、采用 Apache-2.0、领域与协议中立的通用企业业务语义层**。企业以领域包维护业务定义，以独立接入绑定与 adapter 对接系统，Agent 通过语义标识使用它们，事实以业务系统为准。首版通过 PostgreSQL 和受控 OpenAPI 完成查询、判断及草稿操作闭环。
 
 当前实现覆盖编译、PostgreSQL 点查、有限跨库 Link、规则、发布注册表、Action 与 Studio 的合成纵向切片。完整状态见第 8 节；未通过后续 gate 的原型不标记为完成。各任务的完成条件以 [验收矩阵](acceptance.md) 为准。

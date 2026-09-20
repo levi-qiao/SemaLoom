@@ -18,12 +18,12 @@ from sqlalchemy import text
 from semaloom.app.bootstrap import build_services, compile_examples
 from semaloom.app.factory import create_app
 from semaloom.app.http import router
-from semaloom.compiler import compile_documents
 from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.fixtures import configured_urls, engines
 from semaloom.runtime.query import QueryService
 from semaloom.runtime.studio_control import documents_from_bundle
+from semaloom.sdk import compile_documents
 from tests.g4_gold_cases import (
     ANALYST,
     APPROVER,

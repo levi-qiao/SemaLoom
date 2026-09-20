@@ -9,9 +9,9 @@ import pytest
 from ops.ai.evaluate_chat import verdict
 
 from semaloom.app.chat.tools import SemanticTools
-from semaloom.compiler import compile_paths
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
+from semaloom.sdk import compile_paths
 
 
 @pytest.fixture

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from semaloom.compiler import compile_paths
 from semaloom.core.measure import aggregation_legal, aggregations_for, default_aggregation
 from semaloom.core.semantic_query import (
     FilterAtom,
@@ -15,6 +14,7 @@ from semaloom.core.semantic_query import (
 )
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.discovery import SemanticDiscovery
+from semaloom.sdk import compile_paths
 
 ROOT = Path(__file__).resolve().parents[1]
 

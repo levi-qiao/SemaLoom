@@ -5,13 +5,13 @@ from pathlib import Path
 import pytest
 
 from semaloom.app.chat.tools import SemanticTools
-from semaloom.compiler.api import compile_documents
 from semaloom.core.model import MappingDef
 from semaloom.core.provider import IdentityScalar, IdentityValue, ObjectRead, ObjectSearch
 from semaloom.core.results import ObjectSelect, Observation, QueryContext, QueryRequest
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
 from semaloom.runtime.studio import studio_mapping_preview
+from semaloom.sdk import compile_documents
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTOR = RequestActor(tenant="tenant-a", subject="reader", roles=("analyst",))

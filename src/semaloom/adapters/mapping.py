@@ -1,4 +1,4 @@
-"""Compile provider-specific Mapping physical config into neutral runtime metadata."""
+"""Built-in PostgreSQL/OpenAPI mapping compilation, owned by the integration layer."""
 
 from __future__ import annotations
 
@@ -21,6 +21,21 @@ _LEGACY_IDENTITY_FIELDS = frozenset(
         "identityPointers",
     }
 )
+
+
+class BuiltinMappingCompiler:
+    """Trusted physical compiler for the two shipped read-provider profiles."""
+
+    def compile_mappings(
+        self,
+        objects: Sequence[ObjectTypeDef],
+        mappings: Sequence[MappingDef],
+        diagnostics: list[Diagnostic],
+    ) -> list[MappingDef]:
+        return compile_mapping_ir(objects, mappings, diagnostics)
+
+    def derive_metric(self, source: MappingDef, metric: MetricDef, mapping_id: str) -> MappingDef:
+        return derive_metric_mapping(source, metric, mapping_id)
 
 
 def compile_mapping_ir(
@@ -90,8 +105,11 @@ def derive_metric_mapping(source: MappingDef, metric: MetricDef, mapping_id: str
         filters = dict(physical.get("filters") or {})
         for key, value in metric.select.items():
             selected = slots.get(key)
-            if selected is not None:
-                filters[selected] = value
+            if selected is None:
+                raise ValueError(f"metric selector {key!r} has no mapped column")
+            if selected in filters and filters[selected] != value:
+                raise ValueError(f"metric selector {key!r} conflicts with the source filter")
+            filters[selected] = value
         if metric.perspective:
             selected = slots.get("perspective")
             if selected is not None:
@@ -104,8 +122,11 @@ def derive_metric_mapping(source: MappingDef, metric: MetricDef, mapping_id: str
         params = _string_map(physical, "parameterBindings")
         for key, value in metric.select.items():
             parameter = params.get(key)
-            if parameter is not None:
-                fixed[parameter] = value
+            if parameter is None:
+                raise ValueError(f"metric selector {key!r} has no bound API parameter")
+            if parameter in fixed and fixed[parameter] != value:
+                raise ValueError(f"metric selector {key!r} conflicts with the source filter")
+            fixed[parameter] = value
         if metric.perspective:
             parameter = params.get("perspective")
             if parameter is not None:

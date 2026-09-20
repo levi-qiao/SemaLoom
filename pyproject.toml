@@ -72,6 +72,10 @@ include = [
     "/compose.yaml",
     "/ops",
     "/harness",
+    "/frontend",
+    "/uv.lock",
+    "/.python-version",
+    "/CONTEXT.md",
     "/pyproject.toml",
 ]
 exclude = [
@@ -79,6 +83,10 @@ exclude = [
     "/docs/local-business-samples.md",
     "/ops/data",
     "/harness/node_modules",
+    "/frontend/node_modules",
+    "/frontend/dist",
+    "/frontend/test-results",
+    "**/node_modules/**",
 ]
 
 [tool.ruff]
@@ -126,6 +134,7 @@ default-groups = ["dev"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "harness/worker.mjs" = "semaloom/app/chat/harness/worker.mjs"
+"harness/context-transform.mjs" = "semaloom/app/chat/harness/context-transform.mjs"
 "harness/semantic-plugin.mjs" = "semaloom/app/chat/harness/semantic-plugin.mjs"
 "harness/provider.mjs" = "semaloom/app/chat/harness/provider.mjs"
 "harness/package.json" = "semaloom/app/chat/harness/package.json"

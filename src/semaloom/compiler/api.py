@@ -13,9 +13,9 @@ from pydantic import ValidationError
 
 from semaloom import __version__
 from semaloom.compiler.digest import physical_digest, sha256_digest
-from semaloom.compiler.mapping_ir import compile_mapping_ir, derive_metric_mapping
 from semaloom.compiler.yaml_load import load_yaml_documents
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.compilation import MappingCompiler
 from semaloom.core.diagnostics import Diagnostic
 from semaloom.core.expr import collect_refs, expression_type
 from semaloom.core.ids import (
@@ -106,18 +106,22 @@ class CompileResult:
 def compile_paths(
     roots: Sequence[Path],
     *,
+    mapping_compiler: MappingCompiler,
     catalog_snapshot: Mapping[str, Any] | None = None,
 ) -> CompileResult:
     documents: list[tuple[str, dict[str, Any]]] = []
     for root in roots:
         for path, data in load_yaml_documents(root):
             documents.append((str(path), data))
-    return compile_documents(documents, catalog_snapshot=catalog_snapshot)
+    return compile_documents(
+        documents, mapping_compiler=mapping_compiler, catalog_snapshot=catalog_snapshot
+    )
 
 
 def compile_documents(
     documents: Sequence[object],
     *,
+    mapping_compiler: MappingCompiler,
     catalog_snapshot: Mapping[str, Any] | None = None,
 ) -> CompileResult:
     diagnostics: list[Diagnostic] = []
@@ -172,10 +176,16 @@ def compile_documents(
     mappings = [item for item in parsed if isinstance(item, MappingDef)]
     bindings = [item for item in parsed if isinstance(item, ActionBindingDef)]
 
-    mappings = compile_mapping_ir(objects, mappings, diagnostics)
+    mappings = mapping_compiler.compile_mappings(objects, mappings, diagnostics)
+    if any(item.severity == "error" for item in diagnostics):
+        return CompileResult(
+            ok=False, bundle=None, diagnostics=tuple(diagnostics), online_validation=online
+        )
     metrics = _metrics_from_properties(objects, metrics, mappings)
     metrics = _materialize_metrics(objects, metrics, mappings, diagnostics)
-    mappings, integrations = _bind_metric_mappings(metrics, mappings, integrations)
+    mappings, integrations = _bind_metric_mappings(
+        metrics, mappings, integrations, mapping_compiler, diagnostics
+    )
 
     compiled_docs = [
         *packs,
@@ -265,12 +275,8 @@ def _sorted(items: Iterable[Any]) -> list[Any]:
     return sorted(items, key=lambda item: (item.kind, item.id, item.version))
 
 
-def _physical_slots(mapping: MappingDef) -> dict[str, str]:
-    return {key: key for key in (*mapping.grain_fields, *mapping.property_fields)}
-
-
-def _grain_slots(mapping: MappingDef) -> dict[str, str]:
-    return {key: key for key in mapping.grain_fields}
+def _mapped_fields(mapping: MappingDef) -> tuple[str, ...]:
+    return tuple(dict.fromkeys((*mapping.grain_fields, *mapping.property_fields)))
 
 
 def _metrics_from_properties(
@@ -287,7 +293,7 @@ def _metrics_from_properties(
             slot
             for mapping in mappings
             if mapping.target == obj.id
-            for slot in _physical_slots(mapping)
+            for slot in _mapped_fields(mapping)
         }
         for prop in obj.properties:
             if not prop.unit or prop.value_type not in {"DECIMAL", "INTEGER"}:
@@ -326,7 +332,7 @@ def _covering_mappings(metric: MetricDef, mappings: Sequence[MappingDef]) -> lis
     return [
         mapping
         for mapping in mappings
-        if mapping.target == metric.object_type and metric.property in _physical_slots(mapping)
+        if mapping.target == metric.object_type and metric.property in _mapped_fields(mapping)
     ]
 
 
@@ -386,7 +392,7 @@ def _materialize_metrics(
             if covering:
                 dims = [
                     key
-                    for key in _grain_slots(covering[0])
+                    for key in covering[0].grain_fields
                     if key not in select_keys and key != metric.property
                 ]
             if not dims and obj is not None and metric.property:
@@ -409,6 +415,8 @@ def _bind_metric_mappings(
     metrics: Sequence[MetricDef],
     mappings: Sequence[MappingDef],
     integrations: Sequence[IntegrationBindingDef],
+    mapping_compiler: MappingCompiler,
+    diagnostics: list[Diagnostic],
 ) -> tuple[list[MappingDef], list[IntegrationBindingDef]]:
     existing_ids = {item.id for item in mappings}
     mapped_targets = {item.target for item in mappings}
@@ -424,7 +432,13 @@ def _bind_metric_mappings(
                 mapping_id = f"{metric.id}.via_{source.id.rpartition('.')[-1]}"
             if mapping_id in existing_ids or mapping_id in owners:
                 continue
-            extra.append(derive_metric_mapping(source, metric, mapping_id))
+            try:
+                extra.append(mapping_compiler.derive_metric(source, metric, mapping_id))
+            except ValueError as exc:
+                diagnostics.append(
+                    Diagnostic(code="INVALID_MAPPING", path=metric.id, message=str(exc))
+                )
+                continue
             owners[mapping_id] = source.id
             existing_ids.add(mapping_id)
     if not extra:

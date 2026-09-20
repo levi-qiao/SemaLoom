@@ -42,7 +42,7 @@ Q0 指定共同基线和契约版本。Q1/Q2/Q3 各使用包含该基线的独�
 复制此前缀，再附上对应任务正文；也可以使用文末短提示词让 agent 自行读取。
 
 ```text
-项目：/Users/leviqiao/code/oh-my-code/SemaLoom。
+项目：当前 SemaLoom 仓库根目录。
 执行 docs/semantic-query-goals.md 中分配给你的任务，遵守本文用户期望、派发顺序和文件所有权。先读 AGENTS.md 要求的 CONTEXT、architecture、PLAN、semantic-contract、acceptance、SECURITY，以及 docs/semantic-query-design.md。UI 任务再读 DESIGN 与 Studio ADR。
 
 先检查 diff 和任务依赖，保留他人改动。已有授权范围内完成实现、验证和交付；未具备的依赖明确记录，先推进独立工作。只执行分配任务，不自行启动其他 agent。
@@ -157,7 +157,7 @@ Q2交互契约固定后执行。独占frontend及对应测试/依赖/构建产�
 ## 最短派发用语
 
 ```text
-执行 /Users/leviqiao/code/oh-my-code/SemaLoom/docs/semantic-query-goals.md 的 Q0。
+执行本仓库 docs/semantic-query-goals.md 的 Q0。
 先读该文件的用户期望、共同前缀、任务依赖与Q0全文，完成到交付标准。其他任务不执行。交回 .agents/semantic-query/Q0/handoff.md。
 ```
 

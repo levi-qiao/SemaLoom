@@ -9,7 +9,6 @@ from sqlalchemy import text
 
 from semaloom.app.chat.choices import prepare_turn, try_direct_turn
 from semaloom.app.chat.intent import TurnIntent
-from semaloom.compiler import compile_paths
 from semaloom.core.semantic_query import (
     ComparisonExpr,
     FilterAtom,
@@ -18,6 +17,7 @@ from semaloom.core.semantic_query import (
     TypedValue,
 )
 from semaloom.runtime.analysis import execute, prepare
+from semaloom.sdk import compile_paths
 from tests.test_bind_join_collection import procurement_query  # noqa: F401
 from tests.test_business_analysis import ACTOR, ROOT, financial_query  # noqa: F401
 from tests.test_q4_semantic_audit import warehouse  # noqa: F401

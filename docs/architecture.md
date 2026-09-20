@@ -65,7 +65,7 @@ flowchart TD
     INFRA --> B[来源 B：独立连接配置]
 ```
 
-图表示运行协作；Python import 方向是 `app → adapters → core`，`app → core`，`compiler → core model`；app 将 adapter 的验证/编译能力注入 Compiler。Core 和公共 Compiler 不依赖协议实现、厂商 SDK 或领域包代码。Composition root 在 app 中装配实现；Provider 返回规范化观测，不向 Rule 暴露数据库 Row 或 ORM 实例。
+图表示运行协作；Python import 方向是 `app → sdk → compiler/runtime/adapters → core`；SDK 将 adapter 的 `MappingCompiler` 注入公共 Compiler。Core 和公共 Compiler 不依赖协议实现、厂商 SDK、SDK 装配入口或领域包代码，导入检查覆盖这些反向依赖。应用生命周期仍在 app 装配；嵌入式调用直接使用 [Python SDK](python-sdk.md)，不初始化 Studio、示例数据或 metadata。Provider 返回规范化观测，不向 Rule 暴露数据库 Row 或 ORM 实例。
 
 | Module | 拥有的行为与小接口 | 不应泄露给调用方的实现 |
 | --- | --- | --- |
@@ -181,7 +181,7 @@ PoC、开源准备与真实 pilot 分别由 [PLAN](PLAN.md) 的 gate 验收；�
 
 ## 有界集合分析
 
-集合分析由 `SemanticQuery` prepare/execute 拥有。Chat 使用 `prepare_semantic_query`；HTTP 为 `POST /v0.1/semantic/prepare` 与 `/execute`。没有第二条统计引擎或 `analyze_population` 兼容入口。测量槽声明 Kimball 可加性，查询算子仍在 SemanticQuery 上，见 [ADR-0013](adr/0013-measure-additivity.md)。Metric 是查询面一级公民、作者面为测量槽 + 可选词条，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。Metric.population 由领域包声明，不在 core 编写财税分支。50 只限明细分页，不截断总体聚合。声明 Link 用于点查；集合分析可沿 ONE 同源 PostgreSQL Link 做关联属性分组/筛选，一对多与跨源 JOIN 未开放。详细能力和限制见 [分析质量](analysis-quality.md) 与 [主责收口](semantic-query-closure.md)。
+集合分析由 `SemanticQuery` prepare/execute 拥有。Chat 使用 `prepare_semantic_query`；HTTP 为 `POST /v0.1/semantic/prepare` 与 `/execute`。没有第二条统计引擎或 `analyze_population` 兼容入口。测量槽声明 Kimball 可加性，查询算子仍在 SemanticQuery 上，见 [ADR-0013](adr/0013-measure-additivity.md)。Metric 是查询面一级公民、作者面为测量槽 + 可选词条，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。Metric.population 由领域包声明，不在 core 编写财税分支。50 只限明细分页，不截断总体聚合。声明 Link 用于点查；集合分析可沿 ONE、单键 PostgreSQL Link 做关联属性分组/筛选：同源 SQL JOIN，跨源有界 bind-join；一对多与复合 Link 未开放。详细能力和限制见 [分析质量](analysis-quality.md) 与 [主责收口](semantic-query-closure.md)。
 
 ### 企业配置与 Chat 边界
 

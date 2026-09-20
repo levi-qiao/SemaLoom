@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from semaloom.adapters.mapping import BuiltinMappingCompiler
 from semaloom.compiler import compile_documents
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.diagnostics import Diagnostic
@@ -374,7 +375,7 @@ def _decode_documents(value: object) -> tuple[Document, ...]:
 
 def _compile(documents: tuple[Document, ...]) -> CompiledBundle:
     inputs = [(f"draft/{index}.json", document) for index, document in enumerate(documents)]
-    result = compile_documents(inputs)
+    result = compile_documents(inputs, mapping_compiler=BuiltinMappingCompiler())
     if not result.ok or result.bundle is None:
         raise InvalidDraft(result.diagnostics)
     return result.bundle

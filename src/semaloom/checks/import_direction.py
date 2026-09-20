@@ -12,6 +12,14 @@ import semaloom
 FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "semaloom.adapters",
     "semaloom.domains",
+    "semaloom.app",
+    "semaloom.sdk",
+    "semaloom.runtime",
+    "fastapi",
+    "sqlalchemy",
+    "sqlglot",
+    "psycopg",
+    "httpx",
     "examples",
 )
 

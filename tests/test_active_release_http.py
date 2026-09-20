@@ -7,10 +7,10 @@ from fastapi.testclient import TestClient
 from semaloom.app.bootstrap import build_services
 from semaloom.app.factory import create_app
 from semaloom.app.http import router
-from semaloom.compiler import compile_documents
 from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.studio_control import documents_from_bundle
+from semaloom.sdk import compile_documents
 
 
 def test_tenant_activation_changes_public_query_claim_and_studio() -> None:

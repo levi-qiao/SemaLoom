@@ -6,6 +6,8 @@
 
 ## Implementation conventions
 
+嵌入式消费者和 app 使用 `semaloom.sdk` 的编译装配入口；低层 `semaloom.compiler` 必须显式注入 `MappingCompiler`，不能反向导入 SDK/接入实现。新增协议在 adapter 实现，不在通用 Compiler 写协议分支。接口与迁移见 [Python SDK](docs/python-sdk.md)。
+
 - 后端使用 Python + FastAPI，单个 `pyproject.toml`、`src/semaloom/` 包与 `uv.lock`。已验证组合：Python 3.13（`.python-version` 与 `requires-python = ">=3.13"`）、Ruff、mypy、pytest。IDE 的 Pyright/basedpyright 通过 `[tool.pyright]` 对齐同一套源码与 `.venv`，不是第二套 CI 类型检查器。
 - 公开 JSON 使用 camelCase：Pydantic 模型用 `wire_config()` / `alias_generator=to_camel`。Python 构造函数只写字段名（`result_id=`）。禁止 `Field(alias=...)`，否则 Pyright 会把 JSON 名当成唯一构造参数。线名不是 `to_camel(field)` 时用 `validation_alias` + `serialization_alias`。
 - 依赖通过 uv 锁定，在仓库根 `.venv` 中运行：已有锁文件时使用 `uv sync --frozen`；命令通过 `uv run` 或 `.venv/bin/python` 执行。禁止 Conda、系统 pip、`pip --user` 或修改其他项目环境。

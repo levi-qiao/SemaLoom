@@ -21,7 +21,9 @@ to test reuse; neither domain is built into the core.
 - Deterministic compilation of two synthetic domain packs.
 - PostgreSQL metric and object reads with tenant filters and typed evidence.
 - In-process links across databases using complete declared business identities, including composite keys.
-- Exact-decimal numeric rules with distinct TRUE, FALSE, UNKNOWN, and operational failure outcomes.
+- Typed, exact-decimal rules with distinct TRUE, FALSE, UNKNOWN, and operational failure outcomes.
+- An [embedded Python SDK](docs/python-sdk.md) for compilation, discovery, point queries,
+  collection analysis and claims, using the same runtime without starting a web server.
 - Immutable semantic candidate validation, independent approval and release activation, plus a
   plan/approve/execute prototype that writes an in-process draft store.
 - Read-only OpenAPI mappings and disjoint PostgreSQL/API properties for the same entity, composed
@@ -32,7 +34,7 @@ to test reuse; neither domain is built into the core.
 
 Not in this tree: production identity (local demo tokens only; other profiles refuse to start),
 MCP SDK transport (`GET /v0.1/mcp/tools` is a static name list), composite-key cross-source collection
-analysis, BOOLEAN / STRING / DATE rule execution, enterprise Action recovery, a finished structured
+analysis, enterprise Action recovery, a finished structured
 Rule editor, and the joint Studio gate. See [capabilities and limits](docs/capabilities.md).
 
 For the implemented read-only business-analysis flow, HTTP tool schemas and AI host instructions,
@@ -51,7 +53,7 @@ uv run semaloom load-fixtures
 uv run semaloom compile examples/tax examples/procurement
 uv run semaloom query \
   --metric tax.reportedIncome \
-  --binding taxpayer=TAXPAYER-A \
+  --binding taxpayerId=TAXPAYER-A \
   --binding taxYear=2024 \
   --binding perspective=TAX_RETURN \
   --period-from 2024-01-01 \

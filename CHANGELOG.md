@@ -7,6 +7,10 @@ versioning for published releases. During `0.x`, incompatible changes are docume
 
 ### Added
 
+- Embedded read-only `semaloom.sdk.SemanticEngine`, sharing the application runtime with pinned
+  releases, explicit host identities, typed results and caller-owned providers. See
+  [Python SDK](docs/python-sdk.md) for integration and current limits.
+
 - Frozen `SemanticQuery` prepare/choice contract (`READY` / `NEEDS_INPUT` / `UNSUPPORTED` /
   `SOURCE_ERROR`) with direct-compute and two-round samples. Planner selection is ADR-0011;
   product migration is not claimed complete.
@@ -36,6 +40,12 @@ versioning for published releases. During `0.x`, incompatible changes are docume
   control density and do not overflow at 1440×900 or 390×844.
 
 ### Changed
+
+- Physical mapping compilation now belongs to adapters, injected through `MappingCompiler`.
+  Use SDK compile helpers for built-in profiles; direct compiler calls require explicit injection.
+  Unsupported/unbound metric selectors and conflicting fixed filters fail compilation.
+- Wheels include the harness context-transform module; sdists include locked frontend/Python
+  build inputs. Installed SDK imports and local harness module completeness are verified.
 
 - Observed facts bind through one object Mapping per fact table. Metric documents are
   business vocabulary (stable id, aliases, optional code filter) that inherit grain/unit

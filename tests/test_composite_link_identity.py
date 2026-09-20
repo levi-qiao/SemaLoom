@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from semaloom.compiler.api import compile_documents
 from semaloom.core.model import MappingDef
 from semaloom.core.provider import IdentityScalar, IdentityValue, ObjectRead, ObjectSearch
 from semaloom.core.results import Observation
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
+from semaloom.sdk import compile_documents
 
 ACTOR = RequestActor(tenant="tenant-a", subject="reader", roles=("analyst",))
 

@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from semaloom.checks.import_direction import check_import_direction
-from semaloom.compiler import compile_documents, compile_paths, document_schemas
 from semaloom.compiler.yaml_load import load_yaml_documents
+from semaloom.sdk import compile_documents, compile_paths, document_schemas
 
 REPO = Path(__file__).resolve().parents[1]
 TAX = REPO / "examples" / "tax"
@@ -393,3 +393,44 @@ def test_schema_export_covers_core_kinds() -> None:
 
 def test_import_direction_still_holds() -> None:
     assert check_import_direction() == []
+
+
+def test_metric_selector_cannot_silently_override_a_source_filter() -> None:
+    docs = _load(REPO / "examples/warehouse")
+    metric = next(doc for doc in docs if doc["kind"] == "Metric")
+    metric["select"] = {"category": "requested"}
+    mapping = next(doc for doc in docs if doc["kind"] == "Mapping")
+    mapping["physical"]["filters"] = {"category": "approved"}
+    result = compile_documents(docs)
+    assert not result.ok
+    assert any(
+        item.code == "INVALID_MAPPING" and "conflicts" in item.message
+        for item in result.diagnostics
+    )
+
+
+def test_api_metric_selector_requires_a_bound_parameter() -> None:
+    docs = _load(REPO / "examples/warehouse")
+    for doc in docs:
+        if doc["kind"] in {"Mapping", "IntegrationBinding"}:
+            doc["provider"] = "openapi"
+        if doc["kind"] == "Mapping":
+            doc["physical"] = {
+                "path": "/stock",
+                "method": "GET",
+                "grainPointers": {"skuId": "/id"},
+                "propertyPointers": {
+                    "category": "/category",
+                    "onHandQty": "/quantity",
+                    "stockYear": "/year",
+                },
+                "parameterBindings": {"skuId": "id"},
+            }
+        if doc["kind"] == "Metric":
+            doc["select"] = {"category": "requested"}
+    result = compile_documents(docs)
+    assert not result.ok
+    assert any(
+        item.code == "INVALID_MAPPING" and "parameter" in item.message
+        for item in result.diagnostics
+    )

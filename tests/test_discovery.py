@@ -8,10 +8,10 @@ from fastapi.testclient import TestClient
 from semaloom.app.bootstrap import compile_examples
 from semaloom.app.factory import create_app
 from semaloom.app.http import router
-from semaloom.compiler import compile_documents
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.discovery import SemanticDiscovery
 from semaloom.runtime.studio_control import documents_from_bundle
+from semaloom.sdk import compile_documents
 
 ANALYST = RequestActor(tenant="tenant-a", subject="alice", roles=("analyst",))
 

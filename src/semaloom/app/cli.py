@@ -61,7 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if command == "compile":
-        from semaloom.compiler import compile_paths
+        from semaloom.sdk import compile_paths
 
         result = compile_paths(list(args.paths))
         report: dict[str, object] = {

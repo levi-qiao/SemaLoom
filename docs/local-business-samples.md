@@ -57,7 +57,7 @@ uv run python ops/data/verify_analysis.py
 ```sh
 (
   set -a
-  source /Users/leviqiao/code/ti/secrets/remote.env
+  source "${SEMALOOM_PRIVATE_SOURCE_ENV:?set the absolute path to the authorized private env file}"
   set +a
   export SEMALOOM_SAMPLE_DATABASE_URL="postgresql://$USER@127.0.0.1:5432/semaloom_samples"
   uv run python ops/data/import_remote_dev.py --per-year 6 --private-dir "$PWD/.agents/local-data"

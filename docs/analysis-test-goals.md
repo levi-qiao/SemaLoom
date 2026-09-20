@@ -7,7 +7,7 @@
 ## 所有 agent 共用前缀
 
 ```text
-项目 /Users/leviqiao/code/oh-my-code/SemaLoom。遵守 AGENTS.md，先读 CONTEXT、architecture、PLAN、semantic-contract、acceptance、SECURITY、docs/ai-analysis.md，再执行本任务。
+项目为当前 SemaLoom 仓库。遵守 AGENTS.md，先读 CONTEXT、architecture、PLAN、semantic-contract、acceptance、SECURITY、docs/ai-analysis.md，再执行本任务。
 你的职责是独立验收，不重写架构、不增加产品功能。检查当前 diff，保留其他人的工作。
 不要假定主实现的测试通过就代表你的结论。自己构造期望值、反例和完整请求，记录实际响应与依据。
 测试代码只写 tests/independent/<你的任务名>/，私有证据和报告写 .agents/analysis-tests/<你的任务名>/handoff.md。

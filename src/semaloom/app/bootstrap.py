@@ -11,7 +11,6 @@ from sqlalchemy import text
 from semaloom.adapters.composite import CompositeReadProvider
 from semaloom.adapters.openapi import OpenApiReadProvider
 from semaloom.adapters.postgres import PostgresReadProvider
-from semaloom.compiler import compile_paths
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.provider import ReadProvider
 from semaloom.runtime.action import ActionService, DraftStore
@@ -28,6 +27,7 @@ from semaloom.runtime.source_registry import SourceProfileService
 from semaloom.runtime.source_validation import resolve_environment_binding
 from semaloom.runtime.studio_control import StudioDraftService
 from semaloom.runtime.studio_release import StudioReleaseService
+from semaloom.sdk import compile_paths
 
 REPO = Path(__file__).resolve().parents[3]
 

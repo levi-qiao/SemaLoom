@@ -18,7 +18,6 @@ from semaloom.app.chat.service import ChatService
 from semaloom.app.chat.store import ChatStore
 from semaloom.app.factory import _mount_studio, create_app
 from semaloom.app.http import router
-from semaloom.compiler import compile_paths
 from semaloom.core.bundle import CompiledBundle
 from semaloom.runtime.action import ActionService, DraftStore
 from semaloom.runtime.fixtures import ensure_control_schema
@@ -28,6 +27,7 @@ from semaloom.runtime.session import StudioSessionService
 from semaloom.runtime.source_registry import SourceProfileService
 from semaloom.runtime.studio_control import StudioDraftService
 from semaloom.runtime.studio_release import StudioReleaseService
+from semaloom.sdk import compile_paths
 
 REPO = Path(__file__).resolve().parents[1]
 HARNESS = REPO / "harness"

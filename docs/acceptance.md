@@ -153,6 +153,8 @@
 
 ## PoC gate
 
+SDK 架构切片补充（2026-09-20）：`tests/test_sdk.py` 通过公开嵌入入口覆盖 A01/A10/A18/A24/A28/A42/A44/A53/A60 的局部行为；`tests/test_compile.py` 拒绝无法绑定或覆盖来源固定筛选的指标 selector；`tests/test_packaging.py` 验证安装后 SDK、完整 harness 本地依赖与 sdist 构建输入。该切片不替代这些 ID 的后续生产联合验收，见 [审查报告](architecture-review.md)。
+
 T07 完成时 A01–A46 与 A50–A63 全部通过，才可称为本计划范围内的 PoC 完成。A49 属于 T08A 开源准备，A47–A48 属于 T08B 真实 pilot；两组独立记录，未满足项单列，公开发布准备不能替代生产验证。某种能力若本来就不在首版支持 profile，验证的是它被明确拒绝，而不是虚构实现。
 
 ## Studio gate

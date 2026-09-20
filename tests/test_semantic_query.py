@@ -13,7 +13,6 @@ from sqlalchemy import create_engine, text
 from semaloom.adapters.postgres import PostgresReadProvider
 from semaloom.app.factory import create_app
 from semaloom.app.http import router
-from semaloom.compiler import compile_paths
 from semaloom.core.semantic_query import (
     FilterAtom,
     GroupByItem,
@@ -24,6 +23,7 @@ from semaloom.core.semantic_query import (
 from semaloom.runtime.analysis import AnalysisError, execute, prepare
 from semaloom.runtime.fixtures import engines
 from semaloom.runtime.query import QueryService
+from semaloom.sdk import compile_paths
 from tests.test_business_analysis import ACTOR, financial_query  # noqa: F401
 
 

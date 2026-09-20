@@ -17,7 +17,6 @@ from semaloom.app.chat.intent import TurnIntent
 from semaloom.app.chat.store import ChatStore
 from semaloom.app.chat.tools import SemanticTools
 from semaloom.app.http import ClaimBody
-from semaloom.compiler import compile_paths
 from semaloom.core.semantic_query import (
     ChoiceError,
     ChoiceQuestion,
@@ -35,6 +34,7 @@ from semaloom.runtime.analysis import execute, prepare
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.fixtures import engines
 from semaloom.runtime.query import QueryService
+from semaloom.sdk import compile_paths
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTOR = RequestActor(tenant="tenant-a", subject="q4", roles=("analyst",))

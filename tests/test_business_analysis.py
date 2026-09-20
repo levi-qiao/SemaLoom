@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from semaloom.adapters.postgres import PostgresReadProvider
-from semaloom.compiler import compile_documents, compile_paths
 from semaloom.compiler.yaml_load import load_yaml_documents
 from semaloom.core.expr import parse_expr
 from semaloom.core.model import RuleDef
@@ -25,6 +24,7 @@ from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.eval import evaluate_claim_with_evidence, evaluate_rule
 from semaloom.runtime.fixtures import engines
 from semaloom.runtime.query import QueryService
+from semaloom.sdk import compile_documents, compile_paths
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "examples/financial-review"

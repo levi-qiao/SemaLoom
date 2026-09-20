@@ -247,6 +247,8 @@ V0.1 一次计划一个草稿 Action，批量由多个独立计划组成，不�
 
 ## 10. 错误编码与响应映射
 
+Python 嵌入入口复用本文的 Query、SemanticQuery、Claim 与 Evidence 类型及当前授权 profile，接口与错误处理见 [Python SDK](../python-sdk.md)。离线编译和 bundle 摘要不构成发布批准。指标 `select` 无法绑定到来源列/API 参数，或与 Mapping 固定筛选冲突时，编译必须返回 `INVALID_MAPPING`；禁止忽略该条件或覆盖已声明来源范围。此修订拒绝先前错误接受的声明，需要修正映射并重新编译，不重解释旧 release。
+
 | 类别 | 示例 | 外部处理 |
 | --- | --- | --- |
 | 请求无效 | INVALID_REQUEST、INVALID_BINDINGS | REST 400；MCP 结构化错误 |

@@ -11,7 +11,6 @@ from sqlalchemy import create_engine, text
 
 from semaloom.adapters.postgres import PostgresReadProvider
 from semaloom.app.chat.choices import prepare_turn
-from semaloom.compiler import compile_paths
 from semaloom.core.semantic_query import (
     FilterAtom,
     MetricRef,
@@ -23,6 +22,7 @@ from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.discovery import SemanticDiscovery
 from semaloom.runtime.fixtures import engines
 from semaloom.runtime.query import QueryService
+from semaloom.sdk import compile_paths
 from tests.test_business_analysis import ACTOR
 
 ROOT = Path(__file__).resolve().parents[1]

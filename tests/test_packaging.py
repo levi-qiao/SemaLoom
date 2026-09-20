@@ -86,11 +86,44 @@ def test_sdist_contains_public_synthetic_examples(built_artifacts: tuple[Path, P
     assert any(name.endswith("examples/procurement/domain/pack.yaml") for name in names), names
 
 
+def test_sdist_contains_locked_build_inputs(built_artifacts: tuple[Path, Path]) -> None:
+    names, _ = _archive_names(*built_artifacts)
+    for suffix in (
+        "uv.lock",
+        ".python-version",
+        "CONTEXT.md",
+        "frontend/package.json",
+        "frontend/pnpm-lock.yaml",
+        "frontend/src/main.tsx",
+    ):
+        assert any(name.endswith("/" + suffix) for name in names), suffix
+    assert not any("node_modules" in Path(name).parts for name in names)
+
+
 def test_wheel_contains_license(built_artifacts: tuple[Path, Path]) -> None:
     _sdist, wheel = built_artifacts
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
     assert any(name.endswith("LICENSE") for name in names), names
+
+
+def test_wheel_contains_all_local_harness_imports(built_artifacts: tuple[Path, Path]) -> None:
+    import re
+
+    _, wheel = built_artifacts
+    with zipfile.ZipFile(wheel) as archive:
+        names = set(archive.namelist())
+        modules = [
+            name
+            for name in names
+            if name.startswith("semaloom/app/chat/harness/") and name.endswith(".mjs")
+        ]
+        assert modules
+        for name in modules:
+            for imported in re.findall(
+                r"""from ["'](\./[^"']+)["']""", archive.read(name).decode()
+            ):
+                assert str(Path(name).parent / imported) in names, (name, imported)
 
 
 def test_wheel_contains_built_studio_assets(built_artifacts: tuple[Path, Path]) -> None:
@@ -149,6 +182,14 @@ def test_wheel_installs_and_prints_identity(
     )
     if install.returncode != 0:
         pytest.fail(f"wheel install failed:\n{install.stdout}\n{install.stderr}")
+    imported = subprocess.run(
+        [str(python), "-I", "-c", "from semaloom.sdk import SemanticEngine, compile_paths"],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert imported.returncode == 0, imported.stderr
     env = os.environ.copy()
     env["SEMALOOM_PROFILE"] = "local-dev"
     launched = subprocess.run(

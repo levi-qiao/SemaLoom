@@ -12,3 +12,11 @@ def canonical_json(payload: object) -> str:
 
 def sha256_digest(payload: object) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def verify_release_digest(payload: dict[str, object], expected: str) -> None:
+    """Verify integrity, not publisher identity or deployment approval."""
+    unsigned = dict(payload)
+    claimed = unsigned.pop("digest", None)
+    if claimed != expected or sha256_digest(unsigned) != expected:
+        raise ValueError("RELEASE_DIGEST_MISMATCH")

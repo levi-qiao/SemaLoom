@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from semaloom.checks.import_direction import check_import_direction, collect_violations
 
 
@@ -73,3 +75,12 @@ def test_collect_violations_rejects_relative_core_import_of_adapters(tmp_path: P
 
     assert violations
     assert any("adapters" in violation.imported for violation in violations)
+
+
+@pytest.mark.parametrize("package", ["core", "compiler"])
+@pytest.mark.parametrize("dependency", ["semaloom.sdk", "semaloom.app", "sqlalchemy", "httpx"])
+def test_core_cannot_reach_infrastructure_through_another_entry(
+    tmp_path: Path, package: str, dependency: str
+) -> None:
+    _write_tree(tmp_path, {f"{package}/bad.py": f"import {dependency}\n"})
+    assert collect_violations(tmp_path)
