@@ -46,8 +46,9 @@ flowchart LR
   history on synthetic data.
 - Ontology-guided Chat that asks for missing business scope through typed cards before querying,
   selects tables/charts only when they help the result, and keeps provenance collapsed by default.
-- Chinese and English application copy, with each answer following the language of the current
-  user message. Universal agent instructions and tool descriptions remain in English.
+- Chinese and English navigation, Chat, clarification, result, and evidence copy, with each answer
+  following the language of the current user message. Universal agent instructions and tool
+  descriptions remain in English. Legacy Studio administration forms are still Chinese-first.
 
 ## Serious business questions
 
