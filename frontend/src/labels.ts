@@ -1,8 +1,15 @@
-export function namespaceLabel(id: string) {
-  if (id === "procurement") return "采购";
-  if (id === "tax") return "税务";
-  return id;
+export type PackLabel = { id: string; namespace?: string; label: string };
+
+export function namespaceLabel(id: string, packs: PackLabel[] = []) {
+  const pack = packs.find((item) => item.id === id || item.namespace === id);
+  return pack?.label || id;
 }
+
+export const ADDITIVITY_OPTIONS = [
+  { id: "FULL", label: "可合计" },
+  { id: "SEMI", label: "时点存量" },
+  { id: "NONE", label: "不可合计" },
+] as const;
 
 export function cardinalityLabel(cardinality: string) {
   return cardinality === "MANY" ? "源到目标可有多个" : "源到目标至多一个";
@@ -18,37 +25,21 @@ export function cardinalityHint(sourceLabel: string, targetLabel: string, cardin
 }
 
 export function draftPreviewHint(saved: boolean, revision: number) {
-  if (!saved) return "先保存草稿再试读。";
-  return `试读当前草稿 r${revision}，不是已发布结果。`;
+  if (!saved) return "先保存再试读。";
+  return `试读已保存模型 r${revision}（与问答同一份）。`;
 }
 
 export function publishedExecutionHint() {
-  return "试读看草稿；问答使用已发布版本。";
+  return "保存后，试读与问答使用同一份模型。";
 }
 
 export function draftSaveLabel() {
-  return "草稿保存";
-}
-
-export function digestHelp() {
-  return "candidateDigest 是当前草稿规范化后的内容摘要；revision 是草稿保存次数。校验和批准都绑定这两个值以及当时的来源配置。保存草稿或改来源后，旧校验/批准立即失效。公共查询只使用环境激活后的 activeDigest，草稿保存不会让版本生效。";
+  return "保存";
 }
 
 export function gateErrorMessage(detail: string, status?: number) {
-  if (detail === "INDEPENDENT_REVIEW_REQUIRED") {
-    return "作者不能批准自己的候选（INDEPENDENT_REVIEW_REQUIRED）。请切换到其他审核人。";
-  }
-  if (detail === "VALIDATION_REQUIRED") {
-    return "当前校验已过期或尚未通过（VALIDATION_REQUIRED）。草稿或来源变化后必须重新校验。";
-  }
-  if (detail === "APPROVAL_REQUIRED") {
-    return "需要独立审核人批准当前这次校验（APPROVAL_REQUIRED）。";
-  }
-  if (detail === "ENVIRONMENT_REVISION_CONFLICT") {
-    return "环境指针已变化（ENVIRONMENT_REVISION_CONFLICT）。请重新载入后再发布。";
-  }
   if (status === 401 || detail === "UNAUTHENTICATED" || detail === "SESSION_EXPIRED" || detail === "SESSION_REQUIRED") {
-    return `会话已失效（${detail}）。请重新选择本地身份。`;
+    return `会话已失效（${detail}）。请重新载入页面。`;
   }
   if (status === 403 || detail === "FORBIDDEN") {
     return "当前身份没有这项权限。服务端已拒绝；隐藏按钮不能代替后端检查。";
@@ -57,20 +48,6 @@ export function gateErrorMessage(detail: string, status?: number) {
     return "保存冲突。本地修改仍保留，可用当前修改重试保存，或放弃本地修改并载入。";
   }
   return detail;
-}
-
-export function validationStatusLabel(status: "none" | "VALID" | "INVALID" | "stale") {
-  if (status === "VALID") return "通过";
-  if (status === "INVALID") return "失败";
-  if (status === "stale") return "过期";
-  return "未验证";
-}
-
-export function publishStatusLabel(status: "draft" | "review" | "approved" | "active") {
-  if (status === "active") return "已发布";
-  if (status === "approved") return "已批准";
-  if (status === "review") return "待审核";
-  return "草稿";
 }
 
 export function previewOutcomeText(provider: string, kind: string, reason: string | null) {

@@ -4,5 +4,6 @@ id: warehouse
 version: "1.0.0"
 contractVersion: v0.1
 namespace: warehouse
-label: Synthetic warehouse
+label: 仓储
+description: Synthetic warehouse
 dependencies: []

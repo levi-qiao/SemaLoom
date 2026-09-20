@@ -16,7 +16,7 @@ SemaLoom 已按业务本体方式建模：ObjectType/Property/Identity/Link 表�
 
 ## 自然语言如何准确落到执行
 
-`用户问题 → pi 调用 prepare_semantic_query → 确定年份/口径/统计单位/筛选范围 → 同一 SemanticQuery prepare/execute → 服务器事实和来源表格 → 引擎结果说明（集合统计）`。REST `POST /v0.1/analyze`（原 `analyze_population`）为**已废弃**兼容翻译，新集成勿用。
+`用户问题 → pi 调用 prepare_semantic_query → 确定年份/口径/统计单位/筛选范围 → 同一 SemanticQuery prepare/execute → 服务器事实和来源表格 → 引擎结果说明（集合统计）`。HTTP 为 `POST /v0.1/semantic/prepare` 与 execute，没有第二条分析入口。
 
 模型不提交 SQL。对于已经能表达的语义查询，SQL 是 adapter 的执行实现；尚不能表达的问题应澄清或报未支持，不通过自由 text-to-SQL 绕开租户、粒度与口径。**已声明 ONE 同源 Link 可用于按关联属性分组/筛选**；一对多、跨源或多跳请求应得到明确 UNSUPPORTED，而不是静默改写。新增常见分析算子应该扩展同一受控请求及执行器，而非给每个自然语言问题写专用接口。
 
@@ -45,13 +45,13 @@ Metric 必须显式声明 `population`，包括统计单位属性、年度属性
 1. `tests/test_population.py`：真实隔离 PostgreSQL，独立 SQL 对照五类统计；精确比较分子分母、并列、负值、零分母、缺失、重复单位、超限、年份、权限及元数据边界；REST 与 Chat IPC 使用同一引擎。
 2. `tests/test_chat.py` + `harness/test/plugin.test.mjs`：进程 IPC、持久化、取消、来源证据，以及官方 pi Agent 原生 hook。离线 provider 测试不会证明真实模型理解率。
 3. `frontend/tests/chat.spec.ts` + `frontend/tests/studio.spec.ts`：浏览器交互、元数据表格、无 JSON、图谱工具与原有保存/校验/发布回归。
-4. `ops/ai/evaluate_chat.py`：受限真实模型问答，对照直接 `/v0.1/analyze` 的结果、范围、版本、数量及分母。每次最多 20 个问题，必须明确 `--max-calls`。报告不输出业务数值或秘密。它校验事实卡与澄清类型，不能证明每句解释或用户意图都正确；仍需要独立 agent 审查文本是否扩大范围、改变分母或夸大合规结论。
+4. `ops/ai/evaluate_chat.py`：受限真实模型问答，对照直接 `/v0.1/semantic/prepare` + execute 的结果、范围、版本、数量及分母。每次最多 20 个问题，必须明确 `--max-calls`。报告不输出业务数值或秘密。它校验事实卡与澄清类型，不能证明每句解释或用户意图都正确；仍需要独立 agent 审查文本是否扩大范围、改变分母或夸大合规结论。
 
 真实评测 case 文件结构（普通开发者可使用合成环境；本机样本评测文件留 `.agents/`）：
 
 ```json
 [
-  {"id":"mean-2025","question":"当前样本中2025年的选定申报利润平均值是多少？缺失不要排除。","population":{"metric":"finance.review.declared_profit","year":2025}},
+  {"id":"mean-2025","question":"当前样本中2025年的选定申报利润平均值是多少？缺失不要排除。","query":{"apiVersion":"semaloom/v0.1","metrics":[{"id":"finance.review.declared_profit","aggregation":"AVG"}],"filters":{"field":"taxYear","op":"EQ","value":{"valueType":"INTEGER","value":2025}}}},
   {"id":"ambiguous","question":"某企业占优百分之多少？未指定指标与范围。","kind":"clarification"}
 ]
 ```
@@ -66,7 +66,7 @@ uv run python ops/ai/evaluate_chat.py --cases .agents/analysis-quality/live-case
 
 ### A — 数值和范围独立验收
 
-> Goal：证明对象集合分析的结果正确且范围不被扩大。审查 runtime/population.py、核心契约与 financial-review 定义，在自己的隔离库构造至少 30 个金问题，使用独立 SQL 或 Decimal 手工期望计算，不调用被测函数生成期望。覆盖 2024/2025 混合、跨租户同键、重复企业年度、零/负数/并列、单企业、空集合、缺失、全部缺失、50/51 对象、不同口径、派生指标、精度边界和来源错误。逐例核对值、单位、数量、分母、完整性和来源活动。发现有错值仍返回成功视为最高优先级。输出通过/失败/未覆盖矩阵和可运行复现测试，不把限制项改成成功。
+> Goal：证明对象集合分析的结果正确且范围不被扩大。审查 runtime/analysis.py、核心契约与 financial-review 定义，在自己的隔离库构造至少 30 个金问题，使用独立 SQL 或 Decimal 手工期望计算，不调用被测函数生成期望。覆盖 2024/2025 混合、跨租户同键、重复企业年度、零/负数/并列、单企业、空集合、缺失、全部缺失、50/51 对象、不同口径、派生指标、精度边界和来源错误。逐例核对值、单位、数量、分母、完整性和来源活动。发现有错值仍返回成功视为最高优先级。输出通过/失败/未覆盖矩阵和可运行复现测试，不把限制项改成成功。
 
 ### B — 真实 AI 意图与解释验收
 
@@ -88,7 +88,7 @@ uv run python ops/ai/evaluate_chat.py --cases .agents/analysis-quality/live-case
 
 | 层 | 结果 | 不要合并 |
 |---|---|---|
-| 确定性计算 | A：60 金问题 PASS（独立 SQL/Decimal，含 HTTP `/v0.1/analyze`）。C：14 边界 PASS；保存失败不报成功。提交 `tests/test_analysis_quality_gold.py` 9 项对照通过 | 不是「分析 100% 准确」 |
+| 确定性计算 | A：60 金问题 PASS（独立 SQL/Decimal，含 HTTP `/v0.1/semantic/prepare`）。C：14 边界 PASS；保存失败不报成功。提交 `tests/test_analysis_quality_gold.py` 9 项对照通过 | 不是「分析 100% 准确」 |
 | 真实模型意图/解释 | 离线 prompt/schema PASS。Live qwen3.7-plus 10 次：引擎卡 5 PASS / 5 FAIL；散文/意图 **4 PASS / 6 FAIL** | 引擎卡一致 ≠ 意图正确 |
 | 源数据可靠性 | 本轮只用发明值隔离库，未读用户 `semaloom_samples` | 未评估原始报告真实性 |
 

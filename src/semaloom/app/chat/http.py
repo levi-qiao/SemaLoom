@@ -47,6 +47,16 @@ def status(request: Request, authorization: str | None = Header(default=None)) -
     return dict(chat.status()) if chat is not None else {"enabled": False, "ready": False}
 
 
+@router.get("/conversations")
+async def list_conversations(
+    request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    actor = chat_actor(request, authorization)
+    chat = service(request)
+    conversations = await asyncio.to_thread(chat.store.list_conversations, actor)
+    return {"conversations": conversations}
+
+
 @router.get("/conversations/{conversation_id}")
 async def conversation(
     conversation_id: str, request: Request, authorization: str | None = Header(default=None)

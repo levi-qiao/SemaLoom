@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import unicodedata
-from typing import Any
+from typing import Any, cast
 
 from semaloom.core.bundle import CompiledBundle
-from semaloom.core.model import LinkDef, MappingCapability
+from semaloom.core.measure import aggregations_for
+from semaloom.core.model import Additivity, LinkDef, MappingCapability
 from semaloom.runtime.auth import RequestActor, authorize_query
 
 
@@ -64,7 +65,31 @@ class SemanticDiscovery:
         for document in self._documents(actor):
             searchable = _normalize(
                 " ".join(
-                    str(document.get(k, "")) for k in ("id", "label", "aliases", "description")
+                    [
+                        *[
+                            str(document.get(k, ""))
+                            for k in ("id", "label", "aliases", "description")
+                        ],
+                        *[
+                            " ".join(
+                                str(part)
+                                for part in (
+                                    prop.get("id"),
+                                    prop.get("label"),
+                                    prop.get("aliases"),
+                                    *[
+                                        " ".join(
+                                            str(value.get(key) or "")
+                                            for key in ("id", "label", "aliases")
+                                        )
+                                        for value in prop.get("values") or []
+                                    ],
+                                )
+                            )
+                            for prop in document.get("properties") or []
+                            if isinstance(prop, dict)
+                        ],
+                    ]
                 )
             )
             if all(token in searchable for token in tokens):
@@ -114,6 +139,8 @@ def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle
             },
         }
     if kind == "Metric":
+        raw = document.get("additivity")
+        additivity = cast(Additivity, raw if raw in {"FULL", "SEMI", "NONE"} else "FULL")
         object_type = str(document.get("objectType") or "")
         return {
             **document,
@@ -125,6 +152,8 @@ def _with_analysis_capabilities(document: dict[str, Any], bundle: CompiledBundle
                     for link in bundle.links
                     if link.source == object_type
                 ),
+                "additivity": additivity,
+                "aggregations": list(aggregations_for(additivity)),
             },
         }
     return document

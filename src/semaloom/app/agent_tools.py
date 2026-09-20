@@ -4,23 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from semaloom.core.results import ObjectSearchRequest, PopulationRequest, QueryRequest
+from semaloom.core.results import ObjectSearchRequest, QueryRequest
+from semaloom.core.semantic_query import PlanRef, SemanticQuery
 
 
 def read_tools(claim_schema: dict[str, Any]) -> list[dict[str, Any]]:
+    query_schema = SemanticQuery.model_json_schema(by_alias=True)
+    query_schema["properties"].pop("decisions", None)
     return [
-        {
-            "name": "analyze_population",
-            "deprecated": True,
-            "description": "DEPRECATED. Use prepare_semantic_query / SemanticQuery instead. "
-            "Legacy annual statistics facade for Metric.population; translates to the same "
-            "SemanticQuery chain. Do not register for new Chat or Agent integrations. "
-            "Evidence detail pages are capped at 50 rows per metric; that is not a population "
-            "size limit.",
-            "method": "POST",
-            "path": "/v0.1/analyze",
-            "inputSchema": PopulationRequest.model_json_schema(by_alias=True),
-        },
         {
             "name": "search_semantics",
             "description": (
@@ -73,6 +64,24 @@ def read_tools(claim_schema: dict[str, Any]) -> list[dict[str, Any]]:
             "method": "POST",
             "path": "/v0.1/query",
             "inputSchema": QueryRequest.model_json_schema(by_alias=True),
+        },
+        {
+            "name": "semantic_prepare",
+            "description": (
+                "Prepare a composable collection analysis. Metrics, filters and aggregations "
+                "are semantic identifiers only. Omit year/aggregation to receive a choice. "
+                "Evidence detail pages are capped at 50 rows per metric. "
+            ),
+            "method": "POST",
+            "path": "/v0.1/semantic/prepare",
+            "inputSchema": query_schema,
+        },
+        {
+            "name": "semantic_execute",
+            "description": "Execute a plan returned by semantic_prepare.",
+            "method": "POST",
+            "path": "/v0.1/semantic/execute",
+            "inputSchema": PlanRef.model_json_schema(by_alias=True),
         },
         {
             "name": "evaluate_claim",

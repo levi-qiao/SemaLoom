@@ -275,7 +275,7 @@ export function SourcePage({
                 }}
               >
                 <div className="source-card-head">
-                  <span className="provider-mark large">{profile.provider === "postgres" ? "PG" : "API"}</span>
+                  <span className={`provider-mark large ${profile.provider}`}>{profile.provider === "postgres" ? "PG" : "API"}</span>
                   <span className={profile.validationStatus === "VALID" ? "source-state verified" : "source-state"}>
                     {statusLabel(profile.validationStatus)}
                   </span>
@@ -399,22 +399,34 @@ function SourceDetail({
         <div className="section-heading"><h3>结构</h3><span>{schema.length}</span></div>
         {reason && !schema.length ? <p className="empty">{reason === "SPEC_UNAVAILABLE" ? "未读取到 OpenAPI 清单" : profile.provider === "openapi" ? "暂时无法读取接口清单" : "暂时无法读取表结构"}</p> : null}
         <ul className="schema-list">
-          {schema.map((resource) => (
-            <li key={resource.id}>
-              <strong>
-                {resource.kind === "operation"
-                  ? `${resource.method ?? "GET"} ${resource.name}`
-                  : resource.schema && resource.schema !== "public"
-                    ? `${resource.schema}.${resource.name}`
-                    : resource.name}
-              </strong>
-              <small>
-                {resource.kind === "operation"
-                  ? (resource.parameters?.map((item) => item.name).join(", ") || resource.operationId || "operation")
-                  : (resource.columns.map((column) => column.name).join(", ") || resource.kind)}
-              </small>
-            </li>
-          ))}
+          {schema.map((resource) => {
+            const tagItems = resource.kind === "operation"
+              ? (resource.parameters?.map((item) => item.name) || (resource.operationId ? [resource.operationId] : []))
+              : resource.columns.map((column) => column.name);
+            return (
+              <li key={resource.id}>
+                <div className="schema-item-header">
+                  <strong>
+                    {resource.kind === "operation"
+                      ? `${resource.method ?? "GET"} ${resource.name}`
+                      : resource.schema && resource.schema !== "public"
+                        ? `${resource.schema}.${resource.name}`
+                        : resource.name}
+                  </strong>
+                  <span className="schema-kind-badge">{resource.kind}</span>
+                </div>
+                {tagItems.length > 0 ? (
+                  <div className="schema-tags">
+                    {tagItems.map((name) => (
+                      <span key={name} className="schema-tag">{name}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <small>{resource.kind}</small>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </section>
       <section className="definition-section">

@@ -17,10 +17,32 @@
       label: 管辖地
       valueType: STRING
       required: true
+      aliases:
+        - 属地
+        - 区域
+        - 税收居民地
+      values:
+        - id: CN
+          label: 中国境内
+          aliases: [境内, 国内, 中国, 境内机构]
+        - id: OVERSEAS
+          label: 境外
+          aliases: [境外机构, 国外, 海外]
+    - id: taxYear
+      label: 税款所属期
+      valueType: INTEGER
     - id: amount
       label: 金额
       valueType: DECIMAL
       unit: CNY
+      additivity: FULL
+      aliases:
+        - 税额
+        - 纳税金额
+  population:
+    unitProperty: taxpayerId
+    yearProperty: taxYear
+    description: 合成税务样本按纳税人年度统计，不代表全部纳税人或已复核申报。
 
 - apiVersion: semaloom/v0.1
   kind: ObjectType

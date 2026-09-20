@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline';
 import { Agent } from '@earendil-works/pi-agent-core';
 import { createProvider } from './provider.mjs';
 import { createSemanticPlugin } from './semantic-plugin.mjs';
+import { transformContext } from './context-transform.mjs';
 
 const send = data => process.stdout.write(JSON.stringify(data) + '\n');
 const lines = createInterface({ input: process.stdin });
@@ -35,6 +36,7 @@ async function run(input) {
         tools: plugin.tools, messages: input.history, thinkingLevel: 'off' },
       streamFn: provider.streamFn, toolExecution: 'sequential',
       beforeToolCall: plugin.beforeToolCall, afterToolCall: plugin.afterToolCall,
+      transformContext: async (messages) => transformContext(messages),
       shouldStopAfterTurn: async () => ++turns >= 12 || plugin.completed || plugin.calls >= 20,
     });
     agent.subscribe(event => {
@@ -50,7 +52,7 @@ async function run(input) {
       send({type:'error',code:agent.state.error ? 'MODEL_REQUEST_FAILED' : 'ANSWER_NOT_VALIDATED'});
     } else {
       // Only the server consumes history. Never deliver credentials or internal state to the browser.
-      send({type:'complete',history:agent.state.messages});
+      send({type:'complete',history:transformContext(agent.state.messages)});
     }
   } catch { send({type:'error',code:'MODEL_REQUEST_FAILED'}); }
   finally { lines.close(); }

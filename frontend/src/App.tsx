@@ -2,25 +2,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ApiError,
-  DEMO_PERSONAS,
   apiHeaders,
   checkedJson,
   ensureSession,
   errorDetail,
   hasRole,
-  personaFromSubject,
-  switchDemoPersona,
   type StudioSession,
 } from "./api";
 import { ChatPage } from "./ChatPage";
 import { defaultLinkIdentity, linkIdentitySummary } from "./doc";
 import { EntityPage } from "./EntityPage";
+import { ApiPage } from "./ApiPage";
 import { GraphCanvas } from "./GraphCanvas";
 import { draftSaveLabel, gateErrorMessage } from "./labels";
-import { ReleasePage } from "./ReleasePage";
 import { SourcePage } from "./SourcePage";
 import { StudioDialog } from "./StudioDialog";
-import { IconChat, IconEntity, IconGraph, IconRelease, IconSource } from "./icons";
+import { IconApi, IconChat, IconEntity, IconGraph, IconSource } from "./icons";
 import type { DraftDocument, Edge, GraphMeta, Mapping, Node, Source, View } from "./types";
 
 type DialogState =
@@ -33,14 +30,15 @@ const viewNames: Record<View, { title: string; description: string }> = {
   chat: { title: "业务问答", description: "用业务语言提问，查看规则结果与来源依据。" },
   graph: { title: "图谱", description: "看关系和试读映射。点实体做主要维护，细节到「实体」菜单。" },
   objects: { title: "实体", description: "维护业务对象、属性和来源字段对应。金额是带单位的属性；问答里再选合计或平均。" },
-  sources: { title: "数据源", description: "点卡片配置连接，表结构自动读取。" },
-  release: { title: "变更与发布", description: "区分草稿保存与版本生效：校验候选、独立审核并激活当前环境。" },
+  sources: { title: "数据源", description: "配置物理数据库连接，表结构自动读取。" },
+  apis: { title: "API 接口", description: "维护微服务与外部 API 契约，支持线上导入 OpenAPI / Swagger 与鉴权配置。" },
 };
 
 function readLocation(): { view: View; entity: string | null } {
   const params = new URLSearchParams(window.location.search);
   const value = params.get("view");
-  const view: View = value === "chat" || value === "sources" || value === "objects" || value === "release" ? value : "graph";
+  const view: View =
+    value === "chat" || value === "sources" || value === "objects" || value === "apis" ? value : "graph";
   return { view, entity: params.get("entity") };
 }
 
@@ -71,7 +69,7 @@ export default function App() {
   const [savedDocuments, setSavedDocuments] = useState<DraftDocument[]>([]);
   const [revision, setRevision] = useState(0);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("正在载入");
+  const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [sourceDirty, setSourceDirty] = useState(false);
@@ -81,9 +79,6 @@ export default function App() {
   const [namespaceFilter, setNamespaceFilter] = useState("");
   const [relationFilter, setRelationFilter] = useState("");
   const [session, setSession] = useState<StudioSession | null>(null);
-  const [candidateDigest, setCandidateDigest] = useState<string | null>(null);
-  const [activeDigest, setActiveDigest] = useState<string | null>(null);
-  const [sourceGeneration, setSourceGeneration] = useState(0);
   const editGen = useRef(0);
   const viewRef = useRef(view);
   const canModel = hasRole(session, "modeler");
@@ -115,26 +110,25 @@ export default function App() {
       const nextSession = await ensureSession();
       setSession(nextSession);
       const modeler = hasRole(nextSession, "modeler");
-      const reviewer = hasRole(nextSession, "modeler", "reviewer", "publisher");
-      const draftQuery = modeler ? "?draftId=default" : "";
-      const [graph, mappingPayload, sourcePayload, draft, releases] = await Promise.all([
-        fetch(`/v0.1/studio/graph${draftQuery}`).then(checkedJson),
-        fetch(`/v0.1/studio/mappings${draftQuery}`).then(checkedJson),
-        fetch(`/v0.1/studio/sources${draftQuery}`).then(checkedJson),
-        modeler
-          ? fetch("/v0.1/studio/drafts/default").then(checkedJson)
-          : reviewer
-            ? fetch("/v0.1/studio/drafts/default/review").then(checkedJson)
-            : Promise.resolve(null),
-        fetch("/v0.1/studio/releases").then(checkedJson).catch(() => null),
+      const modelQuery = modeler ? "?draftId=default" : "";
+      const [graph, mappingPayload, sourcePayload, model] = await Promise.all([
+        fetch(`/v0.1/studio/graph${modelQuery}`).then(checkedJson),
+        fetch(`/v0.1/studio/mappings${modelQuery}`).then(checkedJson),
+        fetch(`/v0.1/studio/sources${modelQuery}`).then(checkedJson),
+        modeler ? fetch("/v0.1/studio/drafts/default").then(checkedJson) : Promise.resolve(null),
       ]);
-      const nextDocuments = (draft?.documents ?? []) as DraftDocument[];
+      const nextDocuments = (model?.documents ?? []) as DraftDocument[];
       const urlEntity = readLocation().entity;
-      const nextSelected = selected && (graph.nodes.some((item: Node) => item.id === selected) || nextDocuments.some((item) => item.id === selected))
-        ? selected
-        : urlEntity && (graph.nodes.some((item: Node) => item.id === urlEntity) || nextDocuments.some((item) => item.id === urlEntity))
-          ? urlEntity
-          : graph.nodes[0]?.id ?? null;
+      const nextSelected =
+        selected &&
+        (graph.nodes.some((item: Node) => item.id === selected) ||
+          nextDocuments.some((item) => item.id === selected))
+          ? selected
+          : urlEntity &&
+              (graph.nodes.some((item: Node) => item.id === urlEntity) ||
+                nextDocuments.some((item) => item.id === urlEntity))
+            ? urlEntity
+            : (graph.nodes[0]?.id ?? null);
       setMeta(graph.meta);
       setNodes(graph.nodes);
       setEdges(graph.edges);
@@ -142,9 +136,7 @@ export default function App() {
       setSources(sourcePayload.sources ?? []);
       setDocuments(nextDocuments);
       setSavedDocuments(nextDocuments);
-      setRevision(draft?.revision ?? 0);
-      setCandidateDigest(draft?.candidateDigest ?? null);
-      setActiveDigest(releases?.activeDigest ?? null);
+      setRevision(model?.revision ?? 0);
       setSelected(nextSelected);
       setDialog((current) => {
         if (current?.mode === "link") return current;
@@ -153,12 +145,14 @@ export default function App() {
       });
       setSourceId((current) => current ?? sourcePayload.sources?.[0]?.sourceId ?? null);
       setDirty(false);
+      setSourceDirty(false);
       setConflict(false);
-      setStatus(force ? "已重新载入" : "已同步");
+      setStatus("");
       setError(null);
       writeLocation(viewRef.current, nextSelected, "replace");
     } catch (cause) {
       setError(gateErrorMessage(errorDetail(cause), cause instanceof ApiError ? cause.status : undefined));
+      setStatus("");
     }
   }
 
@@ -168,14 +162,10 @@ export default function App() {
 
   useEffect(() => {
     function onPop() {
-      const location = readLocation();
-      setView(location.view);
-      setSearch("");
-      if (location.entity) {
-        setSelected(location.entity);
-        setSelectedEdge(null);
-        setDialog({ mode: "entity", id: location.entity });
-      }
+      const next = readLocation();
+      setView(next.view);
+      setSelected(next.entity);
+      setDialog(next.entity ? { mode: "entity", id: next.entity } : null);
     }
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -203,16 +193,15 @@ export default function App() {
         body: JSON.stringify({ expectedRevision, documents: toSave }),
       }).then(checkedJson);
       setRevision(payload.revision);
-      setCandidateDigest(payload.candidateDigest ?? candidateDigest);
       setSavedDocuments(payload.documents ?? toSave);
       if (editGen.current !== gen) {
         setConflict(false);
-        setStatus("较早草稿已保存，当前修改仍未保存");
+        setStatus("较早版本已保存，当前修改仍未保存");
       } else {
         setDocuments(payload.documents ?? toSave);
         setDirty(false);
         setConflict(false);
-        setStatus("草稿已保存");
+        setStatus("已保存");
       }
       const graph = await fetch("/v0.1/studio/graph?draftId=default").then(checkedJson);
       setMeta(graph.meta);
@@ -237,8 +226,8 @@ export default function App() {
 
   async function retrySave() {
     try {
-      const draft = await fetch("/v0.1/studio/drafts/default").then(checkedJson);
-      await save(draft.revision ?? revision);
+      const model = await fetch("/v0.1/studio/drafts/default").then(checkedJson);
+      await save(model.revision ?? revision);
     } catch (cause) {
       setError(gateErrorMessage(errorDetail(cause), cause instanceof ApiError ? cause.status : undefined));
     }
@@ -249,34 +238,7 @@ export default function App() {
     editGen.current += 1;
     setDocuments(next);
     setDirty(true);
-    setStatus("有未保存的草稿修改");
-  }
-
-  async function changePersona(persona: string) {
-    if (dirty || sourceDirty) {
-      setError("有未保存修改，切换身份会丢弃它们。请先保存。");
-      return;
-    }
-    try {
-      await switchDemoPersona(persona);
-      await loadInitialState(true);
-      setStatus(`已切换为 ${persona}`);
-    } catch (cause) {
-      setError(gateErrorMessage(errorDetail(cause), cause instanceof ApiError ? cause.status : undefined));
-    }
-  }
-
-  async function logout() {
-    try {
-      await fetch("/v0.1/studio/session", { method: "DELETE", headers: apiHeaders() }).then(checkedJson);
-      setSession((current) => (current ? { ...current, authenticated: false } : current));
-      setStatus("已退出会话");
-      setError(null);
-    } catch (cause) {
-      setSession((current) => (current ? { ...current, authenticated: false } : current));
-      setStatus("已退出会话");
-      setError(gateErrorMessage(errorDetail(cause), cause instanceof ApiError ? cause.status : undefined));
-    }
+    setStatus("有未保存修改");
   }
 
   const query = search.trim().toLowerCase();
@@ -339,11 +301,11 @@ export default function App() {
           <div><strong>SemaLoom</strong><small>Semantic Studio</small></div>
         </div>
         <div className="nav-group">
-          <NavButton icon={<IconGraph size={17} />} label="图谱" active={view === "graph"} onClick={() => selectView("graph")} />
-          <NavButton icon={<IconEntity size={17} />} label="实体" active={view === "objects"} onClick={() => selectView("objects")} />
-          <NavButton icon={<IconSource size={17} />} label="数据源" active={view === "sources"} onClick={() => selectView("sources")} />
-          <NavButton icon={<IconChat size={17} />} label="问答" active={view === "chat"} onClick={() => selectView("chat")} />
-          <NavButton icon={<IconRelease size={17} />} label="变更" active={view === "release"} onClick={() => selectView("release")} />
+          <NavButton icon={<IconGraph size={18} />} label="图谱" active={view === "graph"} onClick={() => selectView("graph")} />
+          <NavButton icon={<IconEntity size={18} />} label="实体" active={view === "objects"} onClick={() => selectView("objects")} />
+          <NavButton icon={<IconSource size={18} />} label="数据源" active={view === "sources"} onClick={() => selectView("sources")} />
+          <NavButton icon={<IconApi size={18} />} label="API 接口" active={view === "apis"} onClick={() => selectView("apis")} />
+          <NavButton icon={<IconChat size={18} />} label="问答" active={view === "chat"} onClick={() => selectView("chat")} />
         </div>
         <div className="nav-spacer" />
         <div className="environment">
@@ -358,33 +320,24 @@ export default function App() {
             <small>{viewNames[view].description}</small>
           </div>
           <div className="header-actions">
-            {view === "release" || view === "chat" ? null : (
+            {view === "chat" ? null : (
               <label className="search-field">
                 <span className="sr-only">搜索当前视图</span>
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称或 ID" />
               </label>
             )}
-            <span className="readout" aria-label="草稿与当前版本">
-              r{revision} · {activeDigest ? activeDigest.slice(0, 8) : "未激活"}
-            </span>
-            <select
-              aria-label="本地身份"
-              value={personaFromSubject(session?.subject) || "studio-admin"}
-              onChange={(event) => void changePersona(event.target.value)}
-            >
-              {DEMO_PERSONAS.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-            <button className="secondary" onClick={() => void logout()}>退出会话</button>
-            <span className={conflict ? "save-status conflict" : "save-status"}>{status}{sourceDirty && view === "sources" ? " · 来源未保存" : ""}</span>
+            {status || (sourceDirty && view === "sources") ? (
+              <span className={conflict ? "save-status conflict" : "save-status"}>
+                {status}{sourceDirty && view === "sources" ? (status ? " · 来源未保存" : "来源未保存") : ""}
+              </span>
+            ) : null}
             {conflict ? (
               <span className="conflict-actions">
                 <button className="secondary" onClick={() => void retrySave()}>用当前修改重试保存</button>
                 <button className="secondary" onClick={() => void loadInitialState(true)}>放弃本地修改并载入</button>
               </span>
             ) : null}
-            {view === "sources" || view === "release" || view === "chat" || !canModel ? null : (
+            {view === "sources" || view === "chat" || view === "apis" || !canModel ? null : (
               <button className="primary" disabled={saving || !dirty} onClick={() => void save()}>{draftSaveLabel()}</button>
             )}
           </div>
@@ -400,7 +353,7 @@ export default function App() {
           </div>
         ) : null}
         {view === "chat" && session ? <ChatPage key={`${session.tenant}:${session.subject}`} session={session} /> : null}
-        <section className={view === "objects" ? "workspace entity-workspace" : "workspace"} hidden={view === "sources" || view === "release" || view === "chat"}>
+        <section className={view === "objects" ? "workspace entity-workspace" : "workspace"} hidden={view === "sources" || view === "chat" || view === "apis"}>
           {view === "graph" ? (
             <div className="content-pane graph-host">
               <GraphCanvas
@@ -428,7 +381,7 @@ export default function App() {
                   }
                   const sourceDoc = documents.find((item) => item.id === source);
                   const targetDoc = documents.find((item) => item.id === target);
-                  const ns = source.split(".")[0] ?? "procurement";
+                  const ns = source.includes(".") ? source.split(".")[0] : source;
                   const id = `${ns}.${source.split(".").at(-1)}To${target.split(".").at(-1)}`;
                   changeDocuments([
                     ...documents,
@@ -449,6 +402,7 @@ export default function App() {
                   setDialog({ mode: "link", id });
                 }}
                 namespaces={namespaces}
+                packs={meta?.packs ?? []}
                 relations={relationOptions}
                 namespaceFilter={namespaceFilter}
                 relationFilter={relationFilter}
@@ -467,6 +421,7 @@ export default function App() {
               onSelect={(id) => selectEntity(id)}
               onChange={changeDocuments}
               onError={(message) => setError(message ? gateErrorMessage(message) : null)}
+              packs={meta?.packs ?? []}
             />
           ) : null}
           {view === "graph" ? (
@@ -485,6 +440,7 @@ export default function App() {
                 selectView("objects");
               }}
               onError={(message) => setError(message ? gateErrorMessage(message) : null)}
+              packs={meta?.packs ?? []}
             />
           ) : null}
         </section>
@@ -498,18 +454,19 @@ export default function App() {
             onSelect={setSourceId}
             onError={(message) => setError(message ? gateErrorMessage(message) : null)}
             onDirtyChange={setSourceDirty}
-            onSaved={() => setSourceGeneration((value) => value + 1)}
+            onSaved={() => undefined}
           />
         </section>
-        <section className="workspace full" hidden={view !== "release"}>
-          <ReleasePage
+        <section className="workspace full" hidden={view !== "apis"}>
+          <ApiPage
             ready={meta !== null}
-            session={session}
-            draftRevision={revision}
-            candidateDigest={candidateDigest}
-            sourceGeneration={sourceGeneration}
+            documents={documents}
+            search={search}
+            selectedId={sourceId}
+            onSelect={setSourceId}
             onError={(message) => setError(message ? gateErrorMessage(message) : null)}
-            onPublished={() => void loadInitialState(true)}
+            onChangeDocuments={changeDocuments}
+            onDirtyChange={setSourceDirty}
           />
         </section>
       </main>
@@ -520,8 +477,8 @@ export default function App() {
 function NavButton({ label, icon, active, onClick }: { label: string; icon?: React.ReactNode; active: boolean; onClick: () => void }) {
   return (
     <button aria-pressed={active} className={active ? "active" : ""} onClick={onClick}>
-      {icon}
-      <span>{label}</span>
+      <span className="nav-btn-icon" aria-hidden="true">{icon}</span>
+      <span className="nav-btn-label">{label}</span>
     </button>
   );
 }

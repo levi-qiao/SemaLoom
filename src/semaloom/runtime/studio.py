@@ -149,7 +149,12 @@ def studio_graph(bundle: CompiledBundle) -> dict[str, Any]:
             "releaseDigest": bundle.digest,
             "onlineValidation": bundle.online_validation,
             "packs": [
-                {"id": item.id, "label": item.label or item.id, "version": item.version}
+                {
+                    "id": item.id,
+                    "namespace": item.namespace,
+                    "label": item.label or item.id,
+                    "version": item.version,
+                }
                 for item in bundle.packs
             ],
             "counts": {

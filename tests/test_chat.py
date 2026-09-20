@@ -121,7 +121,7 @@ def client(tmp_path: Path, services: Any) -> Any:
 
 def test_http_stream_history_and_no_key_exposure(client: TestClient) -> None:
     headers = {"Authorization": "Bearer tenant-a-analyst"}
-    response = client.post("/v0.1/chat/turns", headers=headers, json={"message": "申报收入?"})
+    response = client.post("/v0.1/chat/turns", headers=headers, json={"message": "申报收入明细?"})
     assert response.status_code == 200
     events = [json.loads(line) for line in response.text.splitlines()]
     assert events[-1]["type"] == "done", events
@@ -271,3 +271,37 @@ io.on('line',line=>{
     cid = events[0]["conversationId"]
     history = client.get("/v0.1/chat/conversations/" + cid, headers=headers).json()
     assert history["turns"][0]["answer"] == answer
+
+
+def test_list_conversations_and_continue_conversation(client: TestClient) -> None:
+    headers = {"Authorization": "Bearer tenant-a-analyst"}
+    # 1. First turn direct calculation
+    res1 = client.post("/v0.1/chat/turns", headers=headers, json={"message": "采购订单总额"})
+    events1 = [json.loads(line) for line in res1.text.splitlines() if line.strip()]
+    assert events1[-1]["type"] == "done"
+    cid = events1[0]["conversationId"]
+
+    # 2. Check conversation listing includes this conversation
+    listing = client.get("/v0.1/chat/conversations", headers=headers)
+    assert listing.status_code == 200
+    conversations = listing.json()["conversations"]
+    assert any(c["id"] == cid and c["turnCount"] == 1 for c in conversations)
+
+    # 3. Continue conversation in the same session
+    res2 = client.post(
+        "/v0.1/chat/turns", headers=headers, json={"message": "各区域采购额", "conversationId": cid}
+    )
+    events2 = [json.loads(line) for line in res2.text.splitlines() if line.strip()]
+    assert events2[-1]["type"] == "done"
+    assert events2[0]["conversationId"] == cid
+
+    # 4. Check loaded session has both turns preserved
+    detail = client.get(f"/v0.1/chat/conversations/{cid}", headers=headers).json()
+    assert len(detail["turns"]) == 2
+    assert detail["turns"][0]["question"] == "采购订单总额"
+    assert detail["turns"][1]["question"] == "各区域采购额"
+
+    # 5. Check listing now reflects 2 turns
+    listing2 = client.get("/v0.1/chat/conversations", headers=headers).json()
+    updated = next(c for c in listing2["conversations"] if c["id"] == cid)
+    assert updated["turnCount"] == 2

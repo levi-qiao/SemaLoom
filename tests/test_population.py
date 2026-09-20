@@ -1,4 +1,4 @@
-"""Independent SQL oracle and adversarial population cases on isolated fixtures."""
+"""Independent SQL oracle and adversarial collection-analysis cases."""
 
 from __future__ import annotations
 
@@ -9,11 +9,12 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from semaloom.app.chat.presentation import attach_lineage, visible_answer
+from semaloom.app.chat.presentation import project_browser_answer, visible_answer
 from semaloom.app.chat.tools import SemanticTools
-from semaloom.core.results import PopulationRequest
+from semaloom.core.semantic_query import SemanticQuery
+from semaloom.runtime.analysis import execute, prepare
 from semaloom.runtime.auth import RequestActor
-from semaloom.runtime.population import analyze_population
+from tests.analysis_support import analysis_query, run_analysis
 from tests.test_business_analysis import ACTOR, financial_query  # noqa: F401
 
 
@@ -25,12 +26,6 @@ def population_query(financial_query: Any) -> Any:  # noqa: F811
     return financial_query
 
 
-def request(**changes: Any) -> PopulationRequest:
-    return PopulationRequest.model_validate(
-        {"metric": "finance.review.declared_profit", "year": 2024, **changes}
-    )
-
-
 @pytest.mark.parametrize(
     ("operation", "sql_op"),
     [("mean", "avg"), ("sum", "sum"), ("min", "min"), ("max", "max"), ("count", "count")],
@@ -39,7 +34,7 @@ def test_statistics_match_independent_database_oracle(
     population_query: Any, operation: str, sql_op: str
 ) -> None:
     query = population_query
-    result = analyze_population(query, request(operation=operation), ACTOR)
+    result = run_analysis(query, ACTOR, operation=operation)
     with query.provider._engines["sample_pg"].connect() as conn:
         expected = conn.execute(
             text(
@@ -47,10 +42,11 @@ def test_statistics_match_independent_database_oracle(
                 "WHERE tenant_id='tenant-a' AND tax_year=2024"
             )
         ).scalar_one()
-    assert Decimal(result["value"]) == Decimal(expected)
-    assert result["complete"] and result["populationCount"] == result["observedCount"] == 3
-    assert {r["identity"]["caseId"] for r in result["members"]} == {"C1", "C2", "C3"}
-    assert result["sourceActivities"]
+    assert Decimal(result.values[0]["value"]) == Decimal(expected)
+    assert result.scope["complete"]
+    assert result.scope["populationCount"] == result.scope["observedCount"] == 3
+    assert {row[0] for row in result.evidence.rows} == {"C1", "C2", "C3"}
+    assert result.source_activities
 
 
 @pytest.mark.parametrize(
@@ -64,12 +60,12 @@ def test_statistics_match_independent_database_oracle(
 def test_comparison_denominator_is_explicit(
     population_query: Any, operation: str, numerator: str, denominator: str
 ) -> None:
-    result = analyze_population(
+    result = run_analysis(
         population_query,
-        request(comparison={"identity": {"caseId": "C2"}, "operation": operation}),
         ACTOR,
+        comparison={"identity": {"caseId": "C2"}, "operation": operation},
     )
-    comparison = result["comparison"]
+    comparison = result.scope["comparison"]
     assert Decimal(comparison["numerator"]) == Decimal(numerator)
     assert Decimal(comparison["denominator"]) == Decimal(denominator)
     assert Decimal(comparison["value"]) == Decimal(numerator) / Decimal(denominator) * 100
@@ -77,23 +73,24 @@ def test_comparison_denominator_is_explicit(
 
 def test_missing_is_not_zero_and_exclusion_is_explicit(population_query: Any) -> None:
     query = population_query
-    strict = analyze_population(query, request(metric="finance.review.audit_profit"), ACTOR)
-    assert strict["value"] is None and strict["missingCount"] == 1
-    partial = analyze_population(
-        query, request(metric="finance.review.audit_profit", missingPolicy="exclude"), ACTOR
+    strict = run_analysis(query, ACTOR, metric="finance.review.audit_profit")
+    assert strict.values == () and strict.scope["missingCount"] == 1
+    assert strict.scope["reason"] == "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION"
+    partial = run_analysis(
+        query, ACTOR, metric="finance.review.audit_profit", missing_policy="exclude"
     )
-    assert Decimal(partial["value"]) == 100 and partial["observedCount"] == 2
-    assert partial["populationCount"] == 3
+    assert Decimal(partial.values[0]["value"]) == 100 and partial.scope["observedCount"] == 2
+    assert partial.scope["populationCount"] == 3
 
 
 def test_empty_period_and_duplicate_unit_are_not_averaged(population_query: Any) -> None:
     query = population_query
-    empty = analyze_population(query, request(year=2025), ACTOR)
-    assert empty["value"] is None and empty["reason"] == "EMPTY_POPULATION"
+    empty = run_analysis(query, ACTOR, year=2025)
+    assert not empty.values and empty.scope["reason"] == "EMPTY_POPULATION"
     with query.provider._engines["sample_pg"].begin() as conn:
         conn.execute(text("UPDATE sample_financial_review SET company_id='duplicate'"))
     with pytest.raises(ValueError, match="DUPLICATE_OR_MISSING_STATISTICAL_UNIT"):
-        analyze_population(query, request(), ACTOR)
+        run_analysis(query, ACTOR)
 
 
 def test_population_aggregates_beyond_evidence_page(population_query: Any) -> None:
@@ -107,53 +104,60 @@ def test_population_aggregates_beyond_evidence_page(population_query: Any) -> No
                 "FROM generate_series(1,51) i"
             )
         )
-    result = analyze_population(query, request(operation="count"), ACTOR)
-    assert Decimal(result["value"]) == Decimal(54)
-    assert result["populationCount"] == 54
-    assert len(result["members"]) == 50
+    result = run_analysis(query, ACTOR, operation="count")
+    assert Decimal(result.values[0]["value"]) == Decimal(54)
+    assert result.scope["populationCount"] == 54
+    assert len(result.evidence.rows) == 50
 
 
 @pytest.mark.parametrize(
     ("changes", "code"),
     [
-        ({"filters": {"taxYear": 2025}}, "CONFLICTING_YEAR"),
+        ({"filters": {"taxYear": 2025}}, "NEEDS_INPUT"),
         ({"filters": {"sql": "SELECT 1"}}, "INVALID_PROPERTIES"),
-        ({"metric": "finance.returnLineAmount"}, "POPULATION_NOT_DECLARED"),
         (
             {"comparison": {"identity": {"caseId": "outside"}, "operation": "shareOfTotal"}},
             "COMPARISON_SUBJECT_OUTSIDE_POPULATION",
         ),
     ],
 )
-def test_invalid_scope_and_undeclared_population_refused(
+def test_invalid_scope_is_refused(
     population_query: Any, changes: dict[str, Any], code: str
 ) -> None:
     with pytest.raises(ValueError, match=code):
-        analyze_population(population_query, request(**changes), ACTOR)
+        run_analysis(population_query, ACTOR, **changes)
 
 
 def test_forbidden_and_injected_schema_rejected(population_query: Any) -> None:
     with pytest.raises(PermissionError):
-        analyze_population(
-            population_query, request(), RequestActor(tenant="tenant-a", subject="viewer", roles=())
+        run_analysis(
+            population_query,
+            RequestActor(tenant="tenant-a", subject="viewer", roles=()),
         )
     with pytest.raises(ValidationError):
-        request(sql="select 1")
+        SemanticQuery.model_validate({"apiVersion": "semaloom/v0.1", "sql": "select 1"})
 
 
 def test_chat_tool_and_browser_lineage_separation(population_query: Any) -> None:
     gateway = SemanticTools(population_query, ACTOR)
-    from semaloom.runtime.analysis import from_population_request
-
     result = gateway.call(
         "prepare_semantic_query",
-        {"query": from_population_request(request(), "taxYear").model_dump(by_alias=True)},
+        {"query": analysis_query().model_dump(by_alias=True)},
     )
     assert Decimal(result["result"]["values"][0]["value"]) == Decimal("100.01")
     assert "physical" not in str(result) and "sample_financial_review" not in str(result)
-    answer = attach_lineage(gateway.answer, population_query.bundle)
+    answer = project_browser_answer(gateway.answer, population_query.bundle)
     assert any(m["resource"] == "sample_financial_review" for m in answer["evidence"][0]["lineage"])
-    assert "lineage" not in visible_answer(answer, ACTOR)["evidence"][0]
+    presentation = answer["presentation"]
+    assert presentation["version"] == "semaloom/presentation-v0.1"
+    assert presentation["metrics"][0]["value"] == result["result"]["values"][0]["value"]
+    assert presentation["reports"] == []
+    result_labels = answer["evidence"][0]["result"]["labels"]
+    assert result["result"]["values"][0]["metric"] in result_labels
+    assert not any(key.startswith(("procurement.", "tax.")) for key in result_labels)
+    visible = visible_answer(answer, ACTOR)
+    assert "lineage" not in visible["evidence"][0]
+    assert visible["presentation"] == presentation
     modeler = RequestActor(tenant="tenant-a", subject="test", roles=("analyst", "modeler"))
     assert visible_answer(answer, modeler)["evidence"][0]["lineage"]
 
@@ -182,19 +186,17 @@ def test_ties_negative_and_zero_denominators(
                 text("UPDATE sample_financial_review SET declared_profit=:v WHERE id=:id"),
                 {"v": Decimal(value), "id": f"C{index}"},
             )
-    result = analyze_population(
+    result = run_analysis(
         population_query,
-        request(
-            comparison={
-                "identity": {"caseId": "C1"},
-                "operation": operation,
-                "direction": direction,
-            }
-        ),
         ACTOR,
+        comparison={
+            "identity": {"caseId": "C1"},
+            "operation": operation,
+            "direction": direction,
+        },
     )
-    assert result["comparison"]["reason"] == reason
-    actual = result["comparison"]["value"]
+    assert result.scope["comparison"]["reason"] == reason
+    actual = result.scope["comparison"]["value"]
     assert (Decimal(actual) if actual is not None else None) == (
         Decimal(expected) if expected is not None else None
     )
@@ -239,9 +241,14 @@ else emit({type:'complete',history:[]});});""")
     try:
         with TestClient(app) as client:
             headers = {"Authorization": "Bearer tenant-a-analyst"}
-            direct = client.post(
-                "/v0.1/analyze", headers=headers, json=request().model_dump(by_alias=True)
+            prepared = client.post(
+                "/v0.1/semantic/prepare",
+                headers=headers,
+                json=analysis_query().model_dump(by_alias=True),
             )
+            assert prepared.status_code == 200
+            plan = prepared.json()["plan"]
+            direct = client.post("/v0.1/semantic/execute", headers=headers, json=plan)
             assert direct.status_code == 200
             streamed = client.post(
                 "/v0.1/chat/turns", headers=headers, json={"message": "Average in 2024"}
@@ -251,7 +258,7 @@ else emit({type:'complete',history:[]});});""")
             answer = next(e["answer"] for e in events if e["type"] == "answer")
             assert (
                 answer["evidence"][0]["result"]["values"][0]["value"]
-                == direct.json()["value"]
+                == direct.json()["values"][0]["value"]
                 == "100.01"
             )
             assert "lineage" not in answer["evidence"][0]
@@ -266,30 +273,26 @@ else emit({type:'complete',history:[]});});""")
 def test_subject_filter_resolves_in_full_cohort_without_changing_denominator(
     population_query: Any,
 ) -> None:
-    result = analyze_population(
+    result = run_analysis(
         population_query,
-        request(comparison={"filters": {"companyName": "缺失样本"}, "operation": "shareOfTotal"}),
         ACTOR,
+        comparison={"filters": {"companyName": "缺失样本"}, "operation": "shareOfTotal"},
     )
-    assert result["populationCount"] == 3
-    assert result["comparisonRequest"]["identity"] == {"caseId": "C3"}
-    assert Decimal(result["comparison"]["denominator"]) == Decimal("300.03")
+    assert result.scope["populationCount"] == 3
+    assert result.scope["subjectIdentity"] == "C3"
+    assert Decimal(result.scope["comparison"]["denominator"]) == Decimal("300.03")
     with pytest.raises(ValueError, match="AMBIGUOUS_COMPARISON_SUBJECT"):
-        analyze_population(
+        run_analysis(
             population_query,
-            request(
-                comparison={"filters": {"companyName": "示例企业"}, "operation": "shareOfTotal"}
-            ),
             ACTOR,
+            comparison={"filters": {"companyName": "示例企业"}, "operation": "shareOfTotal"},
         )
     with pytest.raises(ValueError, match="SUBJECT_FILTER_MUST_NOT_RESTRICT_POPULATION"):
-        analyze_population(
+        run_analysis(
             population_query,
-            request(
-                filters={"companyName": "缺失样本"},
-                comparison={"filters": {"companyName": "缺失样本"}, "operation": "shareOfTotal"},
-            ),
             ACTOR,
+            filters={"companyName": "缺失样本"},
+            comparison={"filters": {"companyName": "缺失样本"}, "operation": "shareOfTotal"},
         )
 
 
@@ -297,16 +300,14 @@ def test_statistical_chat_finishes_with_engine_narrative_and_metric_lineage(
     population_query: Any,
 ) -> None:
     gateway = SemanticTools(population_query, ACTOR, "2024年选定申报利润总额均值")
-    from semaloom.runtime.analysis import from_population_request
-
     result = gateway.call(
         "prepare_semantic_query",
-        {"query": from_population_request(request(), "taxYear").model_dump(by_alias=True)},
+        {"query": analysis_query().model_dump(by_alias=True)},
     )
     assert result["answerReady"] is True
     assert gateway.answer["textOrigin"] == "ENGINE"
     assert result["result"]["values"][0]["value"] in gateway.answer["text"]
-    answer = attach_lineage(gateway.answer, population_query.bundle)
+    answer = project_browser_answer(gateway.answer, population_query.bundle)
     assert any(m["targetKind"] == "metric" for m in answer["evidence"][0]["lineage"])
 
 
@@ -314,32 +315,16 @@ def test_lower_is_better_narrative_matches_comparison_not_raw_value_order(
     population_query: Any,
 ) -> None:
     from semaloom.app.chat.summary import semantic_summary
-    from semaloom.runtime.analysis import execute, from_population_request, prepare
 
-    result = analyze_population(
-        population_query,
-        request(
-            comparison={
-                "identity": {"caseId": "C3"},
-                "operation": "outperforms",
-                "direction": "lower",
-            }
-        ),
-        ACTOR,
-    )
-    semantic = from_population_request(
-        request(
-            comparison={
-                "identity": {"caseId": "C3"},
-                "operation": "outperforms",
-                "direction": "lower",
-            }
-        ),
-        "taxYear",
+    semantic = analysis_query(
+        comparison={
+            "identity": {"caseId": "C3"},
+            "operation": "outperforms",
+            "direction": "lower",
+        }
     )
     prepared = prepare(population_query, semantic, ACTOR)
-    narrative = semantic_summary(
-        population_query.bundle, semantic, execute(population_query, prepared.plan, ACTOR)
-    )
+    executed = execute(population_query, prepared.plan, ACTOR)
+    narrative = semantic_summary(population_query.bundle, semantic, executed)
     assert "越小越好" in narrative and "越大越好" not in narrative
-    assert result["comparison"]["value"] in narrative
+    assert executed.scope["comparison"]["value"] in narrative

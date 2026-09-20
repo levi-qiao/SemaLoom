@@ -105,26 +105,6 @@ def ensure_control_schema(engine: Engine) -> None:
         )
         """,
         """
-        CREATE TABLE IF NOT EXISTS studio_validation (
-          validation_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, draft_id TEXT NOT NULL,
-          draft_revision INTEGER NOT NULL, candidate_digest TEXT NOT NULL,
-          environment TEXT NOT NULL, status TEXT NOT NULL, details JSONB NOT NULL,
-          validator TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS studio_release_approval (
-          approval_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, draft_id TEXT NOT NULL,
-          draft_revision INTEGER NOT NULL, candidate_digest TEXT NOT NULL,
-          environment TEXT NOT NULL, validation_id TEXT NOT NULL, approver TEXT NOT NULL,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-        """,
-        """
-        ALTER TABLE studio_release_approval
-        ADD COLUMN IF NOT EXISTS validation_id TEXT
-        """,
-        """
         CREATE TABLE IF NOT EXISTS studio_publication (
           publication_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, draft_id TEXT NOT NULL,
           draft_revision INTEGER NOT NULL, digest TEXT NOT NULL, environment TEXT NOT NULL,
@@ -294,7 +274,8 @@ def _load_suppliers(engine: Engine) -> None:
                 INSERT INTO proc_supplier(tenant_id, supplier_id, name, region)
                 VALUES
                     ('tenant-a', 'SUP-1', 'Supplier One', 'EAST'),
-                    ('tenant-a', 'SUP-2', 'Supplier Two', 'WEST')
+                    ('tenant-a', 'SUP-2', 'Supplier Two', 'WEST'),
+                    ('tenant-a', 'SUP-3', 'Supplier Three', 'NORTH')
                 """
             )
         )

@@ -3,9 +3,13 @@ import { cardinalityMark } from "./labels";
 import type { Edge, Node } from "./types";
 
 export type Route = { points: ElkPoint[]; label: ElkPoint; width: number; height: number };
-// Match the fixed UI font and padding; reserve space for both labels and nodes in ELK.
 const textWidth = (text: string) => [...text].reduce((width, char) => width + (/[^\x00-\xff]/.test(char) ? 12 : 7), 0);
-export const entitySize = (label: string) => ({ width: 200, height: Math.max(64, Math.ceil(textWidth(label) * 4 / 3 / 168) * 22 + 24) });
+export const NODE_WIDTH = 240;
+export const NODE_HEIGHT = 68;
+export const entitySize = (label: string) => ({
+  width: NODE_WIDTH,
+  height: Math.max(NODE_HEIGHT, Math.ceil(textWidth(label) * 4 / 3 / (NODE_WIDTH - 36)) * 22 + 24),
+});
 export const relationLabel = (edge: Edge) => `${edge.label} · ${cardinalityMark(edge.cardinality)}`;
 
 export function ensureOrthogonal(points: ElkPoint[]): ElkPoint[] {
@@ -40,14 +44,14 @@ export async function layoutGraph(nodes: Node[], edges: Edge[], direction: "RIGH
       "elk.algorithm": "layered",
       "elk.direction": direction,
       "elk.edgeRouting": "ORTHOGONAL",
-      "elk.spacing.nodeNode": "64",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "100",
-      "elk.spacing.edgeNode": "28",
+      "elk.spacing.nodeNode": "56",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "110",
+      "elk.spacing.edgeNode": "32",
       "elk.spacing.edgeEdge": "24",
-      "elk.layered.spacing.edgeNodeBetweenLayers": "28",
+      "elk.layered.spacing.edgeNodeBetweenLayers": "32",
       "elk.layered.spacing.edgeEdgeBetweenLayers": "24",
       "elk.edgeLabels.inline": "true",
-      "elk.padding": "[top=40,left=40,bottom=40,right=40]",
+      "elk.padding": "[top=48,left=48,bottom=48,right=48]",
     },
     children: nodes.map(node => ({ id: node.id, ...entitySize(node.label) })),
     edges: edges.filter(edge => ids.has(edge.source) && ids.has(edge.target)).map(edge => ({
@@ -60,12 +64,12 @@ export async function layoutGraph(nodes: Node[], edges: Edge[], direction: "RIGH
   for (const edge of result.edges ?? []) {
     const section = edge.sections?.[0];
     const sourcePos = positions.get(edge.sources[0]) ?? { x: 0, y: 0 };
-    const targetPos = positions.get(edge.targets[0]) ?? { x: 240, y: 0 };
+    const targetPos = positions.get(edge.targets[0]) ?? { x: NODE_WIDTH, y: 0 };
     const rawPoints = section
       ? [section.startPoint, ...(section.bendPoints ?? []), section.endPoint]
       : [
-          { x: sourcePos.x + 200, y: sourcePos.y + 32 },
-          { x: targetPos.x, y: targetPos.y + 32 },
+          { x: sourcePos.x + NODE_WIDTH, y: sourcePos.y + NODE_HEIGHT / 2 },
+          { x: targetPos.x, y: targetPos.y + NODE_HEIGHT / 2 },
         ];
     const points = ensureOrthogonal(rawPoints);
     const label = edge.labels?.[0];

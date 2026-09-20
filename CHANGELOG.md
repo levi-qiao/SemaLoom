@@ -21,6 +21,12 @@ versioning for published releases. During `0.x`, incompatible changes are docume
 - Chat answers a uniquely identified metric with assumed latest year and additive SUM, plus
   an ontology-general confidence score. Choice cards are one-click, include an Other free-text
   option, and no longer require typing candidate labels.
+- Property dictionaries (`values`) drive dimension/claim choice cards. Year-over-year
+  uses `PERIOD_OVER_PERIOD` on SemanticQuery, not window LAG. See ADR-0014.
+- Measurement slots declare Kimball additivity (`FULL` / `SEMI` / `NONE`, default `FULL`).
+  Collection analysis uses only SemanticQuery prepare/execute; AVG still compiles to
+  SUM+COUNT in PostgreSQL. See ADR-0013. Example packs name common business aliases on
+  those slots (利润/资产/库存/采购额) and include a non-additive 资产负债率.
 - Analysis evidence resolves configured name-like properties and ONE links (e.g. company name)
   instead of showing only opaque IDs.
 - Studio entity pages share one two-column sheet. Properties and Mapping sit on the same row;
@@ -40,17 +46,26 @@ versioning for published releases. During `0.x`, incompatible changes are docume
   structured identities, including composite keys; legacy identity mapping fields are rejected
   instead of normalized. Discovery advertises `collectionJoin` only for ONE Links with a single
   identity pair; same-source collection JOIN and cross-source bind-join both reject composite Links
-  with `LINK_ANALYSIS_UNSUPPORTED`.
+  with `LINK_ANALYSIS_UNSUPPORTED`. Metric discovery also projects `additivity` and the aggregations
+  that additivity allows.
 - Capability and README wording matches current evidence: local-dev demo tokens only, static
-  `/mcp/tools` list rather than MCP transport, exact-decimal rules, in-process Action drafts, and an
-  unfinished Studio Rule editor / joint Studio gate. Composite-key cross-source collection analysis
-  remains outside the current boundary.
+  `/mcp/tools` list rather than MCP transport, exact-decimal rules, in-process Action drafts, and a
+  joint Studio gate. Composite-key cross-source collection analysis remains outside the current
+  boundary.
 - Public sdist omits private-sample instructions and the remote importer; contributors still use
   git for those files.
 
 ### Fixed
 
+- Studio entity pages can add, edit and delete judgments and actions the same way they already
+  add relations and mappings. The structured input/operator form is on the entity sheet; there
+  is still no expression executor in the browser.
 - Quickstart no longer implies Docker is the only PostgreSQL fixture or that a model key is
   required.
+
+### Removed
+
+- `POST /v0.1/analyze`, `analyze_population`, `PopulationRequest` and `runtime/population.py`.
+  Collection analysis has a single SemanticQuery path.
 
 [Unreleased]: https://github.com/levi-qiao/SemaLoom/commits/main

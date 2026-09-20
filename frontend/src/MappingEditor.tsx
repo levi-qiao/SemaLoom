@@ -355,14 +355,43 @@ export function MappingEditor({
     </div>
   );
 
+  const currentProfile = profiles.find((item) => item.sourceId === sourceId);
+  const resourceLabel = mappingResourceLabel(mapping);
+
   return (
     <article className="bind-card mapping-card">
-      <strong>{String(mapping.label || mapping.target || mapping.id)}</strong>
-      <small>{mappingResourceLabel(mapping)}</small>
+      {compact ? (
+        <div className="compact-mapping-head">
+          <div className="compact-mapping-title-row">
+            <span className={`provider-badge ${api ? "openapi" : "postgres"}`}>
+              {api ? "API" : "PG"}
+            </span>
+            <strong className="compact-mapping-title">{currentProfile?.label || sourceId || "未选数据源"}</strong>
+          </div>
+          <div className="compact-mapping-sub">
+            <span className="compact-resource-type">{api ? "接口" : "数据表"}</span>
+            <code className="compact-resource-name">{resourceLabel}</code>
+          </div>
+        </div>
+      ) : (
+        <>
+          <strong>{String(mapping.label || mapping.target || mapping.id)}</strong>
+          <small>{resourceLabel}</small>
+        </>
+      )}
       <div className={compact ? "mapping-stack" : "mapping-split"}>
       <div className="mapping-bind">
       {compact ? (
-        <p className="mapping-hint">{sourceId || "未选来源"} / {mappingResourceLabel(mapping)}</p>
+        <div className="compact-mapping-summary">
+          <span className="compact-bound-count">
+            {Object.keys(propertyBindings).length + Object.keys(grain).length > 0
+              ? `已对齐 ${Object.keys(propertyBindings).length + Object.keys(grain).length} 个属性字段`
+              : "待配置字段"}
+          </span>
+          {Object.keys(grain).length > 0 ? (
+            <span className="compact-grain-tag">业务键: {Object.keys(grain).join(", ")}</span>
+          ) : null}
+        </div>
       ) : (
         <div className="form-grid">
           <label className="form-field">
@@ -585,49 +614,112 @@ export function MappingEditor({
             : "当前操作未提供响应字段清单，已保存的对应仍可用。"}
         </p>
       ) : null}
-      {identityKeys.map((key) => (
-        <label className="form-field" key={key}>
-          <span>试读 {key}</span>
-          <input
-            aria-label={`试读 ${key}`}
-            value={text(identity[key])}
-            placeholder={`输入 ${key}`}
-            onChange={(event) => setIdentity((current) => ({ ...current, [key]: event.target.value }))}
-          />
-        </label>
-      ))}
-      {extraBindings.map((dim) => (
-        <label className="form-field" key={dim}>
-          <span>试读 {dim}</span>
-          <input
-            aria-label={`试读 ${dim}`}
-            value={text(bindings[dim])}
-            onChange={(event) => setBindings((current) => ({ ...current, [dim]: event.target.value }))}
-          />
-        </label>
-      ))}
-      <button
-        className="secondary"
-        disabled={busy || !canPreview}
-        onClick={() => void runPreview()}
-      >
-        试读
-      </button>
-      {saved ? (
-        <p className="mapping-hint">{draftPreviewHint(true, savedRevision)}</p>
+      {compact ? (
+        <div className="compact-test-read">
+          <div className="test-read-header">
+            <span className="test-read-title">快速试读采样</span>
+            {saved ? (
+              <span className="test-read-hint">{draftPreviewHint(true, savedRevision)}</span>
+            ) : (
+              <span className="notice test-read-hint">{draftPreviewHint(false, savedRevision)}</span>
+            )}
+          </div>
+          <div className="test-read-controls">
+            {identityKeys.map((key) => (
+              <label className="form-field inline-test-field" key={key}>
+                <span className="test-field-label">试读 {key}</span>
+                <input
+                  aria-label={`试读 ${key}`}
+                  value={text(identity[key])}
+                  placeholder={`输入 ${key}`}
+                  onChange={(event) => setIdentity((current) => ({ ...current, [key]: event.target.value }))}
+                />
+              </label>
+            ))}
+            {extraBindings.map((dim) => (
+              <label className="form-field inline-test-field" key={dim}>
+                <span className="test-field-label">试读 {dim}</span>
+                <input
+                  aria-label={`试读 ${dim}`}
+                  value={text(bindings[dim])}
+                  placeholder={`输入 ${dim}`}
+                  onChange={(event) => setBindings((current) => ({ ...current, [dim]: event.target.value }))}
+                />
+              </label>
+            ))}
+            <button
+              className="secondary test-read-btn"
+              disabled={busy || !canPreview}
+              onClick={() => void runPreview()}
+            >
+              {busy ? "读取中…" : "试读"}
+            </button>
+          </div>
+          {previewError ? <p className="field-error" role="alert">{previewError}</p> : null}
+          {preview ? (
+            <div className="preview-outcome-card">
+              <span className="preview-outcome-badge">
+                {previewOutcomeText(text(mapping.provider), preview.kind, preview.reason)}
+              </span>
+              {preview.reason ? <span className="preview-reason">{preview.reason}</span> : null}
+              {preview.fields.filter((item) => item.value).length > 0 ? (
+                <span className="preview-values">
+                  {preview.fields
+                    .filter((item) => item.value)
+                    .map((item) => `${item.semanticField}=${item.value}`)
+                    .join("，")}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       ) : (
-        <p className="notice">{draftPreviewHint(false, savedRevision)}</p>
+        <>
+          {identityKeys.map((key) => (
+            <label className="form-field" key={key}>
+              <span>试读 {key}</span>
+              <input
+                aria-label={`试读 ${key}`}
+                value={text(identity[key])}
+                placeholder={`输入 ${key}`}
+                onChange={(event) => setIdentity((current) => ({ ...current, [key]: event.target.value }))}
+              />
+            </label>
+          ))}
+          {extraBindings.map((dim) => (
+            <label className="form-field" key={dim}>
+              <span>试读 {dim}</span>
+              <input
+                aria-label={`试读 ${dim}`}
+                value={text(bindings[dim])}
+                onChange={(event) => setBindings((current) => ({ ...current, [dim]: event.target.value }))}
+              />
+            </label>
+          ))}
+          <button
+            className="secondary"
+            disabled={busy || !canPreview}
+            onClick={() => void runPreview()}
+          >
+            试读
+          </button>
+          {saved ? (
+            <p className="mapping-hint">{draftPreviewHint(true, savedRevision)}</p>
+          ) : (
+            <p className="notice">{draftPreviewHint(false, savedRevision)}</p>
+          )}
+          {previewError ? <p className="field-error" role="alert">{previewError}</p> : null}
+          {preview ? (
+            <p className="mapping-hint">
+              试读 · {previewOutcomeText(text(mapping.provider), preview.kind, preview.reason)}
+              {preview.reason ? ` · ${preview.reason}` : ""}
+              {preview.fields.filter((item) => item.value).length
+                ? ` · ${preview.fields.filter((item) => item.value).map((item) => `${item.semanticField}=${item.value}`).join("，")}`
+                : ""}
+            </p>
+          ) : null}
+        </>
       )}
-      {previewError ? <p className="field-error" role="alert">{previewError}</p> : null}
-      {preview ? (
-        <p className="mapping-hint">
-          草稿预览 · {previewOutcomeText(text(mapping.provider), preview.kind, preview.reason)}
-          {preview.reason ? ` · ${preview.reason}` : ""}
-          {preview.fields.filter((item) => item.value).length
-            ? ` · ${preview.fields.filter((item) => item.value).map((item) => `${item.semanticField}=${item.value}`).join("，")}`
-            : ""}
-        </p>
-      ) : null}
       </div>
       {previewPane}
       </div>
@@ -784,32 +876,5 @@ export function makeMappingDocument(
     expectedCardinality: "ONE",
     completeness: existing.length ? "PARTIAL" : "AUTHORITATIVE",
     physical: emptyMappingPhysical(provider, identityKeys),
-  };
-}
-
-export function makeMetricMappingDocument(
-  metric: DraftDocument,
-  objectType: DraftDocument,
-  sourceId: string,
-  provider: string,
-  documents: DraftDocument[],
-): DraftDocument {
-  const identityKeys = array(objectType.identityKeys).map(String).filter(Boolean);
-  const grain = array(metric.grain).map(String);
-  const perspective = text(metric.perspective);
-  return {
-    apiVersion: "semaloom/v0.1",
-    kind: "Mapping",
-    id: newMappingId(metric.id, sourceId, documents),
-    version: "1.0.0",
-    label: String(metric.label ?? metric.id),
-    target: metric.id,
-    objectType: objectType.id,
-    sourceId,
-    provider,
-    expectedCardinality: "ONE",
-    completeness: "AUTHORITATIVE",
-    ...(perspective ? { perspective } : {}),
-    physical: emptyMetricPhysical(provider, identityKeys, grain),
   };
 }

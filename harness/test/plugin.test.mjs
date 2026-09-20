@@ -36,12 +36,12 @@ test('official pi Agent uses native hooks and stops after accepted answer',async
 });
 
 
-test('official pi terminates on server-owned population answer without another model arithmetic turn', async()=>{
+test('official pi terminates on server-owned analysis answer without another model arithmetic turn', async()=>{
   const {Agent}=await import('@earendil-works/pi-agent-core');
   const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall}=await import('@earendil-works/pi-ai');
   const faux=fauxProvider(); const models=createModels(); models.setProvider(faux.provider);
-  faux.setResponses([fauxAssistantMessage([fauxToolCall('analyze_population',{})],{stopReason:'toolUse'})]);
-  const plugin=createSemanticPlugin({catalog:[{name:'analyze_population',description:'stats',inputSchema:{type:'object'}}],
+  faux.setResponses([fauxAssistantMessage([fauxToolCall('prepare_semantic_query',{})],{stopReason:'toolUse'})]);
+  const plugin=createSemanticPlugin({catalog:[{name:'prepare_semantic_query',description:'stats',inputSchema:{type:'object'}}],
     releaseDigest:'release1',invoke:async()=>({answerReady:true,releaseDigest:'release1'})});
   const agent=new Agent({initialState:{model:faux.getModel(),tools:plugin.tools},streamFn:models.streamSimple.bind(models),
     beforeToolCall:plugin.beforeToolCall,afterToolCall:plugin.afterToolCall});

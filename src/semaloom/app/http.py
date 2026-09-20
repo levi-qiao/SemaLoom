@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Self, cast
 
+import httpx
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, model_validator
 
@@ -13,7 +14,6 @@ from semaloom.core.results import (
     MetricSelect,
     ObjectSearchRequest,
     ObjectSelect,
-    PopulationRequest,
     QueryContext,
     QueryRequest,
 )
@@ -23,9 +23,7 @@ from semaloom.runtime.analysis import AnalysisError, execute, prepare
 from semaloom.runtime.auth import RequestActor, authorize_query
 from semaloom.runtime.discovery import SemanticDiscovery
 from semaloom.runtime.eval import EvaluationError, evaluate_claim_with_evidence
-from semaloom.runtime.population import analyze_population
 from semaloom.runtime.query import QueryService
-from semaloom.runtime.registry import StaleRevision
 from semaloom.runtime.source_introspection import introspect_source, peek_source_rows
 from semaloom.runtime.source_registry import SourceRevisionConflict
 from semaloom.runtime.source_validation import (
@@ -41,7 +39,6 @@ from semaloom.runtime.studio import (
     studio_sources,
 )
 from semaloom.runtime.studio_control import DraftSnapshot, InvalidDraft, RevisionConflict
-from semaloom.runtime.studio_release import ReleaseGateError
 
 router = APIRouter(prefix="/v0.1")
 
@@ -59,12 +56,6 @@ TOKENS: dict[str, RequestActor] = {
     "tenant-a-source-admin": RequestActor(
         tenant="tenant-a", subject="sara", roles=("source-admin",)
     ),
-    "tenant-a-publisher": RequestActor(
-        tenant="tenant-a", subject="pat", roles=("publisher", "model-viewer")
-    ),
-    "tenant-a-reviewer": RequestActor(
-        tenant="tenant-a", subject="riley", roles=("reviewer", "model-viewer")
-    ),
     "tenant-a-model-viewer": RequestActor(
         tenant="tenant-a", subject="victor", roles=("model-viewer",)
     ),
@@ -78,8 +69,6 @@ DEMO_PERSONAS: dict[str, RequestActor] = {
             "model-viewer",
             "modeler",
             "source-admin",
-            "reviewer",
-            "publisher",
             "sample-viewer",
             "analyst",
         ),
@@ -88,12 +77,6 @@ DEMO_PERSONAS: dict[str, RequestActor] = {
     "viewer": RequestActor(tenant="tenant-a", subject="local-viewer", roles=("model-viewer",)),
     "source-admin": RequestActor(
         tenant="tenant-a", subject="local-source-admin", roles=("source-admin",)
-    ),
-    "reviewer": RequestActor(
-        tenant="tenant-a", subject="local-reviewer", roles=("reviewer", "model-viewer")
-    ),
-    "publisher": RequestActor(
-        tenant="tenant-a", subject="local-publisher", roles=("publisher", "model-viewer")
     ),
 }
 
@@ -259,32 +242,6 @@ def semantic_execute(
     return result.model_dump(mode="json", by_alias=True)
 
 
-@router.post("/analyze")
-def population_analysis(
-    body: PopulationRequest, request: Request, authorization: str | None = Header(default=None)
-) -> dict[str, Any]:
-    """Deprecated: translates onto SemanticQuery. Prefer /v0.1/semantic-query/*."""
-    actor = actor_from_read_request(request, authorization)
-    try:
-        result = analyze_population(
-            request.app.state.services.query_active(actor.tenant), body, actor
-        )
-    except PermissionError as exc:
-        raise HTTPException(403, "FORBIDDEN") from exc
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    if isinstance(result, dict):
-        result = {
-            **result,
-            "deprecated": True,
-            "deprecation": (
-                "POST /v0.1/analyze is deprecated; use SemanticQuery prepare/execute "
-                "or Chat prepare_semantic_query."
-            ),
-        }
-    return result
-
-
 @router.post("/objects/search")
 def find_business_objects(
     body: ObjectSearchRequest, request: Request, authorization: str | None = Header(default=None)
@@ -446,10 +403,6 @@ class SourceProfileBody(StrictModel):
     settings: dict[str, Any] = Field(default_factory=dict)
 
 
-class PublishBody(StrictModel):
-    expected_environment_revision: int
-
-
 class DemoSessionBody(StrictModel):
     persona: str = "studio-admin"
 
@@ -470,6 +423,17 @@ class SampleBody(StrictModel):
     properties: list[str] = Field(default_factory=list)
     bindings: dict[str, IdentityScalar] = Field(default_factory=dict)
     draft_id: str | None = None
+
+
+class FetchSpecBody(StrictModel):
+    url: str
+    auth_type: str = "none"
+    token: str | None = None
+    api_key: str | None = None
+    api_key_name: str | None = None
+    api_key_in: str | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 @router.post("/studio/session/demo")
@@ -653,7 +617,7 @@ def studio_source_profiles(
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     actor = actor_from_studio_request(request, authorization)
-    require_role(actor, "source-admin", "model-viewer", "modeler", "publisher")
+    require_role(actor, "source-admin", "model-viewer", "modeler")
     profiles = request.app.state.services.source_profiles.list(actor.tenant)
     return {"profiles": [item.to_dict() for item in profiles]}
 
@@ -771,6 +735,49 @@ def studio_validate_all_source_profiles(
     return {"profiles": results}
 
 
+@router.post("/studio/apis/fetch-spec")
+def studio_fetch_spec(
+    body: FetchSpecBody,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    actor = actor_from_studio_request(request, authorization)
+    require_role(actor, "source-admin", "modeler")
+    headers: dict[str, str] = {
+        "Accept": "application/json, application/yaml, text/yaml, text/plain, */*"
+    }
+    params: dict[str, str] = {}
+    auth = None
+    if body.auth_type == "bearer" and body.token:
+        headers["Authorization"] = f"Bearer {body.token}"
+    elif body.auth_type == "apiKey" and body.api_key:
+        name = body.api_key_name or "X-API-Key"
+        if body.api_key_in == "query":
+            params[name] = body.api_key
+        else:
+            headers[name] = body.api_key
+    elif body.auth_type == "basic" and body.username:
+        auth = httpx.BasicAuth(body.username, body.password or "")
+
+    try:
+        response = httpx.get(
+            body.url,
+            headers=headers,
+            params=params,
+            auth=auth,
+            timeout=10.0,
+            follow_redirects=True,
+        )
+        if response.status_code >= 400:
+            raise HTTPException(status_code=422, detail=f"FETCH_FAILED_HTTP_{response.status_code}")
+        try:
+            return {"spec": response.json(), "format": "json"}
+        except Exception:
+            return {"raw": response.text, "format": "text"}
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=422, detail=f"REQUEST_ERROR: {exc}") from exc
+
+
 @router.get("/studio/drafts/{draft_id}")
 def studio_load_draft(
     draft_id: str,
@@ -796,36 +803,6 @@ def studio_draft_impacts(
     return {"semanticId": semantic_id, "impacts": impacts}
 
 
-@router.get("/studio/drafts/{draft_id}/history")
-def studio_draft_history(
-    draft_id: str,
-    request: Request,
-    authorization: str | None = Header(default=None),
-) -> dict[str, Any]:
-    actor = actor_from_studio_request(request, authorization)
-    require_role(actor, "modeler", "reviewer", "publisher")
-    items = request.app.state.services.studio_drafts.history(actor.tenant, draft_id)
-    return {"draftId": draft_id, "revisions": items}
-
-
-@router.get("/studio/drafts/{draft_id}/revisions/{revision}")
-def studio_draft_revision(
-    draft_id: str,
-    revision: int,
-    request: Request,
-    authorization: str | None = Header(default=None),
-) -> dict[str, Any]:
-    actor = actor_from_studio_request(request, authorization)
-    require_role(actor, "modeler", "reviewer", "publisher")
-    try:
-        snapshot = request.app.state.services.studio_drafts.load_revision(
-            actor.tenant, draft_id, revision
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="NOT_FOUND") from exc
-    return cast(DraftSnapshot, snapshot).to_dict()
-
-
 @router.put("/studio/drafts/{draft_id}")
 def studio_save_draft(
     draft_id: str,
@@ -835,8 +812,9 @@ def studio_save_draft(
 ) -> dict[str, Any]:
     actor = actor_from_studio_request(request, authorization)
     require_role(actor, "modeler")
+    services = request.app.state.services
     try:
-        snapshot: DraftSnapshot = request.app.state.services.studio_drafts.save(
+        snapshot: DraftSnapshot = services.studio_drafts.save(
             actor.tenant,
             actor.subject,
             draft_id,
@@ -853,85 +831,15 @@ def studio_save_draft(
                 "diagnostics": [item.model_dump() for item in exc.diagnostics],
             },
         ) from exc
-    return snapshot.to_dict()
-
-
-@router.get("/studio/drafts/{draft_id}/review")
-def studio_review_draft(
-    draft_id: str,
-    request: Request,
-    authorization: str | None = Header(default=None),
-) -> dict[str, Any]:
-    actor = actor_from_studio_request(request, authorization)
-    require_role(actor, "modeler", "reviewer", "publisher")
-    return cast(
-        dict[str, Any],
-        request.app.state.services.studio_releases.review(actor.tenant, draft_id),
+    live = services.studio_releases.apply_live(
+        actor.tenant, actor.subject, draft_id, services.environment
     )
-
-
-@router.post("/studio/drafts/{draft_id}/validate")
-def studio_validate_draft(
-    draft_id: str,
-    request: Request,
-    authorization: str | None = Header(default=None),
-) -> dict[str, Any]:
-    actor = actor_from_studio_request(request, authorization)
-    require_role(actor, "modeler")
-    services = request.app.state.services
-    return cast(
-        dict[str, Any],
-        services.studio_releases.validate(
-            actor.tenant, actor.subject, draft_id, services.environment
-        ),
-    )
-
-
-@router.post("/studio/drafts/{draft_id}/approve")
-def studio_approve_draft(
-    draft_id: str,
-    request: Request,
-    authorization: str | None = Header(default=None),
-) -> dict[str, Any]:
-    actor = actor_from_studio_request(request, authorization)
-    require_role(actor, "reviewer")
-    services = request.app.state.services
-    try:
-        return cast(
-            dict[str, Any],
-            services.studio_releases.approve(
-                actor.tenant, actor.subject, draft_id, services.environment
-            ),
-        )
-    except ReleaseGateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@router.post("/studio/drafts/{draft_id}/publish")
-def studio_publish_draft(
-    draft_id: str,
-    body: PublishBody,
-    request: Request,
-    authorization: str | None = Header(default=None),
-) -> dict[str, Any]:
-    actor = actor_from_studio_request(request, authorization)
-    require_role(actor, "publisher")
-    services = request.app.state.services
-    try:
-        return cast(
-            dict[str, Any],
-            services.studio_releases.publish(
-                actor.tenant,
-                actor.subject,
-                draft_id,
-                services.environment,
-                body.expected_environment_revision,
-            ),
-        )
-    except ReleaseGateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except StaleRevision as exc:
-        raise HTTPException(status_code=409, detail="ENVIRONMENT_REVISION_CONFLICT") from exc
+    return {
+        **snapshot.to_dict(),
+        "activeDigest": live["digest"],
+        "environmentRevision": live["environmentRevision"],
+        "status": "ACTIVE",
+    }
 
 
 @router.get("/studio/releases")
@@ -940,7 +848,7 @@ def studio_release_history(
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     actor = actor_from_studio_request(request, authorization)
-    require_role(actor, "modeler", "reviewer", "publisher", "model-viewer")
+    require_role(actor, "modeler", "model-viewer")
     services = request.app.state.services
     digest, revision = services.studio_releases.pointer(actor.tenant, services.environment)
     return {

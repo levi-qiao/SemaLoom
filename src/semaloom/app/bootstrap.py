@@ -152,7 +152,3 @@ def build_services(*, load_data: bool = True) -> AppServices:
         ),
         sessions=StudioSessionService(pool["meta"]),
     )
-
-
-def source_urls() -> dict[str, str]:
-    return configured_urls()

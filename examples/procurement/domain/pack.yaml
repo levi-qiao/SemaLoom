@@ -4,7 +4,8 @@ id: procurement
 version: "1.0.0"
 contractVersion: v0.1
 namespace: procurement
-label: Synthetic procurement
+label: 采购
+description: Synthetic procurement
 dependencies: []
 contextDimensions:
   - id: period

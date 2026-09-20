@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
+import time
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
@@ -14,8 +16,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from semaloom.app.chat.choices import try_direct_turn
-from semaloom.app.chat.compression import build_history_from_turns
-from semaloom.app.chat.presentation import attach_lineage, visible_answer
+from semaloom.app.chat.presentation import project_browser_answer, visible_answer
 from semaloom.app.chat.store import ChatStore
 from semaloom.app.chat.tools import SYSTEM_PROMPT, SemanticTools
 from semaloom.runtime.auth import RequestActor
@@ -32,7 +33,7 @@ class ChatService:
         self.provider = {
             "baseUrl": base,
             "apiKey": str(config["apiKey"]),
-            "model": str(config.get("model", "qwen3.7-plus")),
+            "model": str(config.get("model", "deepseek-v4.1-flash")),
         }
         source_worker = Path(__file__).resolve().parents[4] / "harness" / "worker.mjs"
         default_worker = (
@@ -95,7 +96,15 @@ class ChatService:
                         actor,
                         row,
                         direct.get("question"),
-                        {"query": direct.get("query")},
+                        direct.get("query_state")
+                        or {
+                            "query": direct.get("query"),
+                            **(
+                                {"mode": direct["mode"], "claimId": direct.get("claimId")}
+                                if direct.get("mode")
+                                else {}
+                            ),
+                        },
                         message,
                     )
                     yield event(
@@ -107,7 +116,7 @@ class ChatService:
                     )
                     yield event("done")
                     return
-                answer = attach_lineage(
+                answer = project_browser_answer(
                     {
                         "kind": "answer",
                         "textOrigin": "ENGINE",
@@ -115,7 +124,7 @@ class ChatService:
                         "evidence": [
                             {
                                 "id": "e1",
-                                "tool": "prepare_semantic_query",
+                                "tool": direct.get("tool") or "prepare_semantic_query",
                                 "result": direct.get("result") or {},
                             }
                         ],
@@ -123,6 +132,7 @@ class ChatService:
                         "confidence": direct.get("confidence"),
                         "followUps": direct.get("followUps") or [],
                         "assumptions": direct.get("assumptions") or [],
+                        "query": direct.get("query"),
                     },
                     query.bundle,
                 )
@@ -134,16 +144,25 @@ class ChatService:
                     },
                 }
                 new_turn = {"question": message, "answer": answer}
-                compressed_history = build_history_from_turns(
-                    [*row.get("turns", []), new_turn],
-                    model=self.provider["model"],
-                )
+                user_msg = {
+                    "role": "user",
+                    "content": message,
+                    "timestamp": int(time.time() * 1000),
+                }
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": answer.get("text") or "已按发布口径完成计算。"}
+                    ],
+                    "timestamp": int(time.time() * 1000),
+                }
+                history = [*row.get("history", []), user_msg, assistant_msg]
                 try:
                     await asyncio.to_thread(
                         self.store.save,
                         actor,
                         refreshed,
-                        compressed_history,
+                        history,
                         new_turn,
                     )
                 except ValueError:
@@ -179,10 +198,7 @@ class ChatService:
                 + "\nPrevious confirmed conversation query (context only; "
                 "current user instructions take precedence, do not submit decisions):\n"
                 + json.dumps(row.get("query_state") or {}, ensure_ascii=False),
-                "history": build_history_from_turns(
-                    row.get("turns") or [],
-                    model=self.provider["model"],
-                ),
+                "history": row.get("history") or [],
                 "message": message,
                 "releaseDigest": query.bundle.digest,
             }
@@ -270,18 +286,33 @@ class ChatService:
                         if gateway.answer is None:
                             raise ValueError("ANSWER_NOT_VALIDATED")
                         guard()
-                        browser_answer = attach_lineage(gateway.answer, query.bundle)
+                        browser_answer = project_browser_answer(gateway.answer, query.bundle)
                         new_turn = {"question": message, "answer": browser_answer}
-                        compressed_history = build_history_from_turns(
-                            [*row.get("turns", []), new_turn],
-                            model=self.provider["model"],
-                        )
+                        saved_history = item.get("history")
+                        if not isinstance(saved_history, list):
+                            user_msg = {
+                                "role": "user",
+                                "content": message,
+                                "timestamp": int(time.time() * 1000),
+                            }
+                            assistant_msg = {
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": browser_answer.get("text")
+                                        or "已按发布口径完成计算。",
+                                    }
+                                ],
+                                "timestamp": int(time.time() * 1000),
+                            }
+                            saved_history = [*row.get("history", []), user_msg, assistant_msg]
                         try:
                             await asyncio.to_thread(
                                 self.store.save,
                                 actor,
                                 row,
-                                compressed_history,
+                                saved_history,
                                 new_turn,
                             )
                         except ValueError:
@@ -304,6 +335,7 @@ class ChatService:
         except (OSError, RuntimeError):
             yield event("error", code="HARNESS_UNAVAILABLE")
         except Exception:
+            logging.exception("chat turn failed")
             yield event("error", code="CHAT_FAILED")
         finally:
             self.busy.discard(identity)

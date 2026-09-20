@@ -72,6 +72,7 @@ test("choice cards against isolated Python Chat: three rounds, tables, refresh r
     .first();
   await firstLive.click();
 
+  await page.locator(".chat-evidence .evidence-card > summary").first().click();
   await expect(page.locator(".chat-evidence table").first()).toBeVisible({ timeout: 45_000 });
   await expect(page.getByText("引擎结果说明")).toBeVisible();
   await expect(page.getByText(/置信度/).first()).toBeVisible();

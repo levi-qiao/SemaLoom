@@ -308,3 +308,9 @@ T01 的物理 Mapping IR 继续下沉 adapter、T06 的真实 MCP/JWT、T05 的 
 ### 本体目录问答与图谱布局修正（2026-09-15）
 
 用户追加的当前范围：修复开放式本体目录介绍被事实校验拒绝、图谱线条/文字混乱。采用固定版本的分页业务定义工具与明确区分的 AI 本体说明，保留事实计算边界；图谱复用 ELK 统一正交布局，删除旧曲线与标签排布。Python、HTTP、真实模型及浏览器检查记录在 `.agents/ontology-discovery-layout/handoff.md`。本轮不关闭跨表集合查询、生产身份、原生 MCP 或任意自然语言准确性 gate。
+
+### 确定性结果组合呈现（2026-09-20）
+
+Chat 已增加受限 `ResultPresentation` 目录，将已授权 Evidence 中的引擎值投影为 KPI、表格、柱状图和趋势图，并保留原 EvidenceCard 负责完整口径与物理来源。后续纵向切片把投影所有权收回 Chat 应用层：adapter 提供通用列角色/类型/单位，浏览器只验证版本化 projection，不再按行业 ID 或展示文案推断图表。该切片不允许任意网络、URL、业务 Action 或浏览器计算进入目录，也不改变 Python 查询、授权和证据事实；实现决策见 [ADR-0009](adr/0009-progressive-studio-dependencies.md)，验证记录见 `.agents/json-render-results/handoff.md` 与 `.agents/deterministic-presentation-contract/handoff.md`。这扩展 T06/T09 的确定性展示能力，不关闭生产身份、Action 或 T09 联合 gate。
+
+自适应问答纵向切片进一步收口：选择控件由服务器按 ChoiceKind 决定，前端删除 slot 名分支和重复下拉/卡片；显式多年度与“近 N 年趋势”固定为年度 grain；报告只从聚合 QueryResult.values 生成，逐条 EvidenceTable 保持审计用途。timeGrain 默认趋势图、单维默认分布、多维默认表格，仍允许用户切换。本体没有增加组件或布局字段，Pi 仍只处理开放语言与工具编排。验证记录见 `.agents/adaptive-query-experience/handoff.md`。

@@ -40,7 +40,7 @@ uv run python ops/data/verify_local.py
 uv run python ops/data/verify_analysis.py
 ```
 
-打开 `http://127.0.0.1:8000/studio/`。默认草稿有 6 个实体、8 个关系、13 个指标、4 个规则；审计报告由 PostgreSQL 与 mock API 两个 Mapping 提供。setup 仅在来源/默认草稿不存在时新增，不覆盖编辑、不自动批准或激活。未激活时沿用 local-dev 启动模型；这是演示 fallback，不是生产发布保证。
+打开 `http://127.0.0.1:8000/studio/`。默认草稿有 6 个实体、8 个关系、14 个指标、5 个规则；审计报告由 PostgreSQL 与 mock API 两个 Mapping 提供。setup 仅在来源/默认草稿不存在时新增，不覆盖编辑、不自动批准或激活。未激活时沿用 local-dev 启动模型；这是演示 fallback，不是生产发布保证。
 
 `/mock/audit-review?reportId=<样本报告 ID>&tenant=tenant-a` 返回稳定的 PENDING / READY / ON_HOLD 及 `mocked: true`，不存在或另一租户返回 404。它只模拟工作流，不提供真实财务值或真实复核结论。仅在 local-dev 配置本地样本库时启用；运行命令绑定 loopback，不应向外部暴露此 demo 环境。
 

@@ -22,7 +22,3 @@ def is_pack_id(value: str) -> bool:
 
 def namespace_of(semantic_id: str) -> str:
     return semantic_id.split(".", 1)[0]
-
-
-def belongs_to_namespace(semantic_id: str, namespace: str) -> bool:
-    return semantic_id == namespace or semantic_id.startswith(f"{namespace}.")

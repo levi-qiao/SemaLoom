@@ -84,7 +84,7 @@ class SemanticTools:
         http_tools = [
             tool
             for tool in read_tools(ClaimBody.model_json_schema(by_alias=True))
-            if tool["name"] != "analyze_population"
+            if tool["name"] not in {"semantic_prepare", "semantic_execute"}
         ]
         query_schema = SemanticQuery.model_json_schema(by_alias=True)
         query_schema["properties"].pop("decisions", None)
@@ -183,7 +183,9 @@ class SemanticTools:
                 # Older hosts can submit discovery evidence as answer; never label it ENGINE.
                 value = value.model_copy(update={"kind": "explanation"})
             if value.kind == "answer":
-                value = value.model_copy(update={"text": evidence_summary(selected)})
+                value = value.model_copy(
+                    update={"text": evidence_summary(selected, bundle=self.query.bundle)}
+                )
             follow_ups: list[dict[str, str]] = []
             seen_chips: set[str] = set()
             for item in selected:
@@ -316,6 +318,7 @@ class SemanticTools:
                     "confidence": payload.get("confidence"),
                     "followUps": payload.get("followUps") or [],
                     "assumptions": payload.get("assumptions") or [],
+                    "query": payload.get("query"),
                 }
             if payload.get("waiting"):
                 self.pending = payload

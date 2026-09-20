@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
 
-test('definition modal renders human business language and physical provenance for action and object type', async ({ page }) => {
+test('definition modal renders ontology labels and physical provenance for action and object type', async ({ page }) => {
   const actionDef = {
     kind: 'Action',
     id: 'procurement.CreatePurchaseDraft',
+    label: '创建采购草稿',
+    description: '在采购业务系统中生成采购草稿，经授权额度核验后可转为正式采购订单',
     targetObject: 'procurement.Order',
     effect: 'Create a purchase draft in the synthetic order system',
     preconditions: ['procurement.amountWithinLimit'],
@@ -16,6 +18,7 @@ test('definition modal renders human business language and physical provenance f
       {
         type: 'actionBinding',
         id: 'ab_proc_draft',
+        label: '采购协同开放接口',
         sourceId: 'proc_draft_api',
         provider: 'openapi',
         resource: 'POST /drafts',
@@ -37,6 +40,7 @@ test('definition modal renders human business language and physical provenance f
     sources: [
       {
         id: 'm_order',
+        label: '采购主数据库',
         sourceId: 'orders_pg',
         provider: 'database',
         resource: 'proc_order',
@@ -53,6 +57,17 @@ test('definition modal renders human business language and physical provenance f
     releaseDigest: 'sha256:abcd1234efgh5678',
   };
 
+  const labels = {
+    'procurement.CreatePurchaseDraft': '创建采购草稿',
+    'procurement.Order': '采购订单',
+    'procurement.amountWithinLimit': '金额未超授权',
+    amount: '金额',
+    supplierId: '供应商编号',
+    orderId: '订单编号',
+    proc_draft_api: '采购协同开放接口',
+    orders_pg: '采购主数据库',
+  };
+
   const answer = {
     kind: 'explanation',
     textOrigin: 'AI',
@@ -63,6 +78,7 @@ test('definition modal renders human business language and physical provenance f
       tool: 'list_semantics',
       result: {
         definitions: [actionDef, objectDef],
+        labels,
         scope: 'DECLARED_MODEL_NOT_SOURCE_OBSERVATIONS',
         hasMore: false,
       }
@@ -79,51 +95,41 @@ test('definition modal renders human business language and physical provenance f
   await page.getByLabel('业务问题').fill('有哪些采购定义?');
   await page.getByRole('button', { name: '发送', exact: true }).click();
 
-  await page.getByText(/当前业务模型目录/).click();
-
-  // 1. Inspect Action
   const inspectBtns = page.getByRole('button', { name: '查看定义' });
   await inspectBtns.first().click();
 
   const modal = page.locator('.evidence-modal');
   await expect(modal).toBeVisible();
 
-  // Verify Action Business Language
   await expect(modal.getByRole('heading', { name: '创建采购草稿' })).toBeVisible();
   await expect(modal.getByText('procurement.CreatePurchaseDraft')).toBeVisible();
   await expect(modal.getByText('在采购业务系统中生成采购草稿，经授权额度核验后可转为正式采购订单')).toBeVisible();
   await expect(modal.getByText('采购订单').first()).toBeVisible();
-  await expect(modal.getByText('采购金额未超授权')).toBeVisible();
+  await expect(modal.getByText('金额未超授权')).toBeVisible();
   await expect(modal.getByText('前置强制核验')).toBeVisible();
 
-  // Verify Action Parameters
   await expect(modal.getByRole('cell', { name: '金额', exact: true })).toBeVisible();
   await expect(modal.getByRole('cell', { name: '供应商编号', exact: true })).toBeVisible();
   await expect(modal.getByText('必填').first()).toBeVisible();
 
-  // Verify Action Physical Provenance (追溯来源)
   await expect(modal.getByText('采购协同开放接口')).toBeVisible();
   await expect(modal.getByText('POST /drafts')).toBeVisible();
   await expect(modal.getByText('createPurchaseDraft', { exact: true })).toBeVisible();
   await expect(modal.getByText('幂等执行保障')).toBeVisible();
   await expect(modal.getByText('支持对账与补偿')).toBeVisible();
 
-  // Close modal
   await page.getByRole('button', { name: '关闭' }).click();
   await expect(modal).toHaveCount(0);
 
-  // 2. Inspect ObjectType
   await inspectBtns.nth(1).click();
   await expect(modal).toBeVisible();
 
-  // Verify ObjectType Business Language
   await expect(modal.getByRole('heading', { name: '采购订单' })).toBeVisible();
   await expect(modal.getByText('procurement.Order')).toBeVisible();
   await expect(modal.getByText('核心采购业务单据')).toBeVisible();
 
-  // Verify ObjectType Physical Provenance (追溯来源)
   await expect(modal.getByText('采购主数据库')).toBeVisible();
-  await expect(modal.getByText('采购订单事实表')).toBeVisible();
+  await expect(modal.getByText('proc_order')).toBeVisible();
   await expect(modal.getByRole('cell', { name: '订单编号' })).toBeVisible();
   await expect(modal.getByRole('cell', { name: 'order_id' })).toBeVisible();
   await expect(modal.getByRole('cell', { name: '金额' })).toBeVisible();

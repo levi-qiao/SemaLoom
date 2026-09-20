@@ -17,6 +17,12 @@
       label: 审批额度
       valueType: DECIMAL
       unit: CNY
+      additivity: FULL
+      aliases:
+        - 审批限额
+        - 额度
+        - 授权额度
+        - 审批额度
 
 - apiVersion: semaloom/v0.1
   kind: ObjectType
@@ -36,6 +42,18 @@
     - id: region
       label: 区域
       valueType: STRING
+      aliases:
+        - 地区
+      values:
+        - id: EAST
+          label: 华东区
+          aliases: [华东, 东部]
+        - id: NORTH
+          label: 华北区
+          aliases: [华北, 北部]
+        - id: WEST
+          label: 西部
+          aliases: [西区]
 
 - apiVersion: semaloom/v0.1
   kind: ObjectType
@@ -60,14 +78,49 @@
     - id: status
       label: 状态
       valueType: STRING
+      aliases:
+        - 订单状态
+      values:
+        - id: OPEN
+          label: 未关闭
+          aliases: [进行中, 执行中, 开放]
+        - id: CLOSED
+          label: 已关闭
+          aliases: [关闭, 结案, 完成]
     - id: deliveryRisk
       label: 交货风险
       valueType: STRING
+      aliases:
+        - 风险等级
+        - 履约风险
+      values:
+        - id: LOW
+          label: 低风险
+          aliases: [低, 正常]
+        - id: MEDIUM
+          label: 中风险
+          aliases: [中, 预警, 中等]
+        - id: HIGH
+          label: 高风险
+          aliases: [高, 严重, 危险]
     - id: amount
       label: 订单金额
       valueType: DECIMAL
       unit: CNY
+      additivity: FULL
+      aliases:
+        - 采购金额
+        - 采购额
+        - 订单总额
+        - 采购订单总额
+        - 采购订单金额
     - id: quantity
       label: 订单数量
       valueType: DECIMAL
       unit: EA
+      additivity: FULL
+      aliases:
+        - 采购数量
+        - 订货量
+        - 订单总数
+        - 订货总数

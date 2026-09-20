@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Self
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from semaloom.core.diagnostics import Diagnostic
 from semaloom.core.values import scalar_value
@@ -103,34 +103,3 @@ class ObjectSearchRequest(_Frozen):
     filters: dict[str, str | int | bool] = Field(default_factory=dict)
     properties: tuple[str, ...] = ()
     limit: int = Field(default=20, ge=1, le=50)
-
-
-class PopulationComparison(_Frozen):
-    identity: dict[str, str] | None = Field(
-        default=None,
-        description="Exact object identity from find_objects; choose identity OR filters.",
-    )
-    filters: dict[str, str | int | bool] | None = Field(
-        default=None,
-        description=(
-            "Exact subject properties on the metric's objectType, e.g. its name property. "
-            "Selects the subject INSIDE the full population; does not filter the denominator."
-        ),
-    )
-    operation: Literal["shareOfTotal", "percentAboveMean", "outperforms"]
-    direction: Literal["higher", "lower"] = "higher"
-
-    @model_validator(mode="after")
-    def one_subject_selector(self) -> Self:
-        if bool(self.identity) == bool(self.filters):
-            raise ValueError("provide exactly one non-empty identity or filters for the subject")
-        return self
-
-
-class PopulationRequest(_Frozen):
-    metric: str
-    year: int = Field(ge=1900, le=2200)
-    filters: dict[str, str | int | bool] = Field(default_factory=dict)
-    operation: Literal["mean", "sum", "min", "max", "count"] = "mean"
-    missing_policy: Literal["reject", "exclude"] = "reject"
-    comparison: PopulationComparison | None = None

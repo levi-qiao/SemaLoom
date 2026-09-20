@@ -16,7 +16,7 @@ SemaLoom 是通用企业业务语义层，采用 Python 与 Apache-2.0。通过�
 
 采用一个 Python distribution、一个应用进程部署。Compiler、Runtime、接入 adapter 和后台恢复任务在进程内装配；模块独立不要求分开部署。核心拥有语义类型、编译、规划及执行；来源数据通过 adapter 读取，业务定义由领域包提供，物理绑定由独立接入声明提供。请求固定不可变发布版本；授权与证据覆盖完整执行链路。
 
-关键理由见 [ADR-0001](adr/0001-runtime-and-domain-packs.md)、[ADR-0002](adr/0002-observation-truth-and-errors.md)、[ADR-0003](adr/0003-immutable-release-and-evidence.md)、[ADR-0004](adr/0004-action-delivery-and-approval.md)、[ADR-0005](adr/0005-python-and-dependency-ownership.md)、[ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)、[ADR-0009](adr/0009-progressive-studio-dependencies.md)、[ADR-0010](adr/0010-pi-chat-harness.md)、[ADR-0011](adr/0011-semantic-query-planner.md)、[ADR-0012](adr/0012-facts-and-business-vocabulary.md)。
+关键理由见 [ADR-0001](adr/0001-runtime-and-domain-packs.md)、[ADR-0002](adr/0002-observation-truth-and-errors.md)、[ADR-0003](adr/0003-immutable-release-and-evidence.md)、[ADR-0004](adr/0004-action-delivery-and-approval.md)、[ADR-0005](adr/0005-python-and-dependency-ownership.md)、[ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)、[ADR-0009](adr/0009-progressive-studio-dependencies.md)、[ADR-0010](adr/0010-pi-chat-harness.md)、[ADR-0011](adr/0011-semantic-query-planner.md)、[ADR-0012](adr/0012-facts-and-business-vocabulary.md)、[ADR-0013](adr/0013-measure-additivity.md)、[ADR-0014](adr/0014-ontology-dictionaries.md)。
 
 ## 内化什么，复用什么
 
@@ -92,7 +92,7 @@ Core 选择语义合法路径、执行预算和授权约束；接入 adapter 编
 
 ## 实体建模工作台
 
-Studio 以实体关系图为入口，联动属性/规则检查器和来源追踪；实体可以映射多个数据库及 API。元数据使用 PostgreSQL，图谱从版本化定义投影生成；图布局独立于语义发布。前端通过受控管理接口保存草稿、验证和发起发布，不直接写来源或运行任意查询。布局、组件、前端技术栈和发布流程以 [DESIGN](DESIGN.md) 为准，实施归属 T09。
+Studio 以实体关系图为入口，联动属性/规则检查器和来源追踪；实体可以映射多个数据库及 API。元数据使用 PostgreSQL，图谱从版本化定义投影生成；图布局独立于语义摘要。前端通过受控管理接口保存模型（保存即激活），不直接写来源或运行任意查询。布局、组件、前端技术栈和保存流程以 [DESIGN](DESIGN.md) 为准，实施归属 T09。
 
 ## 拟采用的仓库布局
 
@@ -148,7 +148,7 @@ tests/                      # 契约、行为、集成及 import 依赖检查
 ## 数据与一致性
 
 - 一个 PostgreSQL 部署可在 PoC 中承载来源 fixture 与 runtime metadata，但使用不同 database/role，避免查询连接获得 metadata 或业务写权限；真实来源接入不要求数据迁移。
-- PostgreSQL 直接持久化 Studio 草稿/revision、release、环境索引、审批、执行状态及审计；业务数据库与 API 是独立来源。Query 结果默认仅在请求内存活；Evidence 持久化遵循独立保留模式。
+- PostgreSQL 直接持久化 Studio 模型 revision、release、环境索引、执行状态及审计；业务数据库与 API 是独立来源。Query 结果默认仅在请求内存活；Evidence 持久化遵循独立保留模式。
 - 同一来源在可支持时使用只读一致性快照；两个来源的观测不默认属于一个全局事务。响应包含观测时间、来源版本和一致性等级。
 - 严格跨来源一致性必须有上游共同快照标识或可验证批次关系；无法满足时拒绝严格请求或产生明确诊断。不能用“都是 2024 年”代替一致性证明。
 - 业务时间、查询时间、来源记录版本和语义发布版本是四个不同维度。修订历史政策后，旧 release 可保留“当时结论”，新 release 可重新评估历史业务；两者都要明确选择。
@@ -161,7 +161,7 @@ tests/                      # 契约、行为、集成及 import 依赖检查
 | --- | --- | --- |
 | 对象属性点查、指标点查、有限 Link | 同一个 Query 能力的类型化分支；对象身份和受控 scope | T01 定义，T02 执行 |
 | 命题评估、存在性判断、政策比较 | 已发布 `Rule.claim` 定义与独立 evaluation ID；指定业务期间 | T01 定义，T03 执行，T06 发现/描述 |
-| 实体工作台 | 实体图谱、属性/规则检查器、数据库/API Mapping、草稿校验发布 | T09；见 [DESIGN](DESIGN.md) |
+| 实体工作台 | 实体图谱、属性/规则检查器、数据库/API Mapping、保存即生效 | T09；见 [DESIGN](DESIGN.md) |
 | 人工数据接入 | 逻辑来源注册、受限元数据、Mapping 验证、环境激活 | T02 检查，T04 控制面，T05 API profile，T09 可视化接入 |
 | 历史解释与重算 | release + 执行/环境 profile + 可保留的来源输入；当前授权 | T03、T04，T06 对外 |
 | 操作闭环 | 属性/规则前提、计划、审批、原子目标条件、写入、核验、状态查询和崩溃恢复 | T05，T06 传输 |
@@ -171,7 +171,7 @@ tests/                      # 契约、行为、集成及 import 依赖检查
 
 ## 能力范围与扩展
 
-当前 pre-alpha 提供 PostgreSQL 精确粒度查询、进程内跨来源组合、有限声明式 Link、受限规则与政策选择、合成授权 profile、发布注册表、规范草稿和受限只读 OpenAPI Provider。REST API 与内置实体工作台可运行；MCP transport、生产身份及更完整的 OpenAPI profile 仍是后续 gate。
+当前 pre-alpha 提供 PostgreSQL 精确粒度查询、进程内跨来源组合、有限声明式 Link、受限规则与政策选择、合成授权 profile、发布注册表、一份可编辑模型（保存即激活）和受限只读 OpenAPI Provider。REST API 与内置实体工作台可运行；MCP transport、生产身份及更完整的 OpenAPI profile 仍是后续 gate。
 
 第二领域最小案例从 T01–T03 开始：不同业务身份与适用范围必须使用相同编译器、查询和规则接口。领域包以本地声明及精确依赖组合，不承担动态代码执行；冲突拒绝，不按文件加载顺序覆盖。包组合与兼容要求见 [契约第 1 节](spec/semantic-contract-v0.1.md#1-标识类型与发布)。
 
@@ -181,7 +181,7 @@ PoC、开源准备与真实 pilot 分别由 [PLAN](PLAN.md) 的 gate 验收；�
 
 ## 有界集合分析
 
-集合分析由 `SemanticQuery` prepare/execute 拥有。REST `POST /v0.1/analyze`（原 `analyze_population`）为**已废弃**兼容翻译，不是第二条统计引擎；新集成与 Chat 只使用 `prepare_semantic_query`。Metric 是查询面一级公民、作者面为测量槽 + 可选词条，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。Metric.population 由领域包声明，不在 core 编写财税分支。50 只限明细分页，不截断总体聚合。声明 Link 用于点查；集合分析可沿 ONE 同源 PostgreSQL Link 做关联属性分组/筛选，一对多与跨源 JOIN 未开放。详细能力和限制见 [分析质量](analysis-quality.md) 与 [主责收口](semantic-query-closure.md)。
+集合分析由 `SemanticQuery` prepare/execute 拥有。Chat 使用 `prepare_semantic_query`；HTTP 为 `POST /v0.1/semantic/prepare` 与 `/execute`。没有第二条统计引擎或 `analyze_population` 兼容入口。测量槽声明 Kimball 可加性，查询算子仍在 SemanticQuery 上，见 [ADR-0013](adr/0013-measure-additivity.md)。Metric 是查询面一级公民、作者面为测量槽 + 可选词条，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。Metric.population 由领域包声明，不在 core 编写财税分支。50 只限明细分页，不截断总体聚合。声明 Link 用于点查；集合分析可沿 ONE 同源 PostgreSQL Link 做关联属性分组/筛选，一对多与跨源 JOIN 未开放。详细能力和限制见 [分析质量](analysis-quality.md) 与 [主责收口](semantic-query-closure.md)。
 
 ### 企业配置与 Chat 边界
 
@@ -189,8 +189,10 @@ PoC、开源准备与真实 pilot 分别由 [PLAN](PLAN.md) 的 gate 验收；�
 
 Chat 的 intent 模块只处理通用且明确的年份、统计操作、比较与缺失授权；词汇来自当前 release。schema 模块把 canonical JSON Schema 的本地引用展开为模型可理解的嵌套对象，不接受字符串冒充对象，不削弱 Python 校验。集合结果说明由 Python 引擎值生成，pi 原生 afterToolCall 在 answerReady 后结束；其他问答仍走 present_answer。准确性边界及审计证据见 [审计修复](audit-fixes.md)。
 
+交互与结果呈现各有一个服务器拥有的深模块：`ChoiceQuestion` 从稳定 ChoiceKind 推导下拉或卡片，`project_browser_answer` 从 QueryResult 的标量/聚合 grain 与 timeGrain 推导 KPI、趋势、分布或表格。Pi 不选择组件、不提供字典值、不重算金额；本体也不保存组件和布局。逐条 EvidenceTable 只进入审计层，不能代替聚合结果绘图。
+
 ## 通用分析实施状态
 
-原候选研究保留在 [通用语义查询建议](semantic-query-design.md)，实际选型和修订以 ADR-0011 为准。物理规划和快照执行位于 adapters/analysis.py，runtime/analysis.py 只做语义准备与能力调度；Chat 只使用 prepare_semantic_query，原 analyze HTTP 只翻译请求。当前同事实表能力与未闭合 Link/窗口目标见 [主责收口](semantic-query-closure.md)。
+原候选研究保留在 [通用语义查询建议](semantic-query-design.md)，实际选型和修订以 ADR-0011 为准。物理规划和快照执行位于 adapters/analysis.py，runtime/analysis.py 只做语义准备与能力调度；Chat 与 HTTP 只使用 SemanticQuery prepare/execute。当前同事实表能力与未闭合 Link/窗口目标见 [主责收口](semantic-query-closure.md)。
 
 Chat 的开放式业务目录问答复用 runtime.discovery 的固定版本定义投影，说明文本与引擎事实分型，领域词汇仍由本体拥有；见 [Chat 语义契约](spec/semantic-contract-v0.1.md)。Studio 的 ELK 只拥有视图布局，边界与替换记录见 [ADR-0009](adr/0009-progressive-studio-dependencies.md)。

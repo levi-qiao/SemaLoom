@@ -8,7 +8,7 @@
 2. **主实现**（Q1）用现有 SQLAlchemy Core 生成**参数化** PostgreSQL，用 SQLGlot 做 AST allowlist、表列限定和血缘摘要。金额保持 `decimal.Decimal`。租户/授权范围应用到每个基础关系。
 3. **Wren**（`wrenai` 0.14.0 / `wren-core-py` 0.8.0，Apache-2.0）作为第一候选已嵌入运行：`dry_plan` 与 `cube_query_to_sql` 能展开分组聚合。它不适配本契约的执行引擎，原因见下。不把 Wren 或 MetricFlow/Cube 服务纳入发行物。
 4. **交互**：继续使用已安装的 `@earendil-works/pi-agent-core` / `pi-ai` 0.85.1 的 `beforeToolCall` / `afterToolCall` / `shouldStopAfterTurn`。网页选择题是 Python 持久化的 `NEEDS_INPUT` 协议；`terminate: true` 释放本轮 Node。不安装 coding-agent，不使用 `ctx.ui.select`。
-5. 本体仍是唯一真源。不为 Wren 维护第二份 MDL。旧 `analyze_population` 在 Q1 中翻译到同一 `SemanticQuery` 链。
+5. 本体仍是唯一真源。不为 Wren 维护第二份 MDL。集合分析只通过 `SemanticQuery`；已删除 `analyze_population` 兼容层。测量槽可加性见 [ADR-0013](0013-measure-additivity.md)。
 
 ## Wren 实测后不适配的原因
 

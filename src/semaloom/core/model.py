@@ -12,8 +12,8 @@ from semaloom.core.wire import wire_config
 ValueType = Literal["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME"]
 Cardinality = Literal["ONE", "MANY"]
 Aggregation = Literal["NONE", "SUM", "MAX", "MIN"]
+Additivity = Literal["FULL", "SEMI", "NONE"]
 MappingCapability = Literal["POINT_READ", "COLLECTION_READ", "EQUI_JOIN"]
-PolicyEnd = str | None
 
 
 class _Doc(BaseModel):
@@ -27,6 +27,16 @@ class _Doc(BaseModel):
     description: str | None = None
 
 
+class PropertyValue(BaseModel):
+    """Closed dictionary entry: stored id plus the labels users may say or pick."""
+
+    model_config = wire_config()
+
+    id: str = Field(min_length=1, max_length=64)
+    label: str | None = None
+    aliases: tuple[str, ...] = Field(default=(), max_length=12)
+
+
 class EmbeddedProperty(BaseModel):
     model_config = wire_config()
 
@@ -36,7 +46,9 @@ class EmbeddedProperty(BaseModel):
     label: str | None = None
     unit: str | None = None
     aggregation: Aggregation | None = None
+    additivity: Additivity | None = None
     aliases: tuple[str, ...] = ()
+    values: tuple[PropertyValue, ...] = Field(default=(), max_length=30)
 
 
 class ObjectPeriod(BaseModel):
@@ -71,6 +83,7 @@ class MetricDef(_Doc):
     unit: str | None = None
     grain: tuple[str, ...] = ()
     aggregation: Aggregation = "NONE"
+    additivity: Additivity | None = None
     population: PopulationSpec | None = None
     aliases: tuple[str, ...] = Field(default=(), max_length=30)
     perspective: str | None = None
@@ -110,6 +123,7 @@ class RuleDef(_Doc):
     claim: str | None = None
     output_metric: str | None = None
     applicability: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = Field(default=(), max_length=30)
 
     @classmethod
     def from_document(cls, data: dict[str, Any]) -> RuleDef:
@@ -139,6 +153,7 @@ class ActionParam(BaseModel):
     name: str
     value_type: ValueType
     required: bool = True
+    label: str | None = None
 
 
 class ActionDef(_Doc):

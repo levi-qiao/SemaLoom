@@ -54,6 +54,7 @@ def test_two_round_choice_sample_merges_through_shipped_function() -> None:
     query = SemanticQuery.model_validate(sample["initialQuery"])
     round1 = sample["round1"]
     question1 = ChoiceQuestion.model_validate(round1["prepare"]["question"])
+    assert question1.control == "CARDS"
     prepare1 = PrepareResult.model_validate(round1["prepare"])
     assert prepare1.status == "NEEDS_INPUT"
     assert prepare1.question is not None
@@ -64,6 +65,7 @@ def test_two_round_choice_sample_merges_through_shipped_function() -> None:
 
     round2 = sample["round2"]
     question2 = ChoiceQuestion.model_validate(round2["prepare"]["question"])
+    assert question2.control == "SELECT"
     prepare2 = PrepareResult.model_validate(round2["prepare"])
     assert prepare2.status == "NEEDS_INPUT"
     submit2 = ChoiceSubmit.model_validate(round2["submit"])

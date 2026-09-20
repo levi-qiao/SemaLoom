@@ -2,17 +2,22 @@
   kind: Action
   id: tax.CreateTaxAdjustmentDraft
   version: "1.0.0"
+  label: 创建纳税调整草稿
+  description: 在税务征管系统中生成纳税申报调整草稿，用于审计差额比对修正
   targetObject: tax.Taxpayer
   effect: Create a tax adjustment draft in the synthetic filing system
   preconditions: [tax.incomeReconciles]
   parameters:
     - name: amount
+      label: 金额
       valueType: DECIMAL
       required: true
     - name: taxYear
+      label: 税款所属期
       valueType: INTEGER
       required: true
     - name: note
+      label: 备注说明
       valueType: STRING
       required: false
 

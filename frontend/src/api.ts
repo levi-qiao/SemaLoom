@@ -17,14 +17,6 @@ export type StudioSession = {
   roles: string[];
 };
 
-export const DEMO_PERSONAS = [
-  { id: "studio-admin", label: "studio-admin（建模 / 校验）", subject: "local-studio-admin" },
-  { id: "modeler", label: "modeler（草稿保存 / 校验）", subject: "local-modeler" },
-  { id: "reviewer", label: "reviewer（独立审核）", subject: "local-reviewer" },
-  { id: "publisher", label: "publisher（激活环境）", subject: "local-publisher" },
-  { id: "viewer", label: "viewer（只读）", subject: "local-viewer" },
-] as const;
-
 export function apiHeaders(): Record<string, string> {
   const csrf = document.cookie
     .split("; ")
@@ -43,34 +35,20 @@ export function hasRole(session: StudioSession | null | undefined, ...roles: str
   return roles.some((role) => current.includes(role));
 }
 
-export function personaFromSubject(subject: string | undefined) {
-  return DEMO_PERSONAS.find((item) => item.subject === subject)?.id ?? "";
-}
-
 export function errorDetail(cause: unknown) {
   if (cause instanceof ApiError) return cause.detail;
   if (cause instanceof Error) return cause.message;
   return "UNKNOWN_ERROR";
 }
 
-export async function ensureSession(persona = "studio-admin"): Promise<StudioSession> {
+export async function ensureSession(): Promise<StudioSession> {
   const current = await fetch("/v0.1/studio/session/bootstrap").then(checkedJson);
   if (current.authenticated) return current as StudioSession;
   return checkedJson(
     await fetch("/v0.1/studio/session/demo", {
       method: "POST",
       headers: apiHeaders(),
-      body: JSON.stringify({ persona }),
-    }),
-  ) as Promise<StudioSession>;
-}
-
-export async function switchDemoPersona(persona: string): Promise<StudioSession> {
-  return checkedJson(
-    await fetch("/v0.1/studio/session/demo", {
-      method: "POST",
-      headers: apiHeaders(),
-      body: JSON.stringify({ persona }),
+      body: JSON.stringify({ persona: "studio-admin" }),
     }),
   ) as Promise<StudioSession>;
 }

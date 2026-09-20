@@ -38,6 +38,69 @@ export function makeObjectType(namespace: string, local: string, label: string):
   };
 }
 
+export function uniqueDocumentId(documents: DraftDocument[], namespace: string, local: string): string {
+  let id = `${namespace}.${local}`;
+  let n = 2;
+  while (documents.some((item) => item.id === id)) {
+    id = `${namespace}.${local}${n}`;
+    n += 1;
+  }
+  return id;
+}
+
+function namespaceOf(objectType: DraftDocument): string {
+  return objectType.id.split(".")[0] ?? "domain";
+}
+
+function localOf(objectType: DraftDocument): string {
+  return String(objectType.id.split(".").at(-1) || "Object");
+}
+
+/** A Rule scoped to this object so the entity page can add one without a separate definition browser. */
+export function makeRuleForObject(objectType: DraftDocument, documents: DraftDocument[]): DraftDocument {
+  const id = uniqueDocumentId(documents, namespaceOf(objectType), `${localOf(objectType)}Claim`);
+  const properties = array(objectType.properties).map(object).filter((item) => text(item.id));
+  const measures = measureProperties(objectType);
+  const picked = (measures.length >= 2 ? measures : properties).slice(0, 2);
+  const inputs = picked.map((property) => ({
+    name: text(property.id),
+    objectType: objectType.id,
+    property: text(property.id),
+    required: true,
+  }));
+  const names = inputs.map((item) => item.name);
+  const expression =
+    names.length >= 2
+      ? { op: "le", args: [{ op: "ref", name: names[0] }, { op: "ref", name: names[1] }] }
+      : { op: "bool", value: true };
+  return {
+    apiVersion: "semaloom/v0.1",
+    kind: "Rule",
+    id,
+    version: "1.0.0",
+    label: "新判断",
+    claim: id,
+    inputs,
+    expression,
+  };
+}
+
+/** An Action targeting this object; preconditions stay empty until the user picks a Rule. */
+export function makeActionForObject(objectType: DraftDocument, documents: DraftDocument[]): DraftDocument {
+  const id = uniqueDocumentId(documents, namespaceOf(objectType), `${localOf(objectType)}Action`);
+  return {
+    apiVersion: "semaloom/v0.1",
+    kind: "Action",
+    id,
+    version: "1.0.0",
+    label: "新操作",
+    targetObject: objectType.id,
+    effect: "描述此操作会改动什么",
+    preconditions: [],
+    parameters: [],
+  };
+}
+
 export function documentById(documents: DraftDocument[], id: string | null | undefined) {
   return documents.find((item) => item.id === id) ?? null;
 }
@@ -180,38 +243,6 @@ export function coveringObjectMapping(
 }
 
 /** Optional Metric vocabulary entry (aliases / select / label). Not a physical Mapping class. */
-export function makeMetric(
-  objectType: DraftDocument,
-  local: string,
-  label: string,
-  unit: string,
-  propertyId?: string,
-): DraftDocument {
-  const namespace = objectType.id.split(".")[0] ?? "domain";
-  const identities = array(objectType.identityKeys).map(String).filter(Boolean);
-  const property = propertyId || text(measureProperties(objectType)[0]?.id);
-  const document: DraftDocument = {
-    apiVersion: "semaloom/v0.1",
-    kind: "Metric",
-    id: `${namespace}.${local}`,
-    version: "1.0.0",
-    label: label.trim() || local,
-    objectType: objectType.id,
-    aggregation: "NONE",
-  };
-  if (property) {
-    document.property = property;
-    const slot = measureProperties(objectType).find((item) => text(item.id) === property);
-    if (text(slot?.unit)) document.unit = text(slot?.unit);
-    if (text(slot?.valueType)) document.valueType = text(slot?.valueType);
-  } else {
-    document.valueType = "DECIMAL";
-    document.unit = unit.trim();
-    document.grain = identities.length ? identities : ["id"];
-  }
-  return document;
-}
-
 export function canonicalMetric(document: DraftDocument): DraftDocument {
   const grain = array(document.grain).map(String).filter(Boolean);
   const derived = array(document.derivedFrom).map(String).filter(Boolean);
@@ -244,33 +275,11 @@ export function canonicalMetric(document: DraftDocument): DraftDocument {
   const aliases = array(document.aliases).map(String);
   if (aliases.length) next.aliases = aliases;
   if (document.population) next.population = { ...object(document.population) };
-  return next;
-}
-
-export function renameMetric(documents: DraftDocument[], previousId: string, next: DraftDocument): DraftDocument[] {
-  const metric = canonicalMetric(next);
-  return documents.map((item) => {
-    if (item.id === previousId && item.kind === "Metric") return metric;
-    if (item.kind === "Mapping" && item.target === previousId) {
-      return { ...item, target: metric.id, objectType: metric.objectType };
-    }
-    if (item.kind === "Metric" && array(item.derivedFrom).map(String).includes(previousId)) {
-      return canonicalMetric({
-        ...item,
-        derivedFrom: array(item.derivedFrom).map((id) => (id === previousId ? metric.id : id)),
-      });
-    }
-    return item;
-  });
-}
-
-export function jsonContains(value: unknown, expected: string): boolean {
-  if (value === expected) return true;
-  if (Array.isArray(value)) return value.some((item) => jsonContains(item, expected));
-  if (value && typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).some((item) => jsonContains(item, expected));
+  const additivity = text(document.additivity);
+  if (additivity === "FULL" || additivity === "SEMI" || additivity === "NONE") {
+    next.additivity = additivity;
   }
-  return false;
+  return next;
 }
 
 export function ownedByMetric(document: DraftDocument, metricId: string): boolean {
@@ -337,8 +346,14 @@ export function referencesEntity(document: DraftDocument, entityId: string): boo
   if (document.source === entityId || document.target === entityId || document.targetObject === entityId) {
     return true;
   }
-  if (document.objectType === entityId) return true;
-  return array(document.inputs).some((item) => object(item).objectType === entityId);
+  if (document.objectType === entityId || text(document.rule) === entityId || text(document.claim) === entityId) {
+    return true;
+  }
+  if (array(document.preconditions).some((item) => String(item) === entityId)) return true;
+  return array(document.inputs).some((item) => {
+    const row = object(item);
+    return text(row.objectType) === entityId || text(row.metric) === entityId;
+  });
 }
 
 export function ownedByEntity(document: DraftDocument, entityId: string): boolean {
@@ -346,5 +361,10 @@ export function ownedByEntity(document: DraftDocument, entityId: string): boolea
     return true;
   }
   if (document.kind === "Metric" && document.objectType === entityId) return true;
-  return document.kind === "Action" && document.targetObject === entityId;
+  if (document.kind === "Action" && document.targetObject === entityId) return true;
+  if (document.kind === "Rule") {
+    const types = array(document.inputs).map((item) => text(object(item).objectType)).filter(Boolean);
+    return types.length > 0 && types.every((id) => id === entityId);
+  }
+  return false;
 }

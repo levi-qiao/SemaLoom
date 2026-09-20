@@ -10,7 +10,7 @@ export type Counts = {
 export type GraphMeta = {
   releaseDigest: string;
   onlineValidation: string;
-  packs: { id: string; label: string; version: string }[];
+  packs: { id: string; namespace?: string; label: string; version: string }[];
   counts: Counts;
 };
 
@@ -127,45 +127,43 @@ export type SourceProfileSummary = {
   provider: string;
 };
 
-export type View = "chat" | "graph" | "objects" | "sources" | "release";
-
-export type ReviewChanges = {
-  added: string[];
-  changed: string[];
-  removed: string[];
+export type ApiAuth = {
+  type: "none" | "bearer" | "apiKey" | "basic";
+  token?: string;
+  keyName?: string;
+  keyIn?: "header" | "query";
+  keyValue?: string;
+  username?: string;
+  password?: string;
 };
 
-export type DraftReview = {
-  draftId: string;
-  revision: number;
-  baseDigest: string;
-  candidateDigest: string;
-  documents: DraftDocument[];
-  exists: boolean;
-  changes: ReviewChanges;
+export type ApiParameter = {
+  name: string;
+  in: "query" | "path" | "header";
+  required?: boolean;
+  type?: string;
+  description?: string;
 };
 
-export type ReleaseRecord = {
-  publicationId: string;
-  draftId: string;
-  draftRevision: number;
-  digest: string;
-  environment: string;
-  environmentRevision: number;
-  publisher: string;
-  createdAt: string;
+export type ApiOperation = {
+  operationId: string;
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+  path: string;
+  summary?: string;
+  parameters?: ApiParameter[];
+  requestBody?: Record<string, unknown>;
+  responses?: Record<string, unknown>;
 };
 
-export type ReleaseState = {
-  environment: string;
-  activeDigest: string | null;
-  environmentRevision: number;
-  releases: ReleaseRecord[];
+export type ApiService = {
+  id: string;
+  label: string;
+  baseUrl: string;
+  description?: string;
+  auth: ApiAuth;
+  operations: ApiOperation[];
+  associatedSourceIds?: string[];
+  associatedActionIds?: string[];
 };
 
-export type DraftRevisionRecord = {
-  revision: number;
-  candidateDigest: string;
-  author: string;
-  createdAt: string;
-};
+export type View = "chat" | "graph" | "objects" | "sources" | "apis";

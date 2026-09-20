@@ -4,7 +4,8 @@ id: tax
 version: "1.0.0"
 contractVersion: v0.1
 namespace: tax
-label: Synthetic tax (demo, not valid tax law)
+label: 税务
+description: Synthetic tax (demo, not valid tax law)
 dependencies: []
 contextDimensions:
   - id: taxYear

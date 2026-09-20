@@ -19,7 +19,7 @@ class RequestActor:
         self.token = token
 
 
-def authorize_query(actor: RequestActor, resource: str) -> AccessDecision:
+def authorize_query(actor: RequestActor, _resource: str) -> AccessDecision:
     decision_id = uuid.uuid4().hex
     scope = ResourceScope(tenants=(actor.tenant,), object_types=(), identities=(), fields=())
     if not actor.tenant or not actor.subject:

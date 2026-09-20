@@ -12,7 +12,7 @@
 
 | 当前事实 | 影响 |
 |---|---|
-| [集合引擎](../src/semaloom/runtime/population.py) 先搜索最多 50 个对象，再逐对象调用 QueryService | 聚合未下推；成员数限制成了分析能力限制 |
+| 早期集合路径先搜索最多 50 个对象再逐对象点查（已删除） | 聚合未下推；成员数限制成了分析能力限制 |
 | [核心定义](../src/semaloom/core/model.py) 的 PopulationSpec 固定单位属性和整数年度；Metric 的 aggregation 只有 NONE/SUM/MAX/MIN | 缺少统一维度、时间分组和可加性表达，不能自然描述季度/月度/多维分析 |
 | [来源接口](../src/semaloom/core/provider.py) 主要是 fetch_metric/fetch_object | 不能接收集合执行计划，SQL adapter 的能力未充分暴露给语义层 |
 | [Chat 意图检查](../src/semaloom/app/chat/intent.py) 用有限中英表达约束几种操作 | 有助于拦截已知错误，无法穷举自然语言，更不应成为业务语义引擎 |

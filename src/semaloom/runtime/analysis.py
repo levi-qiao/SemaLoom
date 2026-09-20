@@ -5,25 +5,18 @@ from __future__ import annotations
 import uuid
 from typing import Any, cast
 
+from semaloom.core.measure import aggregations_for, time_dimension_held
 from semaloom.core.model import MetricDef
-from semaloom.core.results import PopulationRequest
 from semaloom.core.semantic_query import (
     UNSUPPORTED_OPERATORS,
     AggregationOp,
     ChoiceOption,
     ChoiceQuestion,
-    ComparisonExpr,
-    ComparisonOp,
-    FilterAtom,
-    FilterGroup,
-    MetricRef,
     PlanRef,
     PrepareResult,
     QueryResult,
     SemanticChoice,
     SemanticQuery,
-    SubjectSelector,
-    TypedValue,
     conflicting_equalities,
     field_constrained,
     with_choice_exits,
@@ -34,66 +27,24 @@ from semaloom.core.semantic_query import (
 from semaloom.runtime.auth import RequestActor, authorize_query
 from semaloom.runtime.query import QueryService
 
-_POP_AGG: dict[str, AggregationOp] = {
-    "mean": "AVG",
-    "sum": "SUM",
-    "min": "MIN",
-    "max": "MAX",
-    "count": "COUNT",
-}
-_CMP: dict[str, ComparisonOp] = {
-    "shareOfTotal": "SHARE_OF_TOTAL",
-    "percentAboveMean": "RELATIVE_TO_MEAN",
-    "outperforms": "STRICT_PEER",
+_AGG_LABELS: dict[AggregationOp, str] = {
+    "SUM": "合计",
+    "AVG": "平均值",
+    "MIN": "最小值",
+    "MAX": "最大值",
+    "COUNT": "有效观测数量",
 }
 
 
-def from_population_request(request: PopulationRequest, year_property: str) -> SemanticQuery:
-    year_atom = FilterAtom(
-        field=year_property,
-        op="EQ",
-        value=TypedValue(value_type="INTEGER", value=request.year),
-    )
-    extras = [
-        FilterAtom(
-            field=key,
-            op="EQ",
-            value=TypedValue(
-                value_type="BOOLEAN"
-                if isinstance(val, bool)
-                else "INTEGER"
-                if isinstance(val, int)
-                else "STRING",
-                value=val,
-            ),
-        )
-        for key, val in request.filters.items()
-        if key != year_property
-    ]
-    filters: FilterAtom | FilterGroup = (
-        FilterGroup(kind="AND", args=(year_atom, *extras)) if extras else year_atom
-    )
-    comparison = None
-    if request.comparison is not None:
-        subject = (
-            SubjectSelector(identity=request.comparison.identity)
-            if request.comparison.identity
-            else SubjectSelector(filters=request.comparison.filters)
-        )
-        comparison = ComparisonExpr(
-            op=_CMP[request.comparison.operation],
-            metric=request.metric,
-            subject=subject,
-            direction=request.comparison.direction,
-        )
-    return SemanticQuery(
-        api_version="semaloom/v0.1",
-        metrics=(MetricRef(id=request.metric, aggregation=_POP_AGG[request.operation]),),
-        filters=filters,
-        comparison=comparison,
-        missing_policy=request.missing_policy,
-        evidence_limit=50,
-    )
+def _aggregation_choices(
+    metric: MetricDef, query: SemanticQuery
+) -> list[tuple[AggregationOp, str]]:
+    additivity = metric.additivity or "FULL"
+    year = metric.population.year_property if metric.population else None
+    allowed = aggregations_for(additivity)
+    if additivity == "SEMI" and not time_dimension_held(query, year):
+        allowed = tuple(op for op in allowed if op != "SUM")
+    return [(op, _AGG_LABELS[op]) for op in allowed]
 
 
 def prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -> PrepareResult:
@@ -109,6 +60,8 @@ def prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) ->
             "LINK_ANALYSIS_UNSUPPORTED",
             "CROSS_SOURCE_SQL",
             "BUDGET_EXCEEDED",
+            "ADDITIVITY_VIOLATION",
+            "POPULATION_NOT_DECLARED",
         }:
             return PrepareResult(
                 status="UNSUPPORTED",
@@ -126,72 +79,6 @@ def prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) ->
             error_message="PROVIDER_UNAVAILABLE",
             retryable=True,
         )
-
-
-def execute_population(
-    service: QueryService, request: PopulationRequest, actor: RequestActor
-) -> dict[str, Any]:
-    metric = _metric(service, request.metric)
-    if metric.population is None:
-        raise AnalysisError("POPULATION_NOT_DECLARED")
-    spec = metric.population
-    if spec.year_property in request.filters and str(request.filters[spec.year_property]) != str(
-        request.year
-    ):
-        raise AnalysisError("CONFLICTING_YEAR")
-    query = from_population_request(request, year_property=spec.year_property)
-    prepared = prepare(service, query, actor)
-    if prepared.status == "NEEDS_INPUT":
-        if prepared.question and prepared.question.slot == "subject":
-            raise AnalysisError("AMBIGUOUS_COMPARISON_SUBJECT")
-        raise AnalysisError("NEEDS_INPUT")
-    if prepared.status == "UNSUPPORTED":
-        raise AnalysisError(prepared.capability or "OPERATOR_NOT_SUPPORTED")
-    if prepared.status == "SOURCE_ERROR":
-        raise AnalysisError(prepared.error_code or "PROVIDER_ERROR")
-    if prepared.plan is None:
-        raise AnalysisError("PROVIDER_ERROR")
-    result = execute(service, prepared.plan, actor)
-    obj = next(item for item in service.bundle.object_types if item.id == metric.object_type)
-    key = obj.identity_keys[0]
-    scope = result.scope
-    members = [
-        {
-            "identity": {key: row[0]},
-            "properties": {},
-            "observation": {
-                "kind": "NULL" if row[1] in {"None", "", "—"} else "PRESENT",
-                "value": None if row[1] in {"None", "", "—"} else row[1],
-            },
-        }
-        for row in result.evidence.rows
-    ]
-    return {
-        "kind": "PopulationAnalysis",
-        "metric": metric.id,
-        "label": metric.label,
-        "releaseDigest": service.bundle.digest,
-        "status": "UNAVAILABLE" if scope.get("reason") else "SUCCEEDED",
-        "reason": scope.get("reason"),
-        "value": result.values[0]["value"] if result.values else None,
-        "unit": "count" if request.operation == "count" else metric.unit,
-        "operation": request.operation,
-        "year": request.year,
-        "filters": {**request.filters, spec.year_property: request.year},
-        "statisticalUnit": spec.unit_property,
-        "populationDescription": spec.description,
-        "populationCount": scope["populationCount"],
-        "observedCount": scope["observedCount"],
-        "missingCount": scope["missingCount"],
-        "missingPolicy": request.missing_policy,
-        "complete": True,
-        "consistency": scope["consistency"],
-        "decimalPrecision": 28,
-        "comparison": scope.get("comparison"),
-        "comparisonRequest": _comparison_request(request, result, key),
-        "members": members,
-        "sourceActivities": list(result.source_activities),
-    }
 
 
 def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -> PrepareResult:
@@ -274,6 +161,9 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
         ):
             raise AnalysisError("INCOMPLETE_METRIC_PERIOD")
     if any(ref.aggregation is None for ref in query.metrics):
+        choices = _aggregation_choices(metric, query)
+        if not choices:
+            raise AnalysisError("ADDITIVITY_VIOLATION")
         return PrepareResult(
             status="NEEDS_INPUT",
             question=ChoiceQuestion(
@@ -290,18 +180,12 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
                             explanation=label + "（按当前筛选范围）",
                             choice=SemanticChoice(kind="AGGREGATION", id=op),
                         )
-                        for op, label in (
-                            ("SUM", "合计"),
-                            ("AVG", "平均值"),
-                            ("MIN", "最小值"),
-                            ("MAX", "最大值"),
-                            ("COUNT", "有效观测数量"),
-                        )
+                        for op, label in choices
                     ]
                 ),
             ),
         )
-    if query.comparison:
+    if query.comparison and query.comparison.op != "PERIOD_OVER_PERIOD":
         subjects = _backend(service, "analysis_subjects")(service.bundle, query, actor.tenant)
         if not query.comparison.subject or len(subjects) > 1:
             subject_options = tuple(
@@ -340,19 +224,6 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
             compiled_digest=digest,
         ),
     )
-
-
-def _comparison_request(
-    request: PopulationRequest, result: QueryResult, identity_key: str
-) -> dict[str, Any] | None:
-    if request.comparison is None:
-        return None
-    payload = request.comparison.model_dump(mode="json")
-    ident = result.scope.get("subjectIdentity")
-    if ident is not None:
-        payload["identity"] = {identity_key: ident}
-        payload["filters"] = None
-    return payload
 
 
 def _metric(service: QueryService, metric_id: str) -> MetricDef:

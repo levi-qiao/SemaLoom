@@ -88,6 +88,7 @@ def procurement_query() -> Any:
                 ('tenant-a','PO2','O1','S1','OPEN',50.0000,1),
                 ('tenant-a','PO3','O2','S2','OPEN',25.0000,1),
                 ('tenant-a','PO4','O2','S3','CLOSED',10.0000,1),
+                ('tenant-a','PO5','O2','S4','CLOSED',7.0000,1),
                 ('tenant-b','POX','OX','SX','OPEN',9999,1)
                 """
             )
@@ -106,7 +107,8 @@ def procurement_query() -> Any:
                 """
                 INSERT INTO proc_supplier VALUES
                 ('tenant-a','S1','Supplier One','EAST'),
-                ('tenant-a','S2','Supplier Two','WEST')
+                ('tenant-a','S2','Supplier Two','WEST'),
+                ('tenant-a','S3','Supplier Three','NORTH')
                 """
             )
         )
@@ -143,7 +145,8 @@ def test_bind_join_groups_by_supplier_name(procurement_query: Any) -> None:
     got = {row["grain"].get("name"): Decimal(row["value"]) for row in result.values}
     assert got["Supplier One"] == Decimal("150.0100")
     assert got["Supplier Two"] == Decimal("25.0000")
-    assert got[None] == Decimal("10.0000")
+    assert got["Supplier Three"] == Decimal("10.0000")
+    assert got[None] == Decimal("7.0000")
     with procurement_query.provider._engines["orders_pg"].connect() as conn:
         expected = conn.execute(
             text(

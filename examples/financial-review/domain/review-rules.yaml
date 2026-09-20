@@ -4,6 +4,12 @@
   id: finance.review.profitMatches
   claim: finance.review.profitMatches
   label: 选定申报与审计利润是否一致
+  aliases:
+  - 申报与审计利润是否一致
+  - 利润是否一致
+  - 利润核对
+  - 申报与审计利润一致吗
+  - 利润一致性
   description: 仅对选定样本的上游归一化数值做校验，绝对容差 0.01 元（演示校验配置，非法律标准）。TRUE 不等于真实性/合规认可；UNKNOWN
     不等于不一致。
   inputs:
@@ -47,6 +53,12 @@
   id: finance.review.balanceBalances
   claim: finance.review.balanceBalances
   label: 抽取资产是否等于负债加权益
+  aliases:
+  - 资产等于负债加权益
+  - 资产负债平衡
+  - 资产负债表平衡
+  - 会计恒等式平衡
+  - 资产负债是否平衡
   description: 仅对选定样本的上游归一化数值做校验，绝对容差 1 元（演示校验配置，非法律标准）。TRUE 不等于真实性/合规认可；UNKNOWN 不等于不一致。
   inputs:
   - name: assets
@@ -96,6 +108,11 @@
   id: finance.review.netProfitBalances
   claim: finance.review.netProfitBalances
   label: 抽取净利润是否等于利润总额减所得税费用
+  aliases:
+  - 净利润等于利润总额减所得税费用
+  - 净利润是否平衡
+  - 净利润平衡校验
+  - 净利润勾稽
   description: 仅对选定样本的上游归一化数值做校验，绝对容差 1 元（演示校验配置，非法律标准）。TRUE 不等于真实性/合规认可；UNKNOWN 不等于不一致。
   inputs:
   - name: net_profit
@@ -157,3 +174,21 @@
       name: declared
     - op: ref
       name: audit
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Rule
+  id: finance.review.debtRatio.rule
+  label: 抽取资产负债率计算
+  outputMetric: finance.review.debtRatio
+  inputs:
+  - name: liabilities
+    metric: finance.review.liabilities
+  - name: assets
+    metric: finance.review.assets
+  expression:
+    op: div
+    args:
+    - op: ref
+      name: liabilities
+    - op: ref
+      name: assets

@@ -4,7 +4,7 @@
 
 ## 决策
 
-Studio 以实体类型关系图为主，检查器展示属性、规则及来源；按需展开 Mapping 到数据库表列或 API operation/响应字段的追踪。一个实体可以由多个来源提供不同属性，同一目标多个候选遵循公共 Mapping 选择规则。图形展示不引入新的推理或业务身份语义。
+Studio 以实体类型关系图为主，检查器展示属性、规则及来源；按需展开 Mapping 到数据库表列或 API operation/响应字段的追踪。一个实体可以由多个来源提供不同属性，同一目标多个候选遵循公共 Mapping 选择规则。图形展示不引入新的推理或业务身份语义。前端通过受控管理接口保存模型（保存即激活），不直接写来源或运行任意查询。布局、组件、前端技术栈和保存流程以 [DESIGN](../DESIGN.md) 为准，实施归属 T09。
 
 前端采用 React、TypeScript、Vite；图谱与其他前端依赖的分阶段引入已由 [ADR-0009](0009-progressive-studio-dependencies.md) 细化。样式、组件和交互以 [DESIGN](../DESIGN.md) 为准。构建出的静态文件与 Python 发行物一起交付，由同一 FastAPI 应用提供；Node 只参与开发和构建，不增加生产服务。
 
@@ -17,3 +17,7 @@ Studio 草稿以 revision 存储；可信发布来源可以是受审核 Git comm
 新增 T09A/B/C，分别承担前端交互、持久化建模及真实权限/发布闭环。T05 增加与 ActionExecutor 分离的只读 API Provider，A63 由 T07 闭合同实体 SQL/API 混合来源；A64–A69 验证 Studio。Backend PoC 和 Studio gate 分别记录；T08A 产品发行准备依赖完整 Studio。
 
 T04 的模型 schema 延伸为可供后续 Studio 保存 revision 的管理接口；T09B 负责实际草稿存储与迁移，现有 bundle 不被直接编辑。无已实现运行代码或已发布数据需要迁移；新增前端构建锁文件、静态资源打包和会话安全检查将在相应任务执行。本次交付设计文档，不表示页面或后端已实现。
+
+## 修订（2026-09-17）
+
+产品面收敛为**一份模型、保存即生效**：Studio 不再提供独立草稿/变更审核页；`PUT` 保存后编译、发布并激活环境指针，查询与判断读取该版本。revision 仅用于乐观并发。已删除独立的 validate/approve/publish 控制面路径。详见 [DESIGN](../DESIGN.md)。

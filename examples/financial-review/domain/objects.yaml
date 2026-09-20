@@ -40,6 +40,7 @@
   - id: revenue
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 申报营业收入
     aliases:
     - 收入
@@ -47,17 +48,25 @@
   - id: totalProfit
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 申报利润总额
+    aliases:
+    - 利润总额
   - id: taxableIncome
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 申报应纳税所得额
     aliases:
     - 应税所得
   - id: incomeTax
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 申报实际应纳所得税额
+    aliases:
+    - 所得税
+    - 应纳所得税
   population:
     unitProperty: companyId
     yearProperty: taxYear
@@ -142,4 +151,7 @@
   - id: amount
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 申报明细金额
+    aliases:
+    - 明细金额

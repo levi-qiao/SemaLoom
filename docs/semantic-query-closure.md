@@ -25,7 +25,7 @@
 | 计划摘要仅覆盖 SQL 文本 | 绑定完整语义请求、值、租户和发布摘要；执行重新规划校验，拒绝变更值/版本复用 |
 | 保存选择后再保存回答，失败会丢失待办 | 回答、清除 pending 和保存 query_state 同一事务；失败保留原选择可重试 |
 | 物理 mappingFields 绕过 lineage 可见性 | 模型工具返回及普通分析身份移除物理表列；有建模权限的页面用表格展示映射 |
-| 原统计工具、意图校验、说明与 hooks 多路并存 | Chat 仅保留 prepare_semantic_query；旧 HTTP analyze 仅翻译。旧 Chat population 执行、TurnIntent.check 和旧说明函数删除；hooks 根据服务器 waiting/answerReady 统一结束 |
+| 原统计工具、意图校验、说明与 hooks 多路并存 | Chat 仅保留 prepare_semantic_query；`analyze_population` 与 REST `/analyze` 已删除。旧 Chat population 执行、TurnIntent.check 和旧说明函数删除；hooks 根据服务器 waiting/answerReady 统一结束 |
 
 ## 当前能力边界
 

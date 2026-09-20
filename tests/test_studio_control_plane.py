@@ -10,7 +10,6 @@ from semaloom.app.bootstrap import build_services
 from semaloom.app.factory import create_app
 from semaloom.runtime.fixtures import engines, load_synthetic
 from semaloom.runtime.source_validation import resolve_environment_binding
-from semaloom.runtime.studio_release import ReleaseGateError
 
 
 def test_source_profiles_are_tenant_scoped_versioned_and_never_accept_secrets() -> None:
@@ -123,88 +122,25 @@ def test_arbitrary_environment_binding_is_resolved_server_side(
     assert resolve_environment_binding("env:lowercase", {}) is None
 
 
-def test_validation_approval_publish_and_edit_invalidation() -> None:
+def test_save_activates_and_keeps_revision_history() -> None:
     services = build_services(load_data=True)
-    for profile in services.source_profiles.list("tenant-a"):
-        services.source_profiles.set_validation("tenant-a", profile.source_id, "VALID")
     snapshot = services.studio_drafts.load("tenant-a", "default")
+    documents = [dict(item) for item in snapshot.documents]
+    taxpayer = next(item for item in documents if item["id"] == "tax.Taxpayer")
+    taxpayer["description"] = f"live-{snapshot.revision}"
     saved = services.studio_drafts.save(
-        "tenant-a", "modeler", "default", list(snapshot.documents), snapshot.revision
+        "tenant-a", "modeler", "default", documents, snapshot.revision
     )
-    history = services.studio_drafts.history("tenant-a", "default")
-    assert [item["revision"] for item in history] == [saved.revision]
-    historical = services.studio_drafts.load_revision("tenant-a", "default", saved.revision)
-    assert historical.candidate_digest == saved.candidate_digest
-
-    validation = services.studio_releases.validate("tenant-a", "modeler", "default", "dev")
-    assert validation["status"] == "VALID"
-    try:
-        services.studio_releases.approve("tenant-a", "modeler", "default", "dev")
-    except ReleaseGateError as exc:
-        assert str(exc) == "INDEPENDENT_REVIEW_REQUIRED"
-    else:
-        raise AssertionError("the current draft author cannot approve their own candidate")
-    approval = services.studio_releases.approve("tenant-a", "reviewer", "default", "dev")
-    assert approval["candidateDigest"] == saved.candidate_digest
-    _, environment_revision = services.studio_releases.pointer("tenant-a", "dev")
-    source = services.source_profiles.get("tenant-a", "orders_pg")
-    services.source_profiles.save(
-        tenant="tenant-a",
-        actor="source-admin",
-        source_id=source.source_id,
-        expected_revision=source.revision,
-        label=source.label,
-        provider=source.provider,
-        binding_ref=source.binding_ref,
-        secret_ref=source.secret_ref,
-        settings=source.settings,
-    )
-    try:
-        services.studio_releases.publish(
-            "tenant-a", "publisher", "default", "dev", environment_revision
-        )
-    except ReleaseGateError as exc:
-        assert str(exc) == "VALIDATION_REQUIRED"
-    else:
-        raise AssertionError("source changes must invalidate validation and approval")
-    for profile in services.source_profiles.list("tenant-a"):
-        services.source_profiles.set_validation("tenant-a", profile.source_id, "VALID")
-    services.studio_releases.validate("tenant-a", "modeler", "default", "dev")
-    try:
-        services.studio_releases.publish(
-            "tenant-a", "publisher", "default", "dev", environment_revision
-        )
-    except ReleaseGateError as exc:
-        assert str(exc) == "APPROVAL_REQUIRED"
-    else:
-        raise AssertionError("a new validation must require a new approval")
-    services.studio_releases.approve("tenant-a", "reviewer", "default", "dev")
-    publication = services.studio_releases.publish(
-        "tenant-a", "publisher", "default", "dev", environment_revision
-    )
-    assert publication["status"] == "ACTIVE"
+    live = services.studio_releases.apply_live("tenant-a", "modeler", "default", "dev")
+    assert live["status"] == "ACTIVE"
+    assert live["digest"] == saved.candidate_digest
+    assert services.studio_releases.pointer("tenant-a", "dev")[0] == saved.candidate_digest
     assert services.studio_releases.pointer("tenant-b", "dev") == (None, 0)
     assert services.studio_releases.history("tenant-a")[0]["digest"] == saved.candidate_digest
-
-    documents = [dict(item) for item in saved.documents]
-    order = next(item for item in documents if item["id"] == "procurement.Order")
-    order["label"] = "Changed after approval"
-    changed = services.studio_drafts.save(
-        "tenant-a", "modeler", "default", documents, saved.revision
-    )
-    assert (
-        services.studio_drafts.load_revision("tenant-a", "default", saved.revision).candidate_digest
-        == saved.candidate_digest
-    )
-    assert changed.candidate_digest != saved.candidate_digest
-    try:
-        services.studio_releases.publish(
-            "tenant-a", "publisher", "default", "dev", publication["environmentRevision"]
-        )
-    except ReleaseGateError as exc:
-        assert str(exc) == "VALIDATION_REQUIRED"
-    else:
-        raise AssertionError("an approval for an older digest must not authorize publication")
+    history = services.studio_drafts.history("tenant-a", "default")
+    assert history[0]["revision"] == saved.revision
+    historical = services.studio_drafts.load_revision("tenant-a", "default", saved.revision)
+    assert historical.candidate_digest == saved.candidate_digest
 
 
 def test_registry_refuses_unknown_release_activation() -> None:
@@ -239,7 +175,7 @@ def test_studio_session_csrf_origin_capabilities_and_revocation() -> None:
     assert "semaloom_session" in client.cookies
     current = client.get("/v0.1/studio/session")
     assert current.status_code == 200
-    assert "publisher" in current.json()["roles"]
+    assert "modeler" in current.json()["roles"]
 
     draft = client.get("/v0.1/studio/drafts/default").json()
     rejected_origin = client.put(
@@ -621,56 +557,49 @@ def test_published_query_and_claim_evidence_for_tax_and_procurement() -> None:
     assert proc_claim.json()["releaseDigest"]
 
 
-def test_http_self_approve_rejected_and_viewer_cannot_validate() -> None:
+def test_http_viewer_cannot_save_model() -> None:
+    viewer = TestClient(create_app(load_services=True, load_fixtures=True))
+    viewer.post("/v0.1/studio/session/demo", json={"persona": "viewer"})
+    viewer_headers = {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": viewer.cookies["semaloom_csrf"],
+    }
+    forbidden = viewer.put(
+        "/v0.1/studio/drafts/default",
+        headers=viewer_headers,
+        json={"expectedRevision": 0, "documents": []},
+    )
+    assert forbidden.status_code == 403
+
+
+def test_http_save_activates_model_for_query() -> None:
     client, headers = _studio_client()
-    services = client.app.state.services
-    for profile in services.source_profiles.list("tenant-a"):
-        services.source_profiles.set_validation("tenant-a", profile.source_id, "VALID")
-    draft = client.get("/v0.1/studio/drafts/default").json()
+    draft = client.get("/v0.1/studio/drafts/default", headers=headers).json()
     documents = [dict(item) for item in draft["documents"]]
     taxpayer = next(item for item in documents if item["id"] == "tax.Taxpayer")
-    taxpayer["description"] = f"g3 http self-approve {draft['revision']}"
+    taxpayer["description"] = f"save-equals-live {draft['revision']}"
     saved = client.put(
         "/v0.1/studio/drafts/default",
         headers=headers,
         json={"expectedRevision": draft["revision"], "documents": documents},
     )
     assert saved.status_code == 200, saved.text
-    validation = client.post("/v0.1/studio/drafts/default/validate", headers=headers)
-    assert validation.status_code == 200, validation.text
-    assert validation.json()["status"] == "VALID"
-    assert validation.json()["candidateDigest"] == saved.json()["candidateDigest"]
+    body = saved.json()
+    assert body["status"] == "ACTIVE"
+    assert body["activeDigest"] == body["candidateDigest"]
+    releases = client.get("/v0.1/studio/releases", headers=headers)
+    assert releases.status_code == 200
+    assert releases.json()["activeDigest"] == body["activeDigest"]
 
-    self_approve = client.post("/v0.1/studio/drafts/default/approve", headers=headers)
-    assert (self_approve.status_code, self_approve.json()["detail"]) == (
-        409,
-        "INDEPENDENT_REVIEW_REQUIRED",
+    query = client.post(
+        "/v0.1/query",
+        headers={"Authorization": "Bearer tenant-a-analyst"},
+        json={
+            "metric": "tax.reportedIncome",
+            "bindings": {"taxpayerId": "TAXPAYER-A", "taxYear": 2024, "perspective": "TAX_RETURN"},
+            "periodFrom": "2024-01-01",
+            "periodTo": "2025-01-01",
+        },
     )
-
-    reviewer = TestClient(create_app(load_services=True, load_fixtures=False))
-    reviewer.post("/v0.1/studio/session/demo", json={"persona": "reviewer"})
-    reviewer_headers = {
-        "Origin": "http://testserver",
-        "X-CSRF-Token": reviewer.cookies["semaloom_csrf"],
-    }
-    approved = reviewer.post("/v0.1/studio/drafts/default/approve", headers=reviewer_headers)
-    assert approved.status_code == 200, approved.text
-    assert approved.json()["status"] == "APPROVED"
-    assert approved.json()["candidateDigest"] == saved.json()["candidateDigest"]
-
-    viewer = TestClient(create_app(load_services=True, load_fixtures=False))
-    viewer.post("/v0.1/studio/session/demo", json={"persona": "viewer"})
-    viewer_headers = {
-        "Origin": "http://testserver",
-        "X-CSRF-Token": viewer.cookies["semaloom_csrf"],
-    }
-    forbidden_validate = viewer.post("/v0.1/studio/drafts/default/validate", headers=viewer_headers)
-    assert forbidden_validate.status_code == 403
-    forbidden_approve = viewer.post("/v0.1/studio/drafts/default/approve", headers=viewer_headers)
-    assert forbidden_approve.status_code == 403
-    forbidden_publish = viewer.post(
-        "/v0.1/studio/drafts/default/publish",
-        headers=viewer_headers,
-        json={"expectedEnvironmentRevision": 0},
-    )
-    assert forbidden_publish.status_code == 403
+    assert query.status_code == 200, query.text
+    assert query.json()["releaseDigest"] == body["activeDigest"]

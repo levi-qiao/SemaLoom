@@ -8,26 +8,23 @@ import {
   defaultLinkIdentity,
   documentById,
   linkIdentityPairs,
+  makeActionForObject,
   makeObjectType,
+  makeRuleForObject,
   ownedByEntity,
   referencesEntity,
   replaceDocument,
   text,
+  uniqueDocumentId,
 } from "./doc";
-import { LinkFields } from "./DraftEditor";
-import { namespaceLabel, publishedExecutionHint } from "./labels";
+import { ActionFields, LinkFields, RuleFields } from "./DraftEditor";
+import { EntityDslEditor } from "./EntityDslEditor";
+import { namespaceLabel, publishedExecutionHint, type PackLabel } from "./labels";
 import { MappingEditor, makeMappingDocument } from "./MappingEditor";
 import { PropertyMappingSheet } from "./PropertyMappingSheet";
-import {
-  AboutSidePanel,
-  ActionsSidePanel,
-  RelationsSidePanel,
-  RulesSidePanel,
-  SheetHelp,
-} from "./EntitySidePanels";
 import type { DraftDocument, SourceProfileSummary } from "./types";
 
-type Tab = "about" | "properties" | "relations" | "rules" | "actions";
+type Tab = "about" | "properties" | "relations" | "rules" | "actions" | "dsl";
 
 type Props = {
   mode: "entity" | "link" | "create";
@@ -42,6 +39,7 @@ type Props = {
   onOpenEntity?: (id: string) => void;
   onSave?: () => void;
   onError: (message: string | null) => void;
+  packs?: PackLabel[];
 };
 
 export function StudioDialog({
@@ -57,9 +55,10 @@ export function StudioDialog({
   onOpenEntity,
   onSave,
   onError,
+  packs = [],
 }: Props) {
   if (mode === "create") {
-    return <CreateEntityDialog documents={documents} onChange={onChange} onClose={onClose} onCreated={onCreated} onError={onError} />;
+    return <CreateEntityDialog documents={documents} packs={packs} onChange={onChange} onClose={onClose} onCreated={onCreated} onError={onError} />;
   }
   if (mode === "link") {
     const document = documents.find((item) => item.id === targetId && item.kind === "Link");
@@ -82,7 +81,18 @@ export function StudioDialog({
     );
   }
   return (
-    <Panel title={String(document.label || document.id)} onSave={onSave}>
+    <Panel
+      title={String(document.label || document.id)}
+      subtitle={document.id}
+      namespace={document.id.split(".")[0]}
+      packs={packs}
+      headerAction={
+        variant === "quick" && onOpenEntity ? (
+          <button className="secondary entity-open-full-btn" onClick={() => onOpenEntity(document.id)}>在实体中完整编辑</button>
+        ) : null
+      }
+      onSave={onSave}
+    >
       <EntityEditor
         document={document}
         documents={documents}
@@ -99,11 +109,19 @@ export function StudioDialog({
 
 export function Panel({
   title,
+  subtitle,
+  namespace,
+  packs = [],
+  headerAction,
   onClose,
   onSave,
   children,
 }: {
   title: string;
+  subtitle?: string;
+  namespace?: string;
+  packs?: PackLabel[];
+  headerAction?: React.ReactNode;
   onClose?: () => void;
   onSave?: () => void;
   children: React.ReactNode;
@@ -111,8 +129,21 @@ export function Panel({
   return (
     <aside className="inspector studio-panel" aria-label={title}>
       <div className="dialog-head">
-        <h2>{title}</h2>
-        {onClose ? <button className="text-button" onClick={onClose} aria-label="关闭">关闭</button> : null}
+        <div className="dialog-head-info">
+          <div className="dialog-head-title-row">
+            <h2>{title}</h2>
+            {namespace ? (
+              <span className="dialog-head-ns">{namespaceLabel(namespace, packs)}</span>
+            ) : null}
+          </div>
+          {subtitle && subtitle !== title ? (
+            <code className="dialog-head-id">{subtitle}</code>
+          ) : null}
+        </div>
+        <div className="dialog-head-actions">
+          {headerAction}
+          {onClose ? <button className="text-button" onClick={onClose} aria-label="关闭">关闭</button> : null}
+        </div>
       </div>
       <div className="studio-panel-body">{children}</div>
       {onSave ? <div className="dialog-foot"><button className="primary" onClick={onSave}>保存</button></div> : null}
@@ -131,19 +162,21 @@ export function Window(props: {
 
 function CreateEntityDialog({
   documents,
+  packs,
   onChange,
   onClose,
   onCreated,
   onError,
 }: {
   documents: DraftDocument[];
+  packs: PackLabel[];
   onChange: (documents: DraftDocument[]) => void;
   onClose: () => void;
   onCreated: (id: string) => void;
   onError: (message: string | null) => void;
 }) {
   const namespaces = [...new Set(documents.filter((item) => item.kind === "ObjectType").map((item) => item.id.split(".")[0] ?? ""))].filter(Boolean);
-  const [namespace, setNamespace] = useState(namespaces[0] ?? "procurement");
+  const [namespace, setNamespace] = useState(namespaces[0] ?? "");
   const [localId, setLocalId] = useState("");
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
@@ -158,6 +191,10 @@ function CreateEntityDialog({
     }
     if (!LOCAL_ID.test(local)) {
       setFormError("请填写英文语义 ID，字母开头，仅含字母数字和下划线");
+      return;
+    }
+    if (!namespace) {
+      setFormError("请先选择领域");
       return;
     }
     const document = makeObjectType(namespace, local, display);
@@ -177,7 +214,7 @@ function CreateEntityDialog({
       <div className="form-grid">
         <label className="form-field"><span>领域</span>
           <select aria-label="领域" value={namespace} onChange={(event) => setNamespace(event.target.value)}>
-            {namespaces.map((item) => <option key={item} value={item}>{namespaceLabel(item)}</option>)}
+            {namespaces.map((item) => <option key={item} value={item}>{namespaceLabel(item, packs)}</option>)}
           </select>
         </label>
         <label className="form-field"><span>显示名称</span>
@@ -240,14 +277,9 @@ export function EntityEditor({
       onError("请先创建另一个实体");
       return;
     }
-    const ns = document.id.split(".")[0] ?? "procurement";
+    const ns = document.id.includes(".") ? document.id.split(".")[0] : document.id;
     const local = `${String(document.id.split(".").at(-1))}To${String(target.id.split(".").at(-1))}`;
-    let id = `${ns}.${local}`;
-    let n = 2;
-    while (documents.some((item) => item.id === id)) {
-      id = `${ns}.${local}${n}`;
-      n += 1;
-    }
+    const id = uniqueDocumentId(documents, ns, local);
     onChange([
       ...documents,
       {
@@ -266,6 +298,30 @@ export function EntityEditor({
     onError(null);
   }
 
+  function addRule() {
+    onChange([...documents, makeRuleForObject(document, documents)]);
+    onError(null);
+  }
+
+  function addAction() {
+    onChange([...documents, makeActionForObject(document, documents)]);
+    onError(null);
+  }
+
+  async function removeDocument(id: string) {
+    try {
+      const impacts = await loadDeleteImpacts(id, documents);
+      if (impacts.length) {
+        onError(`仍被 ${impacts.slice(0, 3).map((item) => item.id).join("、")} 引用，不能删除`);
+        return;
+      }
+      onChange(documents.filter((item) => item.id !== id));
+      onError(null);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : "UNKNOWN_ERROR");
+    }
+  }
+
   return (
     <>
       <div className="chip-row">
@@ -274,35 +330,82 @@ export function EntityEditor({
         {quick ? null : <Chip label={`关系 ${links.length}`} active={tab === "relations"} onClick={() => setTab("relations")} />}
         <Chip label={`判断 ${rules.length}`} active={tab === "rules"} onClick={() => setTab("rules")} />
         {quick ? null : <Chip label={`操作 ${actions.length}`} active={tab === "actions"} onClick={() => setTab("actions")} />}
+        <Chip label="DSL 代码" active={tab === "dsl"} onClick={() => setTab("dsl")} />
       </div>
-      {quick && onOpenEntity ? (
-        <button className="secondary" onClick={() => onOpenEntity(document.id)}>在实体中完整编辑</button>
-      ) : null}
       {tab === "about" ? (
         <div className="entity-sheet">
           <div className="entity-sheet-main">
-            <div className="form-grid">
-              <label className="form-field"><span>显示名称</span>
-                <input aria-label="显示名称" value={text(document.label)} onChange={(event) => replace({ ...document, label: event.target.value })} />
+            <div className="entity-section-card">
+              <div className="form-grid">
+                <label className="form-field"><span>显示名称</span>
+                  <input aria-label="显示名称" value={text(document.label)} onChange={(event) => replace({ ...document, label: event.target.value })} />
+                </label>
+                <label className="form-field"><span>语义 ID</span>
+                  <input value={document.id} readOnly disabled className="is-readonly" />
+                </label>
+              </div>
+              <label className="form-field"><span>描述</span>
+                <textarea rows={3} aria-label="实体描述" value={text(document.description)} onChange={(event) => replace({ ...document, description: event.target.value || undefined })} placeholder="这个实体在业务中代表什么、和哪些系统关联" />
               </label>
-              <label className="form-field"><span>语义 ID</span>
-                <input value={document.id} readOnly disabled className="is-readonly" />
-              </label>
+              <div className="entity-id-meta">
+                <span className="entity-meta-item">
+                  <span className="meta-label">主业务键</span>
+                  <code>{identityKeys.join(", ") || "无"}</code>
+                </span>
+                <span className="entity-meta-item">
+                  <span className="meta-label">所属领域</span>
+                  <code>{document.id.split(".")[0]}</code>
+                </span>
+              </div>
             </div>
-            <label className="form-field"><span>描述（给 AI 和同事看）</span>
-              <textarea rows={4} aria-label="实体描述" value={text(document.description)} onChange={(event) => replace({ ...document, description: event.target.value || undefined })} placeholder="这个实体是什么、何时使用、和哪些系统有关" />
-            </label>
-            <p className="mapping-hint">语义 ID：{document.id}（稳定英文标识，不能靠改显示名称替换）</p>
+
+            {quick ? null : (
+              <div className="entity-section-card">
+                <div className="entity-card-header">
+                  <span className="entity-card-title">语义资产概览</span>
+                  <span className="entity-card-tip">点击卡片切换视图</span>
+                </div>
+                <div className="entity-stat-grid">
+                  <div role="group" tabIndex={0} className="entity-stat-card" onClick={() => setTab("properties")}>
+                    <span className="stat-value">{properties.length}</span>
+                    <span className="stat-label">属性与测量槽</span>
+                  </div>
+                  <div role="group" tabIndex={0} className="entity-stat-card" onClick={() => setTab("relations")}>
+                    <span className="stat-value">{links.length}</span>
+                    <span className="stat-label">业务关系</span>
+                  </div>
+                  <div role="group" tabIndex={0} className="entity-stat-card" onClick={() => setTab("rules")}>
+                    <span className="stat-value">{rules.length}</span>
+                    <span className="stat-label">判断规则</span>
+                  </div>
+                  <div role="group" tabIndex={0} className="entity-stat-card" onClick={() => setTab("actions")}>
+                    <span className="stat-value">{actions.length}</span>
+                    <span className="stat-label">业务操作</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           {quick ? null : (
             <div className="entity-sheet-side">
-              <AboutSidePanel
+              <EntityDslEditor
                 document={document}
-                documents={documents}
-                onOpenEntity={onOpenEntity}
+                allDocuments={documents}
+                onChange={replace}
+                onError={onError}
               />
             </div>
           )}
+        </div>
+      ) : null}
+      {tab === "dsl" ? (
+        <div className="entity-dsl-full-view">
+          <EntityDslEditor
+            document={document}
+            allDocuments={documents}
+            onChange={replace}
+            onError={onError}
+          />
         </div>
       ) : null}
       {tab === "properties" && quick ? (
@@ -330,20 +433,34 @@ export function EntityEditor({
       {tab === "relations" && !quick ? (
         <div className="entity-sheet">
           <div className="entity-sheet-main">
-            <p className="mapping-hint">ONE 表示源到目标至多一个，例如每个订单对应一个供应商；不能据此标成 1:1。</p>
-            <button className="secondary sheet-action" onClick={addLink}>添加关系</button>
+            <div className="relation-toolbar">
+              <div className="relation-toolbar-info">
+                <span className="relation-count-badge">已配置 {links.length} 条业务关系</span>
+                <span className="relation-toolbar-hint">配置实体间的关联基数与主外键映射</span>
+              </div>
+              <button className="secondary sheet-action" onClick={addLink}>＋ 添加关系</button>
+            </div>
             {links.length ? links.map((link) => (
-              <article className="bind-card" key={link.id}>
+              <article className="bind-card relation-card" key={link.id}>
+                <div className="relation-card-header">
+                  <div className="relation-card-title">
+                    <span className="relation-badge">关系</span>
+                    <strong>{text(link.label) || link.id}</strong>
+                    <code>{link.id}</code>
+                  </div>
+                  <button className="text-button danger-text" onClick={() => void removeDocument(link.id)}>删除关系</button>
+                </div>
                 <LinkEditor document={link} documents={documents} onChange={(next) => onChange(replaceDocument(documents, next))} />
               </article>
-            )) : <p className="empty">还没有关系。可用表单添加，不必只靠图谱拖拽。</p>}
+            )) : <p className="empty">还没有关系。点击右上角「＋ 添加关系」，不必只靠图谱拖拽。</p>}
           </div>
           <div className="entity-sheet-side">
-            <RelationsSidePanel
+            <EntityDslEditor
               document={document}
-              documents={documents}
-              links={links}
-              onOpenEntity={onOpenEntity}
+              allDocuments={documents}
+              defaultScope="closure"
+              onChange={replace}
+              onError={onError}
             />
           </div>
         </div>
@@ -352,24 +469,37 @@ export function EntityEditor({
         <div className="entity-sheet">
           <div className="entity-sheet-main">
             <p className="mapping-hint">判断用来根据已有数据得出一件事是否成立。结果只有三种：成立、不成立、数据不够无法判断。{publishedExecutionHint()}</p>
+            {quick ? null : <button className="secondary sheet-action" onClick={addRule}>添加判断</button>}
             {rules.length ? rules.map((rule) => (
               <article className="bind-card" key={rule.id}>
-                <strong>{text(rule.label) || rule.id}</strong>
-                <small>{text(rule.description) || "尚未填写说明"}</small>
-                {quick ? null : (
-                  <label className="form-field"><span>描述</span>
-                    <textarea rows={2} value={text(rule.description)} onChange={(event) => onChange(replaceDocument(documents, { ...rule, description: event.target.value || undefined }))} />
-                  </label>
+                {quick ? (
+                  <>
+                    <strong>{text(rule.label) || rule.id}</strong>
+                    <small>{text(rule.description) || "尚未填写说明"}</small>
+                  </>
+                ) : (
+                  <>
+                    <label className="form-field"><span>显示名称</span>
+                      <input aria-label="判断名称" value={text(rule.label)} onChange={(event) => onChange(replaceDocument(documents, { ...rule, label: event.target.value }))} />
+                    </label>
+                    <label className="form-field"><span>描述</span>
+                      <textarea rows={2} aria-label="判断描述" value={text(rule.description)} onChange={(event) => onChange(replaceDocument(documents, { ...rule, description: event.target.value || undefined }))} />
+                    </label>
+                    <RuleFields document={rule} documents={documents} onChange={(next) => onChange(replaceDocument(documents, next))} />
+                    <button className="text-button" onClick={() => void removeDocument(rule.id)}>删除判断</button>
+                  </>
                 )}
               </article>
-            )) : <p className="empty">这个实体还没有判断。判断不是筛数据的过滤器，而是可重复评估的业务命题。</p>}
+            )) : <p className="empty">{quick ? "这个实体还没有判断。到「实体」页添加。" : "这个实体还没有判断。点上面按钮添加。"}</p>}
           </div>
           {quick ? null : (
             <div className="entity-sheet-side">
-              <RulesSidePanel
+              <EntityDslEditor
                 document={document}
-                documents={documents}
-                rules={rules}
+                allDocuments={documents}
+                defaultScope="closure"
+                onChange={replace}
+                onError={onError}
               />
             </div>
           )}
@@ -379,22 +509,33 @@ export function EntityEditor({
         <div className="entity-sheet">
           <div className="entity-sheet-main">
             <p className="mapping-hint">受控操作会调用外部系统写接口。所有写操作必须通过前置审批和执行对账。</p>
+            <button className="secondary sheet-action" onClick={addAction}>添加操作</button>
             {actions.length ? actions.map((action) => (
               <article className="bind-card" key={action.id}>
-                <strong>{text(action.label) || action.id}</strong>
-                <small>{text(action.effect)}</small>
-                <label className="form-field"><span>描述</span>
-                  <textarea rows={2} value={text(action.description)} onChange={(event) => onChange(replaceDocument(documents, { ...action, description: event.target.value || undefined }))} />
+                <label className="form-field"><span>显示名称</span>
+                  <input aria-label="操作名称" value={text(action.label)} onChange={(event) => onChange(replaceDocument(documents, { ...action, label: event.target.value }))} />
                 </label>
+                <ActionFields
+                  document={action}
+                  objects={documents.filter((item) => item.kind === "ObjectType")}
+                  allDocuments={documents}
+                  onDocumentsChange={onChange}
+                  onChange={(next) => onChange(replaceDocument(documents, next))}
+                />
+                <label className="form-field"><span>描述</span>
+                  <textarea rows={2} aria-label="操作描述" value={text(action.description)} onChange={(event) => onChange(replaceDocument(documents, { ...action, description: event.target.value || undefined }))} />
+                </label>
+                <button className="text-button" onClick={() => void removeDocument(action.id)}>删除操作</button>
               </article>
-            )) : <p className="empty">这个实体还没有会改业务系统的操作。</p>}
+            )) : <p className="empty">这个实体还没有会改业务系统的操作。点上面按钮添加。</p>}
           </div>
           <div className="entity-sheet-side">
-            <ActionsSidePanel
+            <EntityDslEditor
               document={document}
-              documents={documents}
-              actions={actions}
-              rules={rules}
+              allDocuments={documents}
+              defaultScope="closure"
+              onChange={replace}
+              onError={onError}
             />
           </div>
         </div>
@@ -475,15 +616,17 @@ export function LinkEditor({ document, documents, onChange }: { document: DraftD
     identity: identity.length ? identity : defaultLinkIdentity(sourceDoc, targetDoc),
   };
   return (
-    <>
-      <label className="form-field"><span>显示名称</span>
-        <input aria-label="显示名称" value={text(document.label)} onChange={(event) => onChange({ ...working, label: event.target.value })} />
+    <div className="link-editor-form">
+      <label className="form-field">
+        <span>显示名称</span>
+        <input aria-label="显示名称" value={text(document.label)} onChange={(event) => onChange({ ...working, label: event.target.value })} placeholder="例如：所属供应商" />
       </label>
       <LinkFields document={working} objects={objects} onChange={onChange} />
-      <label className="form-field"><span>描述（给 AI 和同事看）</span>
-        <textarea rows={3} aria-label="关系描述" value={text(document.description)} onChange={(event) => onChange({ ...working, description: event.target.value || undefined })} placeholder="这条关系在业务上表示什么" />
+      <label className="form-field">
+        <span>描述（给 AI 和同事看）</span>
+        <textarea rows={2} aria-label="关系描述" value={text(document.description)} onChange={(event) => onChange({ ...working, description: event.target.value || undefined })} placeholder="例如：采购订单关联的唯一供应商主体，用于点查及跨实体约束" />
       </label>
-    </>
+    </div>
   );
 }
 

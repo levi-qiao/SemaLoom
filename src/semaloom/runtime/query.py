@@ -234,6 +234,8 @@ class QueryService:
         search = getattr(self.provider, "search_objects", None)
         if not callable(search):
             raise ValueError("SEARCH_NOT_SUPPORTED")
+        if not request.properties:
+            fields = fields | (set(definitions) & _mapped_object_fields(mapping))
         primary_fields = fields & _mapped_object_fields(mapping)
         page = search(
             mapping,

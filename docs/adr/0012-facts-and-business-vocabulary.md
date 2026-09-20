@@ -47,3 +47,7 @@ Compiler 将词条展开为带 grain/unit 的 MetricDef，并生成 `tax.operati
 ## 影响
 
 CONTEXT、契约第 2/3 节、architecture 配置边界、DESIGN 实体页、示例包与 Studio 指标表单同步本决策。替换 [ADR-0006](0006-independent-integration-layer.md) 中“领域包拥有指标定义”的理解：领域包拥有**业务词条**，不拥有来源科目清单。执行接口仍见 [语义契约](../spec/semantic-contract-v0.1.md)。
+
+## 修订（2026-09-18）
+
+测量槽增加 Kimball 可加性；SUM/AVG 仍是查询算子。删除 `analyze_population` 兼容入口。见 [ADR-0013](0013-measure-additivity.md)。

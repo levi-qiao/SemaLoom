@@ -1,6 +1,6 @@
 """Bounded live Chat evaluation against direct semantic API results.
 
-Cases contain id/question and either kind=clarification or a population request.
+Cases contain id/question and either kind=clarification or a SemanticQuery.
 Reports contain only verdicts, never API keys, questions or business values.
 The oracle checks engine evidence, not the truth of arbitrary model prose.
 """
@@ -17,41 +17,34 @@ import httpx
 
 
 def verdict(answer: dict[str, Any], oracle: dict[str, Any] | None, kind: str) -> str:
-    populations = [
+    analyses = [
         item.get("result", {})
         for item in answer.get("evidence", [])
-        if item.get("tool") == "analyze_population"
+        if item.get("tool") == "prepare_semantic_query"
     ]
     if oracle is None:
         return (
             "PASS"
-            if answer.get("kind") == kind and not populations
+            if answer.get("kind") == kind and not analyses
             else "WRONG_ANSWER_KIND_OR_UNREQUESTED_ANALYSIS"
         )
-    if answer.get("kind") != kind or not populations:
+    if answer.get("kind") != kind or not analyses:
         return "MISSING_OR_MISMATCHED_ENGINE_EVIDENCE"
-    keys = (
-        "metric",
-        "year",
-        "operation",
-        "filters",
-        "statisticalUnit",
-        "missingPolicy",
-        "value",
-        "unit",
-        "status",
-        "reason",
-        "populationCount",
-        "observedCount",
-        "missingCount",
-        "complete",
-        "comparison",
-        "comparisonRequest",
-        "releaseDigest",
-    )
-    if all(all(result.get(k) == oracle.get(k) for k in keys) for result in populations):
+    keys = ("values", "scope", "releaseDigest")
+    if all(all(result.get(k) == oracle.get(k) for k in keys) for result in analyses):
         return "PASS"
     return "CONFLICTING_OR_MISMATCHED_ENGINE_EVIDENCE"
+
+
+def _oracle(client: httpx.Client, query: dict[str, Any]) -> dict[str, Any]:
+    prepared = client.post("/v0.1/semantic/prepare", json=query)
+    prepared.raise_for_status()
+    body = prepared.json()
+    if body.get("status") != "READY" or not body.get("plan"):
+        raise ValueError("ORACLE_PREPARE_NOT_READY")
+    executed = client.post("/v0.1/semantic/execute", json=body["plan"])
+    executed.raise_for_status()
+    return executed.json()
 
 
 def main() -> None:
@@ -71,10 +64,8 @@ def main() -> None:
     ) as client:
         for case in cases:
             oracle = None
-            if "population" in case:
-                response = client.post("/v0.1/analyze", json=case["population"])
-                response.raise_for_status()
-                oracle = response.json()
+            if "query" in case:
+                oracle = _oracle(client, case["query"])
             try:
                 response = client.post("/v0.1/chat/turns", json={"message": case["question"]})
                 response.raise_for_status()

@@ -27,7 +27,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { namespaceLabel } from "./labels";
+import { IconEntity } from "./icons";
+import { namespaceLabel, type PackLabel } from "./labels";
 import type { Edge, Node } from "./types";
 
 type Props = {
@@ -42,6 +43,7 @@ type Props = {
   onLink: (source: string, target: string) => void;
   onOpenFull?: (id: string) => void;
   namespaces: string[];
+  packs: PackLabel[];
   relations: { id: string; label: string }[];
   namespaceFilter: string;
   relationFilter: string;
@@ -49,9 +51,15 @@ type Props = {
   onRelationFilter: (value: string) => void;
 };
 
-import { entitySize, ensureOrthogonal, layoutGraph, relationLabel, type Route } from "./graphLayout";
+import { NODE_WIDTH, NODE_HEIGHT, entitySize, ensureOrthogonal, layoutGraph, relationLabel, type Route } from "./graphLayout";
 
-type EntityData = { label: string };
+type EntityData = {
+  id?: string;
+  label: string;
+  namespace?: string;
+  propertyCount?: number;
+  sourceCount?: number;
+};
 type Placed = FlowNode<EntityData>;
 
 const nodeTypes = { entity: EntityNode };
@@ -60,24 +68,6 @@ const edgeTypes = { entity: RoutedEdge };
 export function GraphCanvas(props: Props) {
   return (
     <div className="graph-canvas">
-      <div className="graph-toolbar">
-        <label className="graph-filter">
-          <span className="sr-only">领域</span>
-          <select aria-label="领域" value={props.namespaceFilter} onChange={(event) => props.onNamespaceFilter(event.target.value)}>
-            <option value="">全部领域</option>
-            {props.namespaces.map((item) => <option key={item} value={item}>{namespaceLabel(item)}</option>)}
-          </select>
-        </label>
-        <label className="graph-filter">
-          <span className="sr-only">关系</span>
-          <select aria-label="关系" value={props.relationFilter} onChange={(event) => props.onRelationFilter(event.target.value)}>
-            <option value="">全部关系</option>
-            {props.relations.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
-        </label>
-
-        <span>{props.nodes.length} 个实体 · {props.edges.length} 条关系 · 从连接点拖到另一实体连线</span>
-      </div>
       <div className="graph-flow">
         <ReactFlowProvider>
           <FlowBoard {...props} />
@@ -98,6 +88,13 @@ function FlowBoard({
   onOpenFull,
   onCreate,
   canEdit,
+  namespaces,
+  packs,
+  relations,
+  namespaceFilter,
+  relationFilter,
+  onNamespaceFilter,
+  onRelationFilter,
 }: Props) {
   const { screenToFlowPosition, fitView } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -109,7 +106,7 @@ function FlowBoard({
     const fit = () => {
       setDirection((canvasRef.current?.clientWidth ?? 0) >= 1100 ? "RIGHT" : "DOWN");
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => void fitView({ padding: .25, maxZoom: 1.25 }));
+      frame = requestAnimationFrame(() => void fitView({ padding: .25, maxZoom: 1.15 }));
     };
     const observer = new ResizeObserver(fit);
     observer.observe(canvasRef.current);
@@ -136,11 +133,18 @@ function FlowBoard({
       setLayout(result);
       setFlowNodes(graph.nodes.map(node => ({
         id: node.id, type: "entity", position: result.positions.get(node.id)!,
-        data: { label: node.label }, ...entitySize(node.label), style: entitySize(node.label),
+        data: {
+          id: node.id,
+          label: node.label,
+          namespace: node.namespace,
+          propertyCount: node.properties?.length ?? 0,
+          sourceCount: node.sourceCount ?? 0,
+        },
+        ...entitySize(node.label), style: entitySize(node.label),
       })));
       setManuallyMoved(false);
       setLayingOut(false);
-      requestAnimationFrame(() => void fitView({ padding: .2, maxZoom: 1.25 }));
+      requestAnimationFrame(() => void fitView({ padding: .2, maxZoom: 1.15 }));
     }).catch(() => { if (!stale) { setLayoutError(true); setLayingOut(false); } });
     return () => { stale = true; };
   }, [topology, layoutVersion, fitView, direction]);
@@ -148,12 +152,12 @@ function FlowBoard({
   const displayedNodes = useMemo(() => flowNodes.map(node => ({ ...node, selected: node.id === selected })), [flowNodes, selected]);
   const flowEdges: FlowEdge[] = useMemo(() => edges.map(edge => {
     const active = edge.id === selectedEdge;
-    const color = active ? "#285f7d" : "#768692";
+    const color = active ? "#2563eb" : "#64748b";
     const sourcePos = layout?.positions.get(edge.source) ?? { x: 0, y: 0 };
-    const targetPos = layout?.positions.get(edge.target) ?? { x: 240, y: 0 };
+    const targetPos = layout?.positions.get(edge.target) ?? { x: NODE_WIDTH, y: 0 };
     const fallbackPoints = ensureOrthogonal([
-      { x: sourcePos.x + 200, y: sourcePos.y + 32 },
-      { x: targetPos.x, y: targetPos.y + 32 },
+      { x: sourcePos.x + NODE_WIDTH, y: sourcePos.y + NODE_HEIGHT / 2 },
+      { x: targetPos.x, y: targetPos.y + NODE_HEIGHT / 2 },
     ]);
     const route = layout?.routes.get(edge.id) ?? {
       points: fallbackPoints,
@@ -167,7 +171,7 @@ function FlowBoard({
       label: relationLabel(edge),
       data: { route, sourcePosition: sourcePos, targetPosition: targetPos, onSelect: () => onSelectEdge(edge.id) },
       markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color },
-      style: { stroke: color, strokeWidth: active ? 2.4 : 1.5 },
+      style: { stroke: color, strokeWidth: active ? 2.2 : 1.5 },
     };
   }), [edges, selectedEdge, layout, onSelectEdge]);
 
@@ -205,11 +209,37 @@ function FlowBoard({
 
   return (<>
       <div role="toolbar" className="canvas-tools" aria-label="图谱建模工具栏">
-        <button onClick={onCreate} disabled={!canEdit}>＋ 新建实体</button>
-        <button aria-pressed={linkMode} disabled={!canEdit || nodes.length < 2} onClick={() => { setLinkMode(!linkMode); setLinkSource(null); }}>连接实体</button>
-        <button disabled={layingOut} onClick={() => setLayoutVersion(value => value + 1)}>自动整理</button>
-        <button onClick={() => void fitView({padding:.25})}>适应画布</button>
-        {linkMode && <span role="status"><span>{linkSource ? "请选择终点实体" : "请选择起点实体"}</span><button onClick={() => { setLinkMode(false); setLinkSource(null); }}>取消</button></span>}
+        <div className="canvas-tools-left">
+          <label className="graph-filter">
+            <span className="sr-only">领域</span>
+            <select aria-label="领域" value={namespaceFilter} onChange={(event) => onNamespaceFilter(event.target.value)}>
+              <option value="">全部领域</option>
+              {namespaces.map((item) => <option key={item} value={item}>{namespaceLabel(item, packs)}</option>)}
+            </select>
+          </label>
+          <label className="graph-filter">
+            <span className="sr-only">关系</span>
+            <select aria-label="关系" value={relationFilter} onChange={(event) => onRelationFilter(event.target.value)}>
+              <option value="">全部关系</option>
+              {relations.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
+          <span className="toolbar-v-divider" aria-hidden="true" />
+          <button onClick={onCreate} disabled={!canEdit}>＋ 新建实体</button>
+          <button aria-pressed={linkMode} disabled={!canEdit || nodes.length < 2} onClick={() => { setLinkMode(!linkMode); setLinkSource(null); }}>连接实体</button>
+          <button disabled={layingOut} onClick={() => setLayoutVersion(value => value + 1)}>自动整理</button>
+          <button onClick={() => void fitView({padding:.25})}>适应画布</button>
+          {linkMode && (
+            <span role="status" className="link-status-badge">
+              <span>{linkSource ? "请选择终点实体" : "请选择起点实体"}</span>
+              <button onClick={() => { setLinkMode(false); setLinkSource(null); }}>取消</button>
+            </span>
+          )}
+        </div>
+        <div className="canvas-tools-right">
+          <span className="graph-meta-badge">{nodes.length} 个实体 · {edges.length} 条关系</span>
+          <span className="graph-meta-tip">从连接点拖到另一实体连线</span>
+        </div>
       </div>
     {layingOut && <p role="status" className="graph-layout-status">正在整理图谱…</p>}
     {layoutError && <p role="alert">图谱布局失败，请点击“自动整理”重试。</p>}
@@ -269,7 +299,19 @@ function EntityNode({ data, selected }: NodeProps<Placed>) {
       <Handle id="right" className="nodrag" type="source" position={Position.Right} />
       <Handle id="bottom" className="nodrag" type="source" position={Position.Bottom} />
       <Handle id="left" className="nodrag" type="source" position={Position.Left} />
-      <span>{data.label}</span>
+      <div className="flow-node-content">
+        <div className="flow-node-header">
+          <span className="flow-node-icon" aria-hidden="true"><IconEntity size={13} /></span>
+          <span className="flow-node-label">{data.label}</span>
+          {data.namespace ? <span className="flow-node-ns">{data.namespace}</span> : null}
+        </div>
+        <div className="flow-node-sub">
+          <code>{data.id || data.label}</code>
+          {data.propertyCount !== undefined && data.propertyCount > 0 ? (
+            <span className="flow-node-count">{data.propertyCount} 属性</span>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -286,8 +328,8 @@ function RoutedEdge({ id, source, target, markerEnd, style, label, data }: EdgeP
   const rawPoints = (route.points && route.points.length >= 2)
     ? route.points
     : [
-        { x: originA.x + 200, y: originA.y + 32 },
-        { x: originB.x, y: originB.y + 32 },
+        { x: originA.x + NODE_WIDTH, y: originA.y + NODE_HEIGHT / 2 },
+        { x: originB.x, y: originB.y + NODE_HEIGHT / 2 },
       ];
   const points = ensureOrthogonal(rawPoints);
   let path = points.map((point, index) => `${index ? "L" : "M"} ${point.x},${point.y}`).join(" ");
@@ -295,10 +337,10 @@ function RoutedEdge({ id, source, target, markerEnd, style, label, data }: EdgeP
   if (moved || !route.points || route.points.length < 2) {
     // React Flow previews manual moves; ELK remains the sole automatic layout owner.
     [path, x, y] = getSmoothStepPath({
-      sourceX: a.x + (sourceNode.measured?.width ?? 200),
-      sourceY: a.y + (sourceNode.measured?.height ?? 64) / 2,
+      sourceX: a.x + (sourceNode.measured?.width ?? NODE_WIDTH),
+      sourceY: a.y + (sourceNode.measured?.height ?? NODE_HEIGHT) / 2,
       targetX: b.x,
-      targetY: b.y + (targetNode.measured?.height ?? 64) / 2,
+      targetY: b.y + (targetNode.measured?.height ?? NODE_HEIGHT) / 2,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       borderRadius: 0,
@@ -313,8 +355,8 @@ function RoutedEdge({ id, source, target, markerEnd, style, label, data }: EdgeP
 
 function containsPoint(node: Placed, point: { x: number; y: number }) {
   const pad = 16;
-  return point.x >= node.position.x - pad && point.x <= node.position.x + (node.width ?? 200) + pad
-    && point.y >= node.position.y - pad && point.y <= node.position.y + (node.height ?? 64) + pad;
+  return point.x >= node.position.x - pad && point.x <= node.position.x + (node.width ?? NODE_WIDTH) + pad
+    && point.y >= node.position.y - pad && point.y <= node.position.y + (node.height ?? NODE_HEIGHT) + pad;
 }
 
 function eventPoint(event: MouseEvent | TouchEvent) {

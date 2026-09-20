@@ -9,7 +9,7 @@ test("model, source and definition workflow is complete", async ({ page }) => {
 
   await page.goto("/studio/?view=graph");
   await expect(page.getByRole("heading", { name: "图谱" })).toBeVisible();
-  await expect(page.getByText("已同步")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: /选择实体 采购订单/ }).click();
   await expect(page.getByRole("complementary")).toBeVisible();
   await expect(page.getByLabel("实体描述")).toBeVisible();
@@ -38,8 +38,19 @@ test("model, source and definition workflow is complete", async ({ page }) => {
   await page.getByPlaceholder("显示名称，例如 仓库").fill(entityName);
   await page.getByPlaceholder("英文语义 ID，例如 Warehouse").fill(entityName);
   await page.getByRole("button", { name: "新建实体" }).click();
-  await page.getByRole("button", { name: "草稿保存" }).click();
-  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: /判断/ }).click();
+  await expect(page.getByRole("button", { name: "添加判断" })).toBeVisible();
+  await page.getByRole("button", { name: "添加判断" }).click();
+  await expect(page.getByLabel("判断名称")).toHaveValue("新判断");
+  await expect(page.getByRole("heading", { name: "规则输入" })).toBeVisible();
+  await page.getByRole("button", { name: /操作/ }).click();
+  await expect(page.getByRole("button", { name: "添加操作" })).toBeVisible();
+  await page.getByRole("button", { name: "添加操作" }).click();
+  await expect(page.getByLabel("操作名称")).toHaveValue("新操作");
+  await expect(page.getByRole("heading", { name: "参数" })).toBeVisible();
 
   await page.getByRole("button", { name: "数据源" }).click();
   await expect(page.getByRole("heading", { name: "Orders PostgreSQL" })).toBeVisible();
@@ -51,8 +62,8 @@ test("model, source and definition workflow is complete", async ({ page }) => {
   await page.getByRole("button", { name: new RegExp(entityName) }).click();
   await page.getByRole("button", { name: "删除此实体" }).click();
   await page.getByRole("button", { name: "确认删除" }).click();
-  await page.getByRole("button", { name: "草稿保存" }).click();
-  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
 
   expect(browserErrors).toEqual([]);
 });
@@ -61,12 +72,12 @@ test("chinese entity create keeps identity after save and reload", async ({ page
   const localId = `Warehouse${Date.now()}`;
   await page.goto("/studio/?view=objects");
   await expect(page.getByRole("heading", { level: 1, name: "实体" })).toBeVisible();
-  await expect(page.getByText("已同步")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
   await page.getByPlaceholder("显示名称，例如 仓库").fill("仓库");
   await page.getByPlaceholder("英文语义 ID，例如 Warehouse").fill(localId);
   await page.getByRole("button", { name: "新建实体" }).click();
   await expect(page.getByRole("complementary", { name: "仓库" })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "仓库" }).getByText(localId)).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "仓库" }).getByText(localId).first()).toBeVisible();
 
   await page.getByRole("button", { name: /属性与来源/ }).click();
   const identityId = page.getByLabel("属性 ID").first();
@@ -81,8 +92,8 @@ test("chinese entity create keeps identity after save and reload", async ({ page
   await expect(newId).toBeFocused();
   await expect(newId).toHaveValue("locationCode");
 
-  await page.getByRole("button", { name: "草稿保存" }).click();
-  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: new RegExp(`仓库 \\S+\\.${localId}`) })).toBeVisible();
   await page.getByRole("button", { name: new RegExp(`仓库 \\S+\\.${localId}`) }).click();
@@ -92,8 +103,8 @@ test("chinese entity create keeps identity after save and reload", async ({ page
 
   await page.getByRole("button", { name: "删除此实体" }).click();
   await page.getByRole("button", { name: "确认删除" }).click();
-  await page.getByRole("button", { name: "草稿保存" }).click();
-  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
 });
 
 test("source verification does not overwrite in-progress connection edits", async ({ page }) => {
@@ -129,18 +140,18 @@ test("api mapping preview succeeds and recovers from a distinct api failure", as
   const previous = await apiCard.getByLabel("接口").inputValue();
   try {
     await apiCard.getByLabel("接口").selectOption("/health");
-    await expect(apiCard.getByText("先保存草稿再试读")).toBeVisible();
+    await expect(apiCard.getByText("先保存再试读")).toBeVisible();
     await expect(apiCard.getByRole("button", { name: "试读", exact: true })).toBeDisabled();
-    await page.getByRole("button", { name: "草稿保存" }).click();
-    await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "保存" }).click();
+    await expect(page.getByText("已保存", { exact: true })).toBeVisible();
     await apiCard.getByLabel("试读业务键 orderId").fill("PO-001");
     await apiCard.getByRole("button", { name: "试读", exact: true }).click();
     await expect(apiCard.locator(".field-error")).toContainText(/接口/, { timeout: 15_000 });
     await expect(apiCard.getByText(/数据库中没有这条记录|数据库连接失败|数据库读取失败/)).toHaveCount(0);
   } finally {
     await apiCard.getByLabel("接口").selectOption(previous);
-    await page.getByRole("button", { name: "草稿保存" }).click();
-    await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "保存" }).click();
+    await expect(page.getByText("已保存", { exact: true })).toBeVisible();
   }
 });
 
@@ -148,7 +159,7 @@ test("deep link opens the requested entity in the inspector", async ({ page }) =
   await page.goto("/studio/?view=objects&entity=tax.Taxpayer");
   await expect(page.getByRole("heading", { level: 1, name: "实体" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "纳税人" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("complementary", { name: "纳税人" }).getByText("tax.Taxpayer")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "纳税人" }).getByText("tax.Taxpayer").first()).toBeVisible();
   await expect(page.getByRole("complementary", { name: "采购订单" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /纳税人 tax.Taxpayer/ })).toHaveClass(/active/);
 
@@ -242,7 +253,6 @@ test("studio views share shell density and do not overflow", async ({ page }) =>
     { view: "objects", heading: "实体" },
     { view: "sources", heading: "数据源" },
     { view: "chat", heading: "业务问答" },
-    { view: "release", heading: "变更与发布" },
   ] as const;
 
   for (const size of [
@@ -330,7 +340,7 @@ test("entity tabs share a two-column sheet and prompt join keys", async ({ page 
 
   await page.getByRole("button", { name: /关系 / }).click();
   await expect(page.locator(".entity-sheet .form-grid").first()).toBeVisible();
-  await expect(page.locator(".sheet-help").getByText("关系", { exact: true })).toBeVisible();
+  await expect(page.locator(".entity-dsl-container")).toBeVisible();
   const relationMain = await page.locator(".entity-sheet-main").first().boundingBox();
   const relationSide = await page.locator(".entity-sheet-side").first().boundingBox();
   expect(relationMain && relationSide).toBeTruthy();
@@ -346,6 +356,7 @@ test("numeric property mapping preview after save", async ({ page }) => {
   await expect(page.getByText(/合计、平均在提问时选择/)).toBeVisible();
   const amountUnit = page.getByLabel("属性单位").first();
   await expect(amountUnit).toHaveValue("CNY");
+  await expect(page.getByLabel("可加性").first()).toHaveValue("FULL");
 
   const mapping = page.locator(".mapping-card").first();
   await expect(mapping.getByLabel("amount 列")).toHaveValue("amount");
@@ -436,64 +447,23 @@ test("fixed graph load stays within the interaction budget", async ({ page }) =>
 });
 
 async function ready(page: import("@playwright/test").Page) {
-  await expect(page.getByText(/已同步|已重新载入|已切换为/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
 }
 
-async function switchPersona(page: import("@playwright/test").Page, persona: string) {
-  await page.getByLabel("本地身份").selectOption(persona);
-  await expect(page.getByText(`已切换为 ${persona}`)).toBeVisible({ timeout: 15_000 });
-}
-
-async function validateCandidate(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: "校验候选" }).click();
-  await expect(page.getByText(/验证：通过|验证：失败/)).toBeVisible({ timeout: 15_000 });
-  if (await page.getByText("验证：失败").isVisible()) {
-    await page.getByRole("button", { name: "检查来源连接" }).click();
-    await expect(page.getByText(/来源检查已完成/)).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "校验候选" }).click();
-  }
-  await expect(page.getByText("验证：通过")).toBeVisible({ timeout: 15_000 });
-}
-
-test("draft save validate independent review publish and public query use the digest", async ({ page, request }) => {
+test("save activates the model for public query", async ({ page, request }) => {
   test.setTimeout(60_000);
-  const note = `G3 发布说明 ${Date.now()}`;
+  const note = `保存即生效 ${Date.now()}`;
   await page.goto("/studio/?view=objects&entity=tax.Taxpayer");
   await expect(page.getByRole("complementary", { name: "纳税人" })).toBeVisible({ timeout: 15_000 });
   await page.getByLabel("实体描述").fill(note);
-  await page.getByRole("button", { name: "草稿保存" }).click();
-  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
-  await expect(page.getByText("已发布", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("发布：已发布")).toHaveCount(0);
-
-  await page.getByRole("button", { name: "变更" }).click();
-  await expect(page.getByRole("heading", { name: "变更与发布" })).toBeVisible();
-  await expect(page.getByText("tax.Taxpayer")).toBeVisible();
-  await validateCandidate(page);
-
-  await page.getByRole("button", { name: "批准候选" }).click();
-  await expect(page.getByRole("alert")).toContainText("INDEPENDENT_REVIEW_REQUIRED");
-  await expect(page.getByRole("alert")).toContainText("作者不能批准自己的候选");
-
-  await switchPersona(page, "reviewer");
-  await expect(page.getByRole("button", { name: "校验候选" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "发布到当前环境" })).toHaveCount(0);
-  await page.getByRole("button", { name: "批准候选" }).click();
-  await expect(page.getByText(/已独立批准/)).toBeVisible();
-
-  await switchPersona(page, "publisher");
-  await expect(page.getByRole("button", { name: "批准候选" })).toHaveCount(0);
-  const candidate = (await page.getByLabel("candidateDigest").innerText()).trim();
-  expect(candidate.length).toBeGreaterThan(16);
-  await page.getByRole("button", { name: "发布到当前环境" }).click();
-  await expect(page.getByText("发布：已发布")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByLabel("activeDigest")).toHaveText(candidate);
-  await expect(page.getByText(new RegExp(`已激活 ${candidate}`))).toBeVisible();
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "变更" })).toHaveCount(0);
 
   const releases = await page.request.get("/v0.1/studio/releases");
   expect(releases.ok()).toBeTruthy();
-  expect((await releases.json()).activeDigest).toBe(candidate);
-
+  const activeDigest = (await releases.json()).activeDigest as string;
+  expect(activeDigest.length).toBeGreaterThan(16);
   const query = await request.post("/v0.1/query", {
     headers: { Authorization: "Bearer tenant-a-analyst" },
     data: {
@@ -505,96 +475,54 @@ test("draft save validate independent review publish and public query use the di
   });
   expect(query.ok()).toBeTruthy();
   const body = await query.json();
-  expect(body.releaseDigest).toBe(candidate);
+  expect(body.releaseDigest).toBe(activeDigest);
   expect(body.observations[0].kind).toBe("PRESENT");
 
   await page.reload();
   await ready(page);
-  await expect(page.getByLabel("activeDigest")).toHaveText(candidate);
-  await expect(page.getByLabel("candidateDigest")).toHaveText(candidate);
+  const releasesAfter = await page.request.get("/v0.1/studio/releases");
+  expect((await releasesAfter.json()).activeDigest).toBe(activeDigest);
 });
 
-test("stale revision and source change require a new validation", async ({ page }) => {
+test("revision conflict keeps local edits recoverable", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto("/studio/?view=objects&entity=tax.Taxpayer");
   await expect(page.getByRole("complementary", { name: "纳税人" })).toBeVisible({ timeout: 15_000 });
-  await page.getByLabel("实体描述").fill(`G3 过期校验 ${Date.now()}`);
-  await page.getByRole("button", { name: "草稿保存" }).click();
-  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "变更" }).click();
-  await validateCandidate(page);
+  const description = page.getByLabel("实体描述");
+  await description.fill(`冲突本地 ${Date.now()}`);
+  await expect(page.getByText("有未保存修改")).toBeVisible();
 
-  await page.getByRole("button", { name: "实体" }).click();
-  await page.getByLabel("实体描述").fill(`G3 过期校验再改 ${Date.now()}`);
-  await page.getByRole("button", { name: "草稿保存" }).click();
-  await expect(page.getByText("草稿已保存", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "变更" }).click();
-  await expect(page.getByText("验证：过期")).toBeVisible();
-  await expect(page.getByText("发布：已批准")).toHaveCount(0);
-
-  await switchPersona(page, "reviewer");
-  await page.getByRole("button", { name: "批准候选" }).click();
-  await expect(page.getByRole("alert")).toContainText("VALIDATION_REQUIRED");
-
-  await switchPersona(page, "studio-admin");
-  await validateCandidate(page);
-
-  await page.getByRole("button", { name: "数据源" }).click();
-  await page.getByRole("heading", { name: "Tax PostgreSQL" }).click();
-  const label = page.getByLabel("显示名称");
-  const original = await label.inputValue();
-  try {
-    await label.fill(`${original} g3`);
-    await page.getByRole("button", { name: "保存连接" }).click();
-    await expect(page.getByRole("button", { name: "保存连接" })).toBeDisabled();
-    await page.getByRole("button", { name: "变更" }).click();
-    await expect(page.getByText("验证：过期")).toBeVisible();
-    await switchPersona(page, "reviewer");
-    await page.getByRole("button", { name: "批准候选" }).click();
-    await expect(page.getByRole("alert")).toContainText("VALIDATION_REQUIRED");
-    await switchPersona(page, "studio-admin");
-    await validateCandidate(page);
-    await switchPersona(page, "reviewer");
-    await page.getByRole("button", { name: "批准候选" }).click();
-    await expect(page.getByText(/已独立批准/)).toBeVisible();
-  } finally {
-    await switchPersona(page, "studio-admin");
-    await page.getByRole("button", { name: "数据源" }).click();
-    await page.getByRole("heading", { name: /Tax PostgreSQL/ }).first().click();
-    const restore = page.getByLabel("显示名称");
-    await restore.fill(original);
-    if (await page.getByRole("button", { name: "保存连接" }).isEnabled()) {
-      await page.getByRole("button", { name: "保存连接" }).click();
-      await expect(page.getByRole("button", { name: "保存连接" })).toBeDisabled();
-    }
-  }
-});
-
-test("viewer has no release controls and logout rejects the next write", async ({ page }) => {
-  await page.goto("/studio/?view=release");
-  await expect(page.getByRole("heading", { name: "变更与发布" })).toBeVisible();
-  await ready(page);
-  await page.getByRole("button", { name: "退出会话" }).click();
-  await expect(page.getByText("已退出会话")).toBeVisible();
-  await page.getByRole("button", { name: "校验候选" }).click();
-  await expect(page.getByRole("alert")).toContainText(/会话已失效|UNAUTHENTICATED|SESSION_/);
-
-  await switchPersona(page, "viewer");
-  await expect(page.getByRole("button", { name: "校验候选" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "批准候选" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "发布到当前环境" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "草稿保存" })).toHaveCount(0);
-  await expect(page.getByText("只读，无管理操作")).toBeVisible();
-
-  const origin = new URL(page.url()).origin;
   const csrf = (await page.context().cookies()).find((item) => item.name === "semaloom_csrf")?.value;
-  const denied = await page.request.post("/v0.1/studio/drafts/default/validate", {
+  const origin = new URL(page.url()).origin;
+  const model = await page.request.get("/v0.1/studio/drafts/default");
+  expect(model.ok()).toBeTruthy();
+  const payload = await model.json();
+  const docs = payload.documents as Array<Record<string, unknown>>;
+  const taxpayer = docs.find((item) => item.id === "tax.Taxpayer");
+  expect(taxpayer).toBeTruthy();
+  taxpayer!.description = `冲突远端 ${Date.now()}`;
+  const remote = await page.request.put("/v0.1/studio/drafts/default", {
     headers: {
       Origin: origin,
+      "Content-Type": "application/json",
       ...(csrf ? { "X-CSRF-Token": csrf } : {}),
     },
+    data: { expectedRevision: payload.revision, documents: docs },
   });
-  expect(denied.status()).toBe(403);
+  expect(remote.ok()).toBeTruthy();
+
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByRole("alert")).toContainText("保存冲突");
+  await page.getByRole("button", { name: "用当前修改重试保存" }).click();
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible({ timeout: 15_000 });
+});
+
+test("header has no persona switcher and save is available", async ({ page }) => {
+  await page.goto("/studio/?view=objects&entity=tax.Taxpayer");
+  await ready(page);
+  await expect(page.getByLabel("本地身份")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "退出会话" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "保存" })).toBeVisible();
 });
 
 test('graph canvas toolbar creates in place and edge labels are independent of paths', async ({page})=>{
@@ -610,3 +538,78 @@ test('graph canvas toolbar creates in place and edge labels are independent of p
   await expect(page.locator('.react-flow__edgelabel-renderer .edge-label').first()).toBeVisible();
   await expect(page.locator('.react-flow__edge-text')).toHaveCount(0);
 });
+
+test("api tier provides dedicated management, endpoint inspect, and auth settings", async ({ page }) => {
+  await page.goto("/studio/?view=apis");
+  await ready(page);
+  await expect(page.getByRole("heading", { level: 1, name: "API 接口" })).toBeVisible();
+  await expect(page.getByText("API 服务列表")).toBeVisible();
+  await expect(page.locator(".api-tier-page").getByText("proc_draft_api").first()).toBeVisible();
+
+  // Click on proc_draft_api
+  await page.locator(".api-tier-page").getByRole("button", { name: /proc_draft_api/ }).click();
+  await expect(page.getByRole("button", { name: /端点清单/ })).toBeVisible();
+  await expect(page.getByText("/order-risk")).toBeVisible();
+  await expect(page.getByText("/drafts")).toBeVisible();
+
+  // Check auth tab
+  await page.getByRole("button", { name: /鉴权配置/ }).click();
+  await expect(page.getByText("鉴权类型 (Authentication Scheme)")).toBeVisible();
+
+  // Check associations tab
+  await page.getByRole("button", { name: /关联管理/ }).click();
+  await expect(page.getByText("关联的本体操作 (Actions)")).toBeVisible();
+});
+
+test("api online import supports openapi spec text and adds service with endpoints", async ({ page }) => {
+  await page.goto("/studio/?view=apis");
+  await ready(page);
+  await page.getByRole("button", { name: "线上导入", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "线上导入 API" })).toBeVisible();
+
+  // Switch to paste tab
+  await page.getByRole("button", { name: "直接粘贴规范 (JSON/YAML)" }).click();
+  const sampleSpec = JSON.stringify({
+    openapi: "3.0.0",
+    info: { title: "Payment Service", version: "1.0.0" },
+    paths: {
+      "/payments/charge": {
+        post: {
+          operationId: "chargePayment",
+          summary: "扣减账户资金",
+          parameters: [{ name: "amount", in: "query", required: true }],
+        },
+      },
+    },
+  });
+
+  await page.locator(".text-import-group textarea").fill(sampleSpec);
+  await page.getByRole("button", { name: "解析内容" }).click();
+  await expect(page.getByText("已成功解析出 1 个接口端点：")).toBeVisible();
+  await expect(page.locator(".op-path").getByText("/payments/charge")).toBeVisible();
+
+  await page.getByRole("button", { name: "确认导入该 API 服务" }).click();
+  await expect(page.getByRole("dialog", { name: "线上导入 API" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Payment Service" })).toBeVisible();
+});
+
+test("entity sheet features codemirror json dsl editor and action links api endpoints", async ({ page }) => {
+  await page.goto("/studio/?view=objects&entity=procurement.Order");
+  await ready(page);
+
+  // Verify CodeMirror DSL container is visible on the right
+  await expect(page.locator(".entity-dsl-container")).toBeVisible();
+  await expect(page.locator(".dsl-codemirror-root")).toBeVisible();
+  await expect(page.getByRole("button", { name: "实体本体 (JSON)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "关联全貌 (DSL)" })).toBeVisible();
+
+  // Test scope switch
+  await page.getByRole("button", { name: "关联全貌 (DSL)" }).click();
+  await expect(page.getByRole("button", { name: "关联全貌 (DSL)" })).toHaveClass(/active/);
+
+  // Switch to Actions tab and check API linking
+  await page.getByRole("button", { name: /操作/ }).click();
+  await expect(page.getByLabel("关联外部 API 接口")).toBeVisible();
+  await expect(page.getByText("已绑定外部微服务")).toBeVisible();
+});
+

@@ -8,6 +8,7 @@ import {
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { createSemanticPlugin } from "./semantic-plugin.mjs";
+import { transformContext } from "./context-transform.mjs";
 
 const send = (data) => process.stdout.write(JSON.stringify(data) + "\n");
 const lines = createInterface({ input: process.stdin });
@@ -71,6 +72,7 @@ async function run(input) {
       toolExecution: "sequential",
       beforeToolCall: plugin.beforeToolCall,
       afterToolCall: plugin.afterToolCall,
+      transformContext: async (messages) => transformContext(messages),
     });
     agent.subscribe((event) => {
       if (event.type === "turn_start") send({ type: "progress", stage: "model" });
@@ -84,7 +86,7 @@ async function run(input) {
         code: agent.state.error ? "MODEL_REQUEST_FAILED" : "ANSWER_NOT_VALIDATED",
       });
     } else {
-      send({ type: "complete", history: agent.state.messages });
+      send({ type: "complete", history: transformContext(agent.state.messages) });
     }
   } catch {
     send({ type: "error", code: "MODEL_REQUEST_FAILED" });

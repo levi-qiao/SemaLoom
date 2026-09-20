@@ -46,3 +46,10 @@ under the Eclipse Public License 2.0. The unmodified source is available from
 the [ELK.js project](https://github.com/kieler/elkjs) and the versioned
 [elkjs npm distribution](https://www.npmjs.com/package/elkjs/v/0.12.0).
 Its complete license is included in `/studio/third-party-licenses.txt`.
+
+Chat's optional, lazily loaded result presentation includes
+`@json-render/core 0.21.0` and `@json-render/react 0.21.0` under Apache-2.0,
+plus `recharts 3.10.1` and `zod 4.3.6` under MIT. The catalog is restricted to
+SemaLoom-owned deterministic result modules; these packages do not receive
+database credentials or add a network service. Complete upstream license texts
+are generated into `/studio/third-party-licenses.txt` with the browser bundle.

@@ -20,7 +20,7 @@ FilterOp = Literal["EQ", "NE", "LT", "LE", "GT", "GE", "IN", "BETWEEN"]
 BoolOp = Literal["AND", "OR", "NOT"]
 AggregationOp = Literal["SUM", "MIN", "MAX", "COUNT", "AVG"]
 TimeGrain = Literal["YEAR", "MONTH"]
-ComparisonOp = Literal["SHARE_OF_TOTAL", "RELATIVE_TO_MEAN", "STRICT_PEER"]
+ComparisonOp = Literal["SHARE_OF_TOTAL", "RELATIVE_TO_MEAN", "STRICT_PEER", "PERIOD_OVER_PERIOD"]
 ChoiceKind = Literal[
     "METRIC",
     "YEAR",
@@ -29,20 +29,18 @@ ChoiceKind = Literal[
     "MISSING_POLICY",
     "SUBJECT",
     "DIMENSION_VALUE",
+    "CLAIM",
     "ABORT",
     "FILTER",
     "OTHER",
 ]
+ChoiceControl = Literal["CARDS", "SELECT"]
 AbortCode = Literal["unclear", "mismatch"]
 MissingPolicy = Literal["reject", "exclude"]
 
-SUPPORTED_FILTER_OPS: frozenset[str] = frozenset(
-    {"EQ", "NE", "LT", "LE", "GT", "GE", "IN", "BETWEEN", "AND", "OR", "NOT"}
-)
 SUPPORTED_AGGREGATIONS: frozenset[str] = frozenset({"SUM", "MIN", "MAX", "COUNT", "AVG"})
-SUPPORTED_TIME_GRAINS: frozenset[str] = frozenset({"YEAR", "MONTH"})
 SUPPORTED_COMPARISONS: frozenset[str] = frozenset(
-    {"SHARE_OF_TOTAL", "RELATIVE_TO_MEAN", "STRICT_PEER"}
+    {"SHARE_OF_TOTAL", "RELATIVE_TO_MEAN", "STRICT_PEER", "PERIOD_OVER_PERIOD"}
 )
 UNSUPPORTED_OPERATORS: frozenset[str] = frozenset(
     {
@@ -220,7 +218,30 @@ class ChoiceQuestion(_Frozen):
     prompt: str
     reason: str
     multi_select: bool = False
+    control: ChoiceControl = "CARDS"
     options: tuple[ChoiceOption, ...]
+
+    @model_validator(mode="before")
+    @classmethod
+    def choose_control(cls, value: Any) -> Any:
+        """Choose a generic control from semantic option kinds, never business slot names."""
+        if (
+            not isinstance(value, dict)
+            or value.get("control")
+            or value.get("multiSelect")
+            or value.get("multi_select")
+        ):
+            return value
+        options = value.get("options") or ()
+        live_kinds: set[str] = set()
+        for option in options:
+            choice = option.choice if isinstance(option, ChoiceOption) else option.get("choice", {})
+            kind = choice.kind if isinstance(choice, SemanticChoice) else choice.get("kind")
+            if kind not in {None, "ABORT", "OTHER"}:
+                live_kinds.add(str(kind))
+        if live_kinds and live_kinds <= {"YEAR", "DIMENSION_VALUE", "CLAIM", "SUBJECT"}:
+            return {**value, "control": "SELECT"}
+        return value
 
     @model_validator(mode="after")
     def options_are_usable(self) -> ChoiceQuestion:
@@ -288,6 +309,9 @@ class PlanRef(_Frozen):
 class EvidenceColumn(_Frozen):
     id: str
     label: str
+    role: Literal["CATEGORY", "DIMENSION", "MEASURE"] | None = None
+    value_type: ValueType | None = None
+    unit: str | None = None
 
 
 class EvidenceTable(_Frozen):
@@ -439,16 +463,21 @@ def merge_decision(
                 direction=comparison.direction if comparison else "higher",
             )
         elif choice.kind == "DIMENSION_VALUE":
-            if choice.field is None:
+            if choice.predicate is not None:
+                filters = _append_filter(
+                    without_field(filters, choice.predicate.field), choice.predicate
+                )
+            elif choice.field is None:
                 raise ChoiceError("DIMENSION_FIELD_REQUIRED")
-            filters = _append_filter(
-                filters,
-                FilterAtom(
-                    field=choice.field,
-                    op="EQ",
-                    value=TypedValue(value_type="STRING", value=choice.id),
-                ),
-            )
+            else:
+                filters = _append_filter(
+                    without_field(filters, choice.field),
+                    FilterAtom(
+                        field=choice.field,
+                        op="EQ",
+                        value=TypedValue(value_type="STRING", value=choice.id),
+                    ),
+                )
         elif choice.kind == "OTHER":
             raise ChoiceError("OTHER_NOT_MERGEABLE")
         else:

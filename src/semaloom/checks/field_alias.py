@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,7 +46,3 @@ def collect_field_alias_uses(scan_root: Path) -> list[FieldAliasUse]:
                     FieldAliasUse(path=path, line=node.lineno, alias=_literal_str(keyword.value))
                 )
     return found
-
-
-def iter_python_files(root: Path) -> Iterable[Path]:
-    yield from sorted(path for path in root.rglob("*.py") if path.is_file())

@@ -282,19 +282,6 @@ class StudioDraftService:
     def bundle(self, tenant: str, draft_id: str) -> CompiledBundle:
         return _compile(self.load(tenant, draft_id).documents)
 
-    def current_author(self, tenant: str, draft_id: str) -> str | None:
-        with self.engine.connect() as conn:
-            value = conn.execute(
-                text(
-                    """
-                    SELECT updated_by FROM studio_draft
-                    WHERE tenant_id = :tenant_id AND draft_id = :draft_id
-                    """
-                ),
-                {"tenant_id": tenant, "draft_id": draft_id},
-            ).scalar_one_or_none()
-        return None if value is None else str(value)
-
     def history(self, tenant: str, draft_id: str) -> list[dict[str, Any]]:
         with self.engine.connect() as conn:
             rows = conn.execute(

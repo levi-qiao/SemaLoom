@@ -4,6 +4,13 @@
   version: "1.0.0"
   label: Reported income matches audit income (demo)
   claim: tax.incomeReconciles
+  aliases:
+    - 申报收入等于审计收入
+    - 申报与审计收入是否一致
+    - 收入是否一致
+    - 收入一致吗
+    - 收入核对
+    - 申报收入核对
   applicability: [jurisdiction]
   inputs:
     - name: reported
@@ -51,7 +58,12 @@
   kind: Rule
   id: tax.vatPresent
   version: "1.0.0"
+  label: 增值税非负
   claim: tax.vatPresent
+  aliases:
+    - 增值税是否存在
+    - 应交增值税大于等于零
+    - 增值税合规
   inputs:
     - name: vat
       metric: tax.vatPayable
@@ -66,7 +78,12 @@
   kind: Rule
   id: tax.revenueComplete
   version: "1.0.0"
+  label: 总营收非负
   claim: tax.revenueComplete
+  aliases:
+    - 营业收入完整
+    - 总营收大于等于零
+    - 收入完整性
   inputs:
     - name: operating
       metric: tax.operatingRevenue

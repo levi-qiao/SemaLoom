@@ -12,6 +12,15 @@
     - id: category
       label: 类别
       valueType: STRING
+      aliases:
+        - 品类
+      values:
+        - id: A
+          label: 类别A
+          aliases: [A类]
+        - id: B
+          label: 类别B
+          aliases: [B类]
     - id: stockYear
       label: 年度
       valueType: INTEGER
@@ -19,4 +28,9 @@
       label: 在库数量
       valueType: DECIMAL
       unit: EA
-      aggregation: SUM
+      additivity: SEMI
+      aliases:
+        - 库存
+        - 在库
+        - 现存量
+        - 库存量

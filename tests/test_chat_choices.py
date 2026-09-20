@@ -47,6 +47,40 @@ def test_intent_allows_multi_year_and_metric_for_generic_query(population_query:
     assert intent.multiple_years is True
     query = query_from_intent(intent, population_query.bundle)
     assert isinstance(query, SemanticQuery)
+    assert query.group_by == (GroupByItem(id="taxYear", time_grain="YEAR"),)
+
+
+def test_recent_year_trend_uses_available_periods_and_preserves_year_grain(
+    population_query: Any,
+) -> None:
+    engine = population_query.provider._engines["sample_pg"]
+    _load_declaration(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO sample_declaration
+                SELECT tenant_id, id || '-23', taxpayer_id, 2023,
+                       DATE '2023-01-01', DATE '2024-01-01', revenue - 10,
+                       total_profit, taxable_income, income_tax
+                FROM sample_declaration WHERE tax_year = 2024
+                UNION ALL
+                SELECT tenant_id, id || '-25', taxpayer_id, 2025,
+                       DATE '2025-01-01', DATE '2026-01-01', revenue + 10,
+                       total_profit, taxable_income, income_tax
+                FROM sample_declaration WHERE tax_year = 2024
+                """
+            )
+        )
+    result = prepare_turn(population_query, ACTOR, "近三年申报营业收入趋势")
+    assert result["status"] == "READY"
+    assert result["query"]["groupBy"] == [{"id": "taxYear", "timeGrain": "YEAR"}]
+    assert {row["grain"]["taxYear"] for row in result["result"]["values"]} == {
+        2023,
+        2024,
+        2025,
+    }
+    assert all("labels" not in row for row in result["result"]["values"])
 
 
 def test_complete_named_metric_year_uses_tax_year_field(population_query: Any) -> None:

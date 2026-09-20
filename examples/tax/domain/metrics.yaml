@@ -7,6 +7,11 @@
   select:
     measureCode: operatingRevenue
   label: 营业收入（演示）
+  aliases:
+    - 营业收入
+    - 营收
+    - 经营收入
+    - 主营业务收入
   description: 区分申报与审计口径的营业收入；查询必须明确 perspective，不能自动选取口径。
 
 - apiVersion: semaloom/v0.1
@@ -19,6 +24,10 @@
   select:
     measureCode: otherRevenue
   perspective: TAX_RETURN
+  aliases:
+    - 其他收入
+    - 营业外收入
+    - 杂项收入
 
 - apiVersion: semaloom/v0.1
   kind: Metric
@@ -30,6 +39,11 @@
   select:
     measureCode: reportedIncome
   perspective: TAX_RETURN
+  aliases:
+    - 申报收入
+    - 纳税申报收入
+    - 申报表收入
+    - 申报总收入
 
 - apiVersion: semaloom/v0.1
   kind: Metric
@@ -41,6 +55,11 @@
   select:
     measureCode: auditIncome
   perspective: AUDIT_REPORT
+  aliases:
+    - 审计收入
+    - 审计报告收入
+    - 审定收入
+    - 审计后收入
 
 - apiVersion: semaloom/v0.1
   kind: Metric
@@ -51,6 +70,12 @@
   select:
     measureCode: vatPayable
   perspective: TAX_RETURN
+  label: 应交增值税（演示）
+  aliases:
+    - 增值税
+    - 应交增值税
+    - 增值税额
+    - 应纳增值税
 
 - apiVersion: semaloom/v0.1
   kind: Metric
@@ -61,4 +86,11 @@
   unit: CNY
   grain: [taxpayerId, taxYear]
   aggregation: NONE
+  additivity: FULL
   derivedFrom: [tax.reportedIncome, tax.auditIncome]
+  aliases:
+    - 调整额
+    - 收入差异
+    - 调账金额
+    - 审计调整
+    - 差异金额

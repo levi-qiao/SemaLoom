@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { LOCAL_ID, makeObjectType, ownedByEntity } from "./doc";
-import { namespaceLabel } from "./labels";
+import { namespaceLabel, type PackLabel } from "./labels";
 import { EntityEditor, Panel, loadDeleteImpacts } from "./StudioDialog";
 import type { DraftDocument } from "./types";
 
@@ -14,6 +14,7 @@ type Props = {
   onSelect: (id: string) => void;
   onChange: (documents: DraftDocument[]) => void;
   onError: (message: string | null) => void;
+  packs?: PackLabel[];
 };
 
 export function EntityPage({
@@ -25,6 +26,7 @@ export function EntityPage({
   onSelect,
   onChange,
   onError,
+  packs = [],
 }: Props) {
   const namespaces = [...new Set(documents.filter((item) => item.kind === "ObjectType").map((item) => item.id.split(".")[0] ?? ""))].filter(Boolean);
   const [namespace, setNamespace] = useState("");
@@ -55,7 +57,11 @@ export function EntityPage({
       setFormError("请填写英文语义 ID，字母开头，仅含字母数字和下划线");
       return;
     }
-    const prefix = namespace || namespaces[0] || "procurement";
+    const prefix = namespace || namespaces[0];
+    if (!prefix) {
+      setFormError("请先选择领域");
+      return;
+    }
     const document = makeObjectType(prefix, local, display);
     if (documents.some((item) => item.id === document.id)) {
       setFormError("该语义 ID 已存在");
@@ -109,7 +115,7 @@ export function EntityPage({
               }}
             >
               <option value="">全部领域</option>
-              {namespaces.map((item) => <option key={item} value={item}>{namespaceLabel(item)}</option>)}
+              {namespaces.map((item) => <option key={item} value={item}>{namespaceLabel(item, packs)}</option>)}
             </select>
             <input aria-label="显示名称" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="显示名称，例如 仓库" />
             <input aria-label="语义 ID" value={localId} onChange={(event) => setLocalId(event.target.value)} placeholder="英文语义 ID，例如 Warehouse" />
@@ -139,9 +145,9 @@ export function EntityPage({
             onChange={onChange}
             onError={onError}
           />
-          <div style={{ marginTop: 28, paddingTop: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end" }}>
+          <div className="entity-danger-card">
             {confirmDelete ? (
-              <div className="confirm-delete" style={{ width: "100%", marginTop: 0 }}>
+              <div className="confirm-delete">
                 <p>确定删除实体「{String(selected.label || selected.id)}」？其他未保存修改会保留。</p>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button className="danger-button" onClick={confirmRemove}>确认删除</button>
@@ -149,7 +155,13 @@ export function EntityPage({
                 </div>
               </div>
             ) : (
-              <button className="danger-button" onClick={() => void requestDelete()}>删除此实体</button>
+              <div className="entity-danger-bar">
+                <div className="entity-danger-info">
+                  <strong>删除实体</strong>
+                  <span>删除当前实体及其实体关联的草稿配置。已保存的发布版本不受影响。</span>
+                </div>
+                <button className="danger-button outline" onClick={() => void requestDelete()}>删除此实体</button>
+              </div>
             )}
           </div>
         </Panel>

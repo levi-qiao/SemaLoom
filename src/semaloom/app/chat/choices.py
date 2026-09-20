@@ -5,17 +5,22 @@
 from __future__ import annotations
 
 import re
+import time
+import unicodedata
 import uuid
 from collections.abc import Iterable
 from typing import Any
 
-from semaloom.app.chat.compression import build_history_from_turns
 from semaloom.app.chat.confidence import score_answer
-from semaloom.app.chat.intent import TurnIntent
-from semaloom.app.chat.presentation import attach_lineage
+from semaloom.app.chat.intent import TurnIntent, slots_for_metric
+from semaloom.app.chat.presentation import project_browser_answer
 from semaloom.app.chat.store import ChatStore
 from semaloom.app.chat.summary import capability_message, semantic_summary
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.measure import default_aggregation
+from semaloom.core.model import ValueType
+from semaloom.core.provider import IdentityScalar
+from semaloom.core.results import ObjectSearchRequest
 from semaloom.core.semantic_query import (
     AggregationOp,
     ChoiceError,
@@ -40,6 +45,7 @@ from semaloom.core.semantic_query import (
 )
 from semaloom.runtime.analysis import AnalysisError, execute, prepare
 from semaloom.runtime.auth import RequestActor
+from semaloom.runtime.eval import EvaluationError, evaluate_claim_with_evidence
 from semaloom.runtime.query import QueryService
 
 _AGG: dict[str, AggregationOp] = {
@@ -54,6 +60,21 @@ _CMP: dict[str, ComparisonOp] = {
     "percentAboveMean": "RELATIVE_TO_MEAN",
     "outperforms": "STRICT_PEER",
 }
+
+
+def _typed_atom(field: str, stored: str, value_type: ValueType) -> FilterAtom:
+    parsed: str | int | bool
+    if value_type == "BOOLEAN":
+        parsed = stored.lower() == "true"
+    elif value_type == "INTEGER":
+        parsed = int(stored)
+    else:
+        parsed = stored
+    return FilterAtom(
+        field=field,
+        op="EQ",
+        value=TypedValue(value_type=value_type, value=parsed),
+    )
 
 
 def _one_link_name_field(
@@ -95,27 +116,38 @@ def _year_filter(field: str, year: int) -> FilterAtom:
 
 def query_from_intent(intent: TurnIntent, bundle: CompiledBundle) -> SemanticQuery:
     metrics = tuple(MetricRef(id=item) for item in sorted(intent.metric_ids))
-    filters = None
+    filters: FilterAtom | FilterGroup | None = None
     year_field = _year_property(bundle, intent.metric_ids)
     if intent.year is not None and year_field:
         filters = _year_filter(year_field, intent.year)
-    if intent.multiple_years and year_field:
+    if intent.multiple_years and intent.years and year_field:
         filters = FilterAtom(
             field=year_field, op="IN", value=TypedValue(value_type="INTEGER", value=intent.years)
         )
-    aggregation = (
-        _AGG.get(intent.operation) if intent.operation else "SUM" if intent.comparison else None
-    )
+    aggregation = _AGG.get(intent.operation) if intent.operation else None
+    if aggregation is None and (intent.comparison or intent.period_over_period) and metrics:
+        first = next((item for item in bundle.metrics if item.id == metrics[0].id), None)
+        aggregation = default_aggregation(first.additivity or "FULL") if first else "SUM"
     metrics = tuple(item.model_copy(update={"aggregation": aggregation}) for item in metrics)
     comparison = None
-    if intent.comparison and len(metrics) == 1:
+    if intent.period_over_period and len(metrics) == 1:
+        comparison = ComparisonExpr(op="PERIOD_OVER_PERIOD", metric=metrics[0].id)
+    elif intent.comparison and len(metrics) == 1:
         comparison = ComparisonExpr(
             op=_CMP[intent.comparison],
             metric=metrics[0].id,
             direction=intent.direction,
         )
+    for hit in intent.dimension_filters:
+        atom = _typed_atom(hit.field, hit.stored, hit.value_type)
+        filters = atom if filters is None else _append_filter(filters, atom)
     group_by: tuple[GroupByItem, ...] = ()
-    if (intent.breakdown or intent.group_label) and metrics:
+    if (intent.trend or intent.multiple_years) and year_field and metrics:
+        group_by = (GroupByItem(id=year_field, time_grain="YEAR"),)
+    if intent.group_dimension and metrics:
+        item = GroupByItem(id=intent.group_dimension)
+        group_by = (*group_by, item) if item not in group_by else group_by
+    elif (intent.breakdown or intent.group_label) and metrics:
         metric = next((item for item in bundle.metrics if item.id == metrics[0].id), None)
         if metric is not None:
             linked = (
@@ -174,7 +206,17 @@ def _apply_intent(
         )
     ):
         raise AnalysisError("MISSING_EXCLUSION_NOT_AUTHORIZED")
-    if intent.comparison:
+    if intent.period_over_period:
+        if query.comparison is None:
+            if metrics:
+                updates["comparison"] = ComparisonExpr(
+                    op="PERIOD_OVER_PERIOD", metric=metrics[0].id
+                )
+            else:
+                raise AnalysisError("COMPARISON_REQUIRED_BY_USER")
+        elif query.comparison.op != "PERIOD_OVER_PERIOD":
+            raise AnalysisError("COMPARISON_REQUIRED_BY_USER")
+    elif intent.comparison:
         required = {
             "shareOfTotal": "SHARE_OF_TOTAL",
             "percentAboveMean": "RELATIVE_TO_MEAN",
@@ -184,6 +226,13 @@ def _apply_intent(
             raise AnalysisError("COMPARISON_REQUIRED_BY_USER")
         if intent.comparison == "outperforms" and query.comparison.direction != intent.direction:
             raise AnalysisError("COMPARISON_DIRECTION_DOES_NOT_MATCH_USER")
+    filters = updates.get("filters", query.filters)
+    for hit in intent.dimension_filters:
+        if not field_constrained(filters, hit.field.split(".")[-1]):
+            filters = _append_filter(filters, _typed_atom(hit.field, hit.stored, hit.value_type))
+            updates["filters"] = filters
+    if intent.group_dimension and not query.group_by:
+        updates["group_by"] = (GroupByItem(id=intent.group_dimension),)
     if intent.multiple_years:
         # Do not accept a single-year proposal as an answer to a multi-year request.
         def years(node: FilterAtom | FilterGroup | None) -> set[int]:
@@ -233,13 +282,23 @@ def _apply_defaults(
     updates: dict[str, Any] = {}
     assumptions: list[dict[str, str]] = []
     decided = {item.choice.kind for item in query.decisions}
-    if query.group_by and not intent.breakdown:
+    if query.group_by and not (
+        intent.breakdown
+        or intent.group_label
+        or intent.group_dimension
+        or intent.trend
+        or intent.multiple_years
+    ):
         updates["group_by"] = ()
         assumptions.append({"slot": "grain", "id": "total", "reason": "USER_DID_NOT_ASK_BREAKDOWN"})
-    elif (intent.breakdown or intent.group_label) and not query.group_by and query.metrics:
+    elif (
+        (intent.breakdown or intent.group_label or intent.group_dimension)
+        and not query.group_by
+        and query.metrics
+    ):
         metric = next((item for item in bundle.metrics if item.id == query.metrics[0].id), None)
-        group_id = None
-        if metric is not None and intent.group_label:
+        group_id = intent.group_dimension
+        if group_id is None and metric is not None and intent.group_label:
             group_id = _one_link_name_field(bundle, metric.object_type, intent.group_prefer)
         if group_id is None and metric is not None and metric.population is not None:
             group_id = metric.population.unit_property
@@ -248,10 +307,29 @@ def _apply_defaults(
     year_field = _year_property(bundle, {item.id for item in query.metrics})
     if (
         year_field
+        and query.metrics
+        and (intent.trend or intent.multiple_years)
+        and not field_constrained(query.filters, year_field)
+    ):
+        years = sorted(_years_for(service, query.metrics[0].id, actor.tenant))
+        if intent.recent_year_count is not None:
+            years = years[-intent.recent_year_count :]
+        if years:
+            updates["filters"] = _append_filter(
+                query.filters,
+                FilterAtom(
+                    field=year_field,
+                    op="IN",
+                    value=TypedValue(value_type="INTEGER", value=tuple(years)),
+                ),
+            )
+    if (
+        year_field
         and intent.year is None
         and "YEAR" not in decided
         and query.metrics
         and not intent.multiple_years
+        and not intent.trend
     ):
         existing_year = equality_value(query.filters, year_field)
         if existing_year is None:
@@ -268,13 +346,19 @@ def _apply_defaults(
             )
     if query.metrics and intent.operation is None and "AGGREGATION" not in decided:
         if any(item.aggregation is None for item in query.metrics):
-            updates["metrics"] = tuple(
-                item.model_copy(update={"aggregation": item.aggregation or "SUM"})
-                for item in query.metrics
-            )
-            assumptions.append(
-                {"slot": "aggregation", "id": "SUM", "reason": "ADDITIVE_MEASURE_DEFAULT"}
-            )
+            kinds = []
+            for item in query.metrics:
+                metric = next((row for row in bundle.metrics if row.id == item.id), None)
+                kinds.append(metric.additivity or "FULL" if metric else "FULL")
+            default = default_aggregation(kinds[0]) if len(set(kinds)) == 1 else None
+            if default:
+                updates["metrics"] = tuple(
+                    item.model_copy(update={"aggregation": item.aggregation or default})
+                    for item in query.metrics
+                )
+                assumptions.append(
+                    {"slot": "aggregation", "id": default, "reason": "ADDITIVE_MEASURE_DEFAULT"}
+                )
     return query.model_copy(update=updates) if updates else query, assumptions
 
 
@@ -292,6 +376,12 @@ def _follow_ups(
         for year in sorted(years, reverse=True):
             if str(year) != assumed_year:
                 items.append({"label": f"{year} 年", "message": f"{name} {year}年合计"})
+        items.append({"label": "看环比", "message": f"{name} {assumed_year}年环比"})
+    if query.metrics:
+        for slot in slots_for_metric(bundle, query.metrics[0].id)[:2]:
+            label = slot.prop.label or slot.prop.id
+            if not query.group_by or query.group_by[0].id != slot.field:
+                items.append({"label": f"按{label}看", "message": f"{name}按{label}合计"})
     if any(item["slot"] == "aggregation" for item in assumptions):
         year_bit = f"{assumed_year}年" if assumed_year else ""
         items.append(
@@ -341,10 +431,25 @@ _DEFINITION = re.compile(
     r"是什么|什么意思|含义|有哪些|能问什么|怎么用|如何使用|规则和适用范围|介绍一下|定义"
 )
 _COMPLEX_QUERY = re.compile(
-    r"谁|哪个|前[0-9一二两三四五六七八九十]+|最高|最低|最大|最小|最少|偏高|偏低|"
+    r"谁|哪个|前[0-9一二两三四五六七八九十]+|最高|最低|最少|偏高|偏低|"
     r"为什么|如何|怎样|怎么样|风险|原因|影响|预测|趋势|如果|假如|"
-    r"且|并且|以及|和.*一起|分布|排行|清单|明细|状况|是否|一致|对比|分析|延误|异常|差额|违规|超额"
+    r"且|并且|以及|和.*一起|分布|排行|清单|明细|状况|"
+    r"对比|延误|异常|差额|违规|超额"
 )
+_CLAIM_LANGUAGE = re.compile(r"是否|一致|等于|判断|成立|核验")
+
+
+def _unique_named_option(message: str, question: ChoiceQuestion, kind: str) -> ChoiceOption | None:
+    text = unicodedata.normalize("NFKC", message).casefold()
+    hits: list[ChoiceOption] = []
+    for option in question.options:
+        if option.choice.kind != kind:
+            continue
+        label = unicodedata.normalize("NFKC", option.label).casefold()
+        values = [part.split(":", 1)[-1].strip() for part in label.split(";")]
+        if any(value and len(value) >= 2 and value in text for value in values):
+            hits.append(option)
+    return hits[0] if len(hits) == 1 else None
 
 
 def try_direct_turn(
@@ -352,9 +457,26 @@ def try_direct_turn(
 ) -> dict[str, Any] | None:
     """Answer or ask from ontology intent without a model when the question is structured."""
     text = message.strip()
-    if not text or _DEFINITION.search(text) or _COMPLEX_QUERY.search(text):
+    if not text or _DEFINITION.search(text):
         return None
     intent = TurnIntent.read(text, service.bundle)
+    if intent.claim_ids or intent.claim_candidates:
+        return prepare_claim_turn(service, actor, text)
+    structured = bool(
+        intent.period_over_period
+        or intent.month_over_month
+        or intent.dimension_filters
+        or intent.need_dimension
+        or intent.group_dimension
+        or intent.trend
+        or intent.multiple_years
+    )
+    if structured and (intent.metric_ids or intent.candidates):
+        return prepare_turn(service, actor, text)
+    if _CLAIM_LANGUAGE.search(text) and not (intent.metric_ids or intent.candidates):
+        return prepare_claim_turn(service, actor, text)
+    if _COMPLEX_QUERY.search(text):
+        return None
     if not (intent.metric_ids or intent.candidates):
         return None
     return prepare_turn(service, actor, text)
@@ -431,6 +553,89 @@ def prepare_turn(
             "originalQuestion": message,
             "releaseDigest": service.bundle.digest,
         }
+    if intent.month_over_month:
+        return {
+            "status": "UNSUPPORTED",
+            "kind": "unsupported",
+            "answerReady": True,
+            "textOrigin": "ENGINE",
+            "text": capability_message("TIME_GRAIN_UNSUPPORTED"),
+            "errorCode": "TIME_GRAIN_UNSUPPORTED",
+            "query": semantic.model_dump(mode="json", by_alias=True),
+            "originalQuestion": message,
+            "releaseDigest": service.bundle.digest,
+        }
+    metric_ids = {item.id for item in semantic.metrics} or intent.metric_ids
+    if intent.period_over_period and metric_ids:
+        kinds = [
+            next(
+                (row.additivity or "FULL" for row in service.bundle.metrics if row.id == item),
+                "FULL",
+            )
+            for item in metric_ids
+        ]
+        if any(kind == "NONE" for kind in kinds):
+            return {
+                "status": "UNSUPPORTED",
+                "kind": "unsupported",
+                "answerReady": True,
+                "textOrigin": "ENGINE",
+                "text": capability_message("ADDITIVITY_VIOLATION"),
+                "errorCode": "ADDITIVITY_VIOLATION",
+                "query": semantic.model_dump(mode="json", by_alias=True),
+                "originalQuestion": message,
+                "releaseDigest": service.bundle.digest,
+            }
+    if (
+        intent.need_dimension
+        and semantic.metrics
+        and not any(
+            decision.choice.kind == "DIMENSION_VALUE"
+            and (decision.choice.field == intent.need_dimension)
+            for decision in semantic.decisions
+        )
+        and not field_constrained(semantic.filters, intent.need_dimension.split(".")[-1])
+    ):
+        slot = next(
+            (
+                item
+                for item in slots_for_metric(service.bundle, semantic.metrics[0].id)
+                if item.field == intent.need_dimension
+            ),
+            None,
+        )
+        if slot is not None:
+            options = [
+                ChoiceOption(
+                    id="opt_dim_" + item.id.replace(".", "_"),
+                    label=item.label or item.id,
+                    explanation=f"按 {slot.prop.label or slot.field} 精确筛选",
+                    choice=SemanticChoice(
+                        kind="DIMENSION_VALUE",
+                        id=item.id,
+                        field=slot.field,
+                        predicate=_typed_atom(slot.field, item.id, slot.prop.value_type),
+                    ),
+                )
+                for item in slot.prop.values[:6]
+            ]
+            if options:
+                question = ChoiceQuestion(
+                    question_id="q-dimension-" + uuid.uuid4().hex,
+                    revision=1,
+                    slot="dimension",
+                    prompt=f"请选择{(slot.prop.label or slot.prop.id)}",
+                    reason="这个问题依赖本体配置的取值字典，不能猜测未说出的选项。",
+                    options=with_choice_exits(options),
+                )
+                return {
+                    "status": "NEEDS_INPUT",
+                    "waiting": True,
+                    "question": question.model_dump(mode="json", by_alias=True),
+                    "query": semantic.model_dump(mode="json", by_alias=True),
+                    "originalQuestion": message,
+                    "releaseDigest": service.bundle.digest,
+                }
     semantic = _apply_intent(semantic, intent, service.bundle)
     semantic, assumptions = _apply_defaults(semantic, intent, service.bundle, service, actor)
     try:
@@ -449,6 +654,24 @@ def prepare_turn(
     payload["originalQuestion"] = message
     payload["releaseDigest"] = service.bundle.digest
     payload["assumptions"] = assumptions
+    if (
+        prepared.status == "NEEDS_INPUT"
+        and prepared.question is not None
+        and prepared.question.slot == "subject"
+        and query is None
+    ):
+        picked = _unique_named_option(message, prepared.question, "SUBJECT")
+        if picked is not None:
+            semantic = merge_decision(
+                semantic,
+                prepared.question,
+                ChoiceSubmit(
+                    question_id=prepared.question.question_id,
+                    revision=prepared.question.revision,
+                    option_ids=(picked.id,),
+                ),
+            )
+            return prepare_turn(service, actor, message, semantic)
     if prepared.status == "UNSUPPORTED":
         text = capability_message(prepared.capability or prepared.error_message)
         payload.update(
@@ -491,6 +714,259 @@ def prepare_turn(
     return payload
 
 
+def prepare_claim_turn(
+    service: QueryService,
+    actor: RequestActor,
+    message: str,
+    *,
+    claim_id: str | None = None,
+    identity: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    intent = TurnIntent.read(message, service.bundle)
+    if claim_id is None and len(intent.claim_ids) == 1:
+        claim_id = next(iter(intent.claim_ids))
+    if claim_id is None and len(intent.claim_candidates) == 1:
+        claim_id = intent.claim_candidates[0]
+    if claim_id is None:
+        listed = [*sorted(intent.claim_ids), *intent.claim_candidates]
+        if not listed:
+            listed = [row.claim for row in service.bundle.rules if row.claim]
+        options = []
+        seen: set[str] = set()
+        for item in listed:
+            if item in seen:
+                continue
+            seen.add(item)
+            rule = next((row for row in service.bundle.rules if row.claim == item), None)
+            if rule is None:
+                continue
+            options.append(
+                ChoiceOption(
+                    id="opt_claim_" + item.replace(".", "_"),
+                    label=rule.label or item,
+                    explanation=rule.description or item,
+                    choice=SemanticChoice(kind="CLAIM", id=item),
+                )
+            )
+            if len(options) >= 6:
+                break
+        if len(options) >= 1:
+            question = ChoiceQuestion(
+                question_id="q-claim-" + uuid.uuid4().hex,
+                revision=1,
+                slot="claim",
+                prompt="要核验哪条已发布规则？",
+                reason="问题对应多条判断，口径不同，不能猜测。",
+                options=with_choice_exits(options),
+            )
+            return {
+                "status": "NEEDS_INPUT",
+                "waiting": True,
+                "mode": "claim",
+                "question": question.model_dump(mode="json", by_alias=True),
+                "query": {"apiVersion": "semaloom/v0.1"},
+                "query_state": {"mode": "claim", "originalQuestion": message},
+                "originalQuestion": message,
+                "releaseDigest": service.bundle.digest,
+            }
+        return {
+            "status": "UNSUPPORTED",
+            "kind": "unsupported",
+            "answerReady": True,
+            "textOrigin": "ENGINE",
+            "text": "当前问题没有匹配到已发布的判断规则。",
+            "errorCode": "UNKNOWN_CLAIM",
+            "originalQuestion": message,
+            "releaseDigest": service.bundle.digest,
+        }
+    rule = next((row for row in service.bundle.rules if row.claim == claim_id), None)
+    if rule is None or not rule.inputs or rule.inputs[0].metric is None:
+        return {
+            "status": "UNSUPPORTED",
+            "kind": "unsupported",
+            "answerReady": True,
+            "textOrigin": "ENGINE",
+            "text": "这条规则缺少可定位的指标输入。",
+            "errorCode": "UNKNOWN_CLAIM",
+            "originalQuestion": message,
+            "releaseDigest": service.bundle.digest,
+        }
+    metric = next(item for item in service.bundle.metrics if item.id == rule.inputs[0].metric)
+    obj = next(item for item in service.bundle.object_types if item.id == metric.object_type)
+    year = intent.year
+    if year is None:
+        years = _years_for(service, metric.id, actor.tenant)
+        year = max(years) if years else None
+    filters: dict[str, str | int | bool] = {}
+    display = [
+        prop.id
+        for prop in obj.properties
+        if prop.value_type == "STRING" and prop.id not in obj.identity_keys
+    ][:3]
+    period_fields: tuple[str, ...] = ()
+    if obj.period is not None:
+        period_fields = (obj.period.from_property, obj.period.to_property)
+    requested = tuple(dict.fromkeys([*display, *period_fields, *rule.applicability]))
+    found = service.find_objects(
+        ObjectSearchRequest(
+            object_type=obj.id,
+            filters=filters,
+            properties=requested,
+            limit=50,
+        ),
+        actor,
+    )
+    rows = list(found.get("objects") or [])
+    if identity:
+        key = next(iter(identity))
+        rows = [row for row in rows if str(row.get("identity", {}).get(key)) == identity[key]]
+    named = []
+    folded = unicodedata.normalize("NFKC", message).casefold()
+    for row in rows:
+        labels = [str(value) for value in (row.get("identity") or {}).values()]
+        props = row.get("properties") or {}
+        labels.extend(str(props[name]) for name in display if props.get(name) not in {None, ""})
+        if any(
+            len(label) >= 2 and unicodedata.normalize("NFKC", label).casefold() in folded
+            for label in labels
+        ):
+            named.append(row)
+    if len(named) == 1:
+        rows = named
+    elif named:
+        rows = named
+    if len(rows) != 1:
+        options = []
+        for index, row in enumerate(rows[:4]):
+            ident = row.get("identity") or {}
+            key = obj.identity_keys[0]
+            value = str(ident.get(key, ""))
+            props = row.get("properties") or {}
+            parts = [str(props[name]) for name in display if props.get(name) not in {None, ""}]
+            if "name" in props and props.get("name") not in {None, ""}:
+                parts = [
+                    str(props["name"]),
+                    *[item for item in parts if item != str(props["name"])],
+                ]
+            label = " · ".join(dict.fromkeys(parts)) or value
+            options.append(
+                ChoiceOption(
+                    id=f"opt_claim_subject_{index}",
+                    label=label,
+                    explanation="当前筛选范围内的候选对象",
+                    choice=SemanticChoice(kind="SUBJECT", id=value, field=key),
+                )
+            )
+        if not options:
+            return {
+                "status": "UNSUPPORTED",
+                "kind": "unsupported",
+                "answerReady": True,
+                "textOrigin": "ENGINE",
+                "text": "当前范围没有可核验的对象，请核对名称或年份。",
+                "errorCode": "COMPARISON_SUBJECT_NOT_FOUND",
+                "originalQuestion": message,
+                "releaseDigest": service.bundle.digest,
+            }
+        question = ChoiceQuestion(
+            question_id="q-claim-subject-" + uuid.uuid4().hex,
+            revision=1,
+            slot="claimSubject",
+            prompt="要核验哪个对象？",
+            reason="判断必须钉到唯一对象；以下是当前范围内的候选。",
+            options=with_choice_exits(options),
+        )
+        return {
+            "status": "NEEDS_INPUT",
+            "waiting": True,
+            "mode": "claim",
+            "claimId": claim_id,
+            "question": question.model_dump(mode="json", by_alias=True),
+            "query": {"apiVersion": "semaloom/v0.1"},
+            "query_state": {
+                "mode": "claim",
+                "claimId": claim_id,
+                "originalQuestion": message,
+            },
+            "originalQuestion": message,
+            "releaseDigest": service.bundle.digest,
+        }
+    row = rows[0]
+    bindings: dict[str, IdentityScalar] = {
+        str(key): str(value) for key, value in (row.get("identity") or {}).items()
+    }
+    if year is not None and obj.population is not None:
+        year_prop = obj.population.year_property
+        metric_grain = set(metric.grain)
+        if year_prop in metric_grain or year_prop in obj.identity_keys:
+            bindings[year_prop] = year
+    props = row.get("properties") or {}
+    period_from = str(props.get(period_fields[0])) if period_fields else ""
+    period_to = str(props.get(period_fields[1])) if len(period_fields) > 1 else ""
+    if not period_from or period_from == "None":
+        period_from = f"{year}-01-01" if year else "2024-01-01"
+        period_to = f"{int(year) + 1}-01-01" if year else "2025-01-01"
+    dimensions = {
+        key: str(props[key]) for key in rule.applicability if props.get(key) not in {None, ""}
+    }
+    try:
+        claim, observations, diagnostics, digest, activities = evaluate_claim_with_evidence(
+            service.bundle,
+            service,
+            actor,
+            claim_id=claim_id,
+            bindings=bindings,
+            period_from=period_from,
+            period_to=period_to,
+            dimensions=dimensions,
+        )
+    except EvaluationError as exc:
+        return {
+            "status": "UNSUPPORTED",
+            "kind": "unsupported",
+            "answerReady": True,
+            "textOrigin": "ENGINE",
+            "text": f"规则未能完成核验（{exc.code}）。",
+            "errorCode": exc.code,
+            "originalQuestion": message,
+            "releaseDigest": service.bundle.digest,
+        }
+    truth = claim.truth
+    if truth == "TRUE":
+        status_desc = "规则校验通过"
+    elif truth == "FALSE":
+        status_desc = "规则校验存在差异/未通过"
+    else:
+        status_desc = "规则状态未知"
+    label = rule.label or claim_id
+    text = (
+        f"### {status_desc}\n\n**{label}** 的结论是 `{truth}`。"
+        f"对象身份：{bindings}。业务期间 `{period_from}`–`{period_to}`。"
+        " TRUE 不等于真实性或合规认可；UNKNOWN 不等于不一致。"
+    )
+    return {
+        "status": "READY",
+        "answerReady": True,
+        "textOrigin": "ENGINE",
+        "text": text,
+        "tool": "evaluate_claim",
+        "result": {
+            "claim": claim.model_dump(mode="json", by_alias=True),
+            "observations": [item.model_dump(mode="json", by_alias=True) for item in observations],
+            "diagnostics": [item.model_dump(mode="json") for item in diagnostics],
+            "sourceActivities": [
+                item.model_dump(mode="json", by_alias=True) for item in activities
+            ],
+            "releaseDigest": digest,
+        },
+        "query": {"apiVersion": "semaloom/v0.1"},
+        "query_state": {"mode": "claim", "claimId": claim_id, "originalQuestion": message},
+        "originalQuestion": message,
+        "releaseDigest": service.bundle.digest,
+        "followUps": [],
+    }
+
+
 def submit_choice(
     store: ChatStore,
     service: QueryService,
@@ -509,6 +985,7 @@ def submit_choice(
     query = SemanticQuery.model_validate(state.get("query") or {"apiVersion": "semaloom/v0.1"})
     original = str(state.get("originalQuestion") or "")
     selected = [item for item in question.options if item.id in submit.option_ids]
+    claim_flow = question.slot in {"claim", "claimSubject"} or state.get("mode") == "claim"
     if any(item.choice.kind == "OTHER" for item in selected):
         if len(submit.option_ids) != 1:
             raise ChoiceError("OTHER_MUST_BE_ALONE")
@@ -516,10 +993,36 @@ def submit_choice(
         if not text:
             raise ChoiceError("OTHER_TEXT_REQUIRED")
         combined = original + "\n" + text
-        prepared = prepare_turn(service, actor, combined, query)
+        prepared = (
+            prepare_claim_turn(service, actor, combined, claim_id=state.get("claimId"))
+            if claim_flow
+            else prepare_turn(service, actor, combined, query)
+        )
         return _persist_prepared(store, service, actor, row, original, prepared, query)
     if submit.other_text:
         raise ChoiceError("OTHER_TEXT_NOT_ALLOWED")
+    if any(item.choice.kind == "ABORT" for item in selected):
+        store.save_pending(actor, row, None, None, original)
+        return {"status": "ABORTED", "errorCode": "ABORTED"}
+    if claim_flow:
+        if question.multi_select is False and len(submit.option_ids) != 1:
+            raise ChoiceError("SINGLE_SELECT_REQUIRED")
+        chosen = next((item for item in question.options if item.id == submit.option_ids[0]), None)
+        if chosen is None:
+            raise ChoiceError("UNKNOWN_OPTION")
+        if question.slot == "claim":
+            prepared = prepare_claim_turn(service, actor, original, claim_id=chosen.choice.id)
+        else:
+            if chosen.choice.field is None:
+                raise ChoiceError("SUBJECT_FIELD_REQUIRED")
+            prepared = prepare_claim_turn(
+                service,
+                actor,
+                original,
+                claim_id=str(state.get("claimId") or ""),
+                identity={chosen.choice.field: chosen.choice.id},
+            )
+        return _persist_prepared(store, service, actor, row, original, prepared, query)
     try:
         merged = merge_decision(query, question, submit)
     except ChoiceError as exc:
@@ -542,8 +1045,13 @@ def _persist_prepared(
 ) -> dict[str, Any]:
     pending_out = prepared.get("question") if prepared.get("status") == "NEEDS_INPUT" else None
     query_state = {
-        "query": prepared.get("query") or fallback_query.model_dump(mode="json", by_alias=True)
+        "query": prepared.get("query") or fallback_query.model_dump(mode="json", by_alias=True),
+        **(prepared.get("query_state") or {}),
     }
+    if prepared.get("mode"):
+        query_state["mode"] = prepared["mode"]
+    if prepared.get("claimId"):
+        query_state["claimId"] = prepared["claimId"]
     follow_question = str(prepared.get("originalQuestion") or original)
     if prepared.get("answerReady"):
         refreshed = {**row, "query_state": {**query_state, "originalQuestion": follow_question}}
@@ -558,7 +1066,7 @@ def _persist_prepared(
             if unsupported
             else {}
         )
-        answer = attach_lineage(
+        answer = project_browser_answer(
             {
                 "kind": kind,
                 "textOrigin": "ENGINE",
@@ -566,7 +1074,7 @@ def _persist_prepared(
                 "evidence": [
                     {
                         "id": "e1",
-                        "tool": "prepare_semantic_query",
+                        "tool": prepared.get("tool") or "prepare_semantic_query",
                         "result": evidence_result,
                     }
                 ],
@@ -574,21 +1082,30 @@ def _persist_prepared(
                 "confidence": prepared.get("confidence"),
                 "followUps": prepared.get("followUps") or [],
                 "assumptions": prepared.get("assumptions") or [],
+                "query": prepared.get("query"),
             },
             service.bundle,
         )
         new_turn = {"question": original, "answer": answer}
-        compressed_history = build_history_from_turns(
-            [*refreshed.get("turns", []), new_turn],
-            model="qwen3.7-plus",
-        )
+        user_msg = {
+            "role": "user",
+            "content": original,
+            "timestamp": int(time.time() * 1000),
+        }
+        assistant_msg = {
+            "role": "assistant",
+            "content": [{"type": "text", "text": answer.get("text") or "已按发布口径完成计算。"}],
+            "timestamp": int(time.time() * 1000),
+        }
+        history = [*refreshed.get("history", []), user_msg, assistant_msg]
         store.save(
             actor,
             refreshed,
-            compressed_history,
+            history,
             new_turn,
         )
         prepared["evidence"] = answer["evidence"]
+        prepared["presentation"] = answer.get("presentation")
         prepared["textOrigin"] = "ENGINE"
         prepared["kind"] = kind
     elif prepared.get("status") == "NEEDS_INPUT":

@@ -12,7 +12,7 @@ from typing import Any, Literal
 from pydantic import ValidationError
 
 from semaloom import __version__
-from semaloom.compiler.digest import canonical_json, physical_digest, sha256_digest
+from semaloom.compiler.digest import physical_digest, sha256_digest
 from semaloom.compiler.mapping_ir import compile_mapping_ir, derive_metric_mapping
 from semaloom.compiler.yaml_load import load_yaml_documents
 from semaloom.core.bundle import CompiledBundle
@@ -40,6 +40,7 @@ from semaloom.core.model import (
     PolicyDef,
     RuleDef,
 )
+from semaloom.core.values import scalar_value
 
 KNOWN_KINDS = frozenset(
     {
@@ -240,12 +241,6 @@ def compile_documents(
     )
 
 
-def bundle_canonical_text(bundle: CompiledBundle) -> str:
-    payload = bundle.model_dump(mode="json", by_alias=True, exclude_none=True)
-    payload.pop("digest", None)
-    return canonical_json(payload)
-
-
 def _normalize_input(documents: Sequence[object]) -> list[tuple[str, dict[str, Any]]]:
     normalized: list[tuple[str, dict[str, Any]]] = []
     for index, item in enumerate(documents):
@@ -315,6 +310,7 @@ def _metrics_from_properties(
                         "valueType": prop.value_type,
                         "unit": prop.unit,
                         "aggregation": prop.aggregation or "NONE",
+                        "additivity": prop.additivity or "FULL",
                         "aliases": list(prop.aliases),
                     }
                 )
@@ -375,6 +371,8 @@ def _materialize_metrics(
                 updates["unit"] = prop.unit
             if metric.aggregation == "NONE" and prop.aggregation:
                 updates["aggregation"] = prop.aggregation
+            if metric.additivity is None:
+                updates["additivity"] = prop.additivity or "FULL"
             if prop.aliases:
                 updates["aliases"] = tuple(dict.fromkeys((*prop.aliases, *metric.aliases)))
         if metric.population is None and obj is not None and obj.population is not None:
@@ -401,6 +399,8 @@ def _materialize_metrics(
                 updates["grain"] = tuple([*identity, *rest])
         if metric.value_type is None and not metric.property and metric.derived_from:
             updates["value_type"] = "DECIMAL"
+        if metric.additivity is None and "additivity" not in updates:
+            updates["additivity"] = "FULL"
         filled.append(metric.model_copy(update=updates) if updates else metric)
     return filled
 
@@ -576,6 +576,55 @@ def _index(items: Sequence[Any]) -> dict[str, Any]:
     return {item.id: item for item in items}
 
 
+def _check_property_values(obj: ObjectTypeDef, diagnostics: list[Diagnostic]) -> None:
+    for prop in obj.properties:
+        if not prop.values:
+            continue
+        path = f"{obj.id}.{prop.id}"
+        if prop.value_type not in {"STRING", "INTEGER", "BOOLEAN"}:
+            diagnostics.append(
+                Diagnostic(
+                    code="TYPE_MISMATCH",
+                    path=path,
+                    message="dictionary values require STRING, INTEGER or BOOLEAN",
+                )
+            )
+            continue
+        seen_ids: set[str] = set()
+        seen_terms: set[str] = set()
+        for item in prop.values:
+            try:
+                scalar_value(item.id, prop.value_type)
+            except ValueError:
+                diagnostics.append(
+                    Diagnostic(
+                        code="TYPE_MISMATCH",
+                        path=f"{path}.values",
+                        message=f"value {item.id!r} is not a {prop.value_type}",
+                    )
+                )
+            if item.id in seen_ids:
+                diagnostics.append(
+                    Diagnostic(code="DUPLICATE_ID", path=f"{path}.values", message=item.id)
+                )
+            seen_ids.add(item.id)
+            local_terms: set[str] = set()
+            for term in (item.id, item.label or "", *item.aliases):
+                folded = str(term).casefold().strip()
+                if not folded or folded in local_terms:
+                    continue
+                local_terms.add(folded)
+                if folded in seen_terms:
+                    diagnostics.append(
+                        Diagnostic(
+                            code="DUPLICATE_ID",
+                            path=f"{path}.values",
+                            message=f"duplicate dictionary term {term}",
+                        )
+                    )
+                seen_terms.add(folded)
+
+
 def _check_object_metrics(
     objects: Sequence[ObjectTypeDef],
     metrics: Sequence[MetricDef],
@@ -600,6 +649,7 @@ def _check_object_metrics(
             diagnostics.append(
                 Diagnostic(code="DUPLICATE_ID", path=obj.id, message="duplicate property id")
             )
+        _check_property_values(obj, diagnostics)
         for key in obj.identity_keys:
             if key not in prop_ids:
                 diagnostics.append(

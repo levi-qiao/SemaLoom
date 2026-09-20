@@ -8,6 +8,10 @@
   aliases:
     - 采购金额
     - 订单总额
+    - 采购额
+    - 采购订单总额
+    - 采购订单金额
+    - 采购单金额
 
 - apiVersion: semaloom/v0.1
   kind: Metric
@@ -16,6 +20,12 @@
   objectType: procurement.Order
   property: quantity
   label: 订单数量
+  aliases:
+    - 采购数量
+    - 订货量
+    - 订单总数
+    - 订货总数
+    - 采购件数
 
 - apiVersion: semaloom/v0.1
   kind: Metric
@@ -24,3 +34,8 @@
   objectType: procurement.Organization
   property: approvalLimit
   label: 审批额度
+  aliases:
+    - 审批限额
+    - 额度
+    - 授权额度
+    - 组织审批额度

@@ -130,6 +130,28 @@ def test_core_and_compiler_have_no_industry_branches() -> None:
                 assert token not in text, f"{path} contains {token}"
 
 
+def test_studio_ui_has_no_domain_label_dictionary() -> None:
+    root = CORE.parents[1] / "frontend" / "src"
+    evidence = (root / "EvidenceCard.tsx").read_text(encoding="utf-8")
+    labels = (root / "labels.ts").read_text(encoding="utf-8")
+    assert "procurement.Order" not in evidence
+    assert "tax.Taxpayer" not in evidence
+    assert "CreatePurchaseDraft" not in evidence
+    assert 'id === "procurement"' not in labels
+    assert 'id === "tax"' not in labels
+
+
+def test_pack_and_action_labels_come_from_ontology() -> None:
+    bundle = compile_examples()
+    packs = {item["id"]: item["label"] for item in studio_graph(bundle)["meta"]["packs"]}
+    assert packs["tax"] == "税务"
+    assert packs["procurement"] == "采购"
+    action = next(item for item in bundle.actions if item.id == "procurement.CreatePurchaseDraft")
+    assert action.label == "创建采购草稿"
+    amount = next(param for param in action.parameters if param.name == "amount")
+    assert amount.label == "金额"
+
+
 def test_studio_graph_and_inspector_and_draft() -> None:
     bundle = compile_examples()
     graph = studio_graph(bundle)

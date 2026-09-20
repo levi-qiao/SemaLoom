@@ -5,6 +5,10 @@
   objectType: finance.ReviewCase
   property: declared_profit
   label: 选定申报利润总额
+  aliases:
+  - 申报利润
+  - 申报利润总额
+  - 报税利润
   description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
   perspective: TAX_RETURN
 - apiVersion: semaloom/v0.1
@@ -14,6 +18,10 @@
   objectType: finance.ReviewCase
   property: audit_profit
   label: 抽取审计利润总额
+  aliases:
+  - 审计利润
+  - 审计利润总额
+  - 审定利润
   description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
   perspective: AUDIT_REPORT
 - apiVersion: semaloom/v0.1
@@ -23,6 +31,10 @@
   objectType: finance.ReviewCase
   property: net_profit
   label: 抽取审计净利润
+  aliases:
+  - 净利润
+  - 审计净利润
+  - 净收益
   description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
   perspective: AUDIT_REPORT
 - apiVersion: semaloom/v0.1
@@ -32,6 +44,10 @@
   objectType: finance.ReviewCase
   property: tax_expense
   label: 抽取审计所得税费用
+  aliases:
+  - 所得税费用
+  - 审计所得税
+  - 税金费用
   description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
   perspective: AUDIT_REPORT
 - apiVersion: semaloom/v0.1
@@ -41,6 +57,10 @@
   objectType: finance.ReviewCase
   property: assets
   label: 抽取审计资产总计
+  aliases:
+  - 资产
+  - 总资产
+  - 资产总计
   description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
   perspective: AUDIT_REPORT
 - apiVersion: semaloom/v0.1
@@ -50,6 +70,10 @@
   objectType: finance.ReviewCase
   property: liabilities
   label: 抽取审计负债合计
+  aliases:
+  - 负债
+  - 负债合计
+  - 总负债
   description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
   perspective: AUDIT_REPORT
 - apiVersion: semaloom/v0.1
@@ -59,6 +83,11 @@
   objectType: finance.ReviewCase
   property: equity
   label: 抽取审计所有者权益合计
+  aliases:
+  - 权益
+  - 所有者权益
+  - 净资产
+  - 股东权益
   description: 选定样本人民币元金额；审计值仅 observed 且唯一因子时可用，缺失不能当零。不是对报告真实性或税务合规性的断言。
   perspective: AUDIT_REPORT
 - apiVersion: semaloom/v0.1
@@ -66,12 +95,38 @@
   kind: Metric
   id: finance.review.profitDifference
   label: 选定样本利润差额
+  aliases:
+  - 利润差额
+  - 申报审计差额
+  - 利润差异
+  - 申报与审计利润差
   description: 申报利润总额减去抽取审计利润总额，人民币元。由确定性规则计算，不代表税务调整金额。
   objectType: finance.ReviewCase
   valueType: DECIMAL
   unit: CNY
+  additivity: FULL
   grain:
   - caseId
   derivedFrom:
   - finance.review.declared_profit
   - finance.review.audit_profit
+- apiVersion: semaloom/v0.1
+  version: 1.0.0
+  kind: Metric
+  id: finance.review.debtRatio
+  label: 抽取资产负债率
+  aliases:
+  - 资产负债率
+  - 负债率
+  - 负债比率
+  description: 抽取负债合计除以资产总计。比率不可 SUM/AVG；缺失任一输入则无比率，不是零。
+  objectType: finance.ReviewCase
+  valueType: DECIMAL
+  unit: "1"
+  additivity: NONE
+  grain:
+  - caseId
+  derivedFrom:
+  - finance.review.liabilities
+  - finance.review.assets
+  perspective: AUDIT_REPORT

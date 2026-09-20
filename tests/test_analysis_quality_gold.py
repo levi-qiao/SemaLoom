@@ -1,4 +1,4 @@
-"""Independent gold cases for population analysis.
+"""Independent gold cases for collection analysis.
 
 Expectations come from SQL/Decimal, not the SUT.
 """
@@ -11,8 +11,7 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 
-from semaloom.core.results import PopulationRequest
-from semaloom.runtime.population import analyze_population
+from tests.analysis_support import analysis_query, run_analysis
 from tests.test_business_analysis import ACTOR, financial_query  # noqa: F401
 
 
@@ -34,12 +33,6 @@ def gold_query(financial_query: Any) -> Any:  # noqa: F811
     return financial_query
 
 
-def req(**changes: Any) -> PopulationRequest:
-    return PopulationRequest.model_validate(
-        {"metric": "finance.review.declared_profit", "year": 2024, **changes}
-    )
-
-
 def sql_agg(query: Any, op: str, year: int, column: str = "declared_profit") -> Decimal | None:
     with query.provider._engines["sample_pg"].connect() as conn:
         value = conn.execute(
@@ -54,11 +47,11 @@ def sql_agg(query: Any, op: str, year: int, column: str = "declared_profit") -> 
 
 def test_cross_tenant_same_key_is_excluded_from_mean(gold_query: Any) -> None:
     expected = sql_agg(gold_query, "avg", 2024)
-    result = analyze_population(gold_query, req(), ACTOR)
+    result = run_analysis(gold_query, ACTOR)
     assert expected is not None
-    assert Decimal(result["value"]) == expected
-    assert result["populationCount"] == 3
-    identities = {row["identity"]["caseId"] for row in result["members"]}
+    assert Decimal(result.values[0]["value"]) == expected
+    assert result.scope["populationCount"] == 3
+    identities = {row[0] for row in result.evidence.rows}
     assert identities == {"C1", "C2", "C3"}
     with gold_query.provider._engines["sample_pg"].connect() as conn:
         foreign = conn.execute(
@@ -68,78 +61,76 @@ def test_cross_tenant_same_key_is_excluded_from_mean(gold_query: Any) -> None:
             )
         ).scalar_one()
     assert Decimal(foreign) == Decimal("999")
-    assert Decimal(result["value"]) != Decimal(foreign)
+    assert Decimal(result.values[0]["value"]) != Decimal(foreign)
 
 
 def test_mixed_years_do_not_blend(gold_query: Any) -> None:
-    y2024 = analyze_population(gold_query, req(year=2024), ACTOR)
-    y2025 = analyze_population(gold_query, req(year=2025), ACTOR)
-    assert Decimal(y2024["value"]) == sql_agg(gold_query, "avg", 2024)
-    assert Decimal(y2025["value"]) == sql_agg(gold_query, "avg", 2025)
-    assert y2024["populationCount"] == 3 and y2025["populationCount"] == 1
-    assert {row["identity"]["caseId"] for row in y2025["members"]} == {"Y25A"}
-    assert y2024["year"] == 2024 and y2025["year"] == 2025
+    y2024 = run_analysis(gold_query, ACTOR, year=2024)
+    y2025 = run_analysis(gold_query, ACTOR, year=2025)
+    assert Decimal(y2024.values[0]["value"]) == sql_agg(gold_query, "avg", 2024)
+    assert Decimal(y2025.values[0]["value"]) == sql_agg(gold_query, "avg", 2025)
+    assert y2024.scope["populationCount"] == 3 and y2025.scope["populationCount"] == 1
+    assert {row[0] for row in y2025.evidence.rows} == {"Y25A"}
 
 
 def test_single_member_share_is_one_hundred(gold_query: Any) -> None:
-    result = analyze_population(
+    result = run_analysis(
         gold_query,
-        req(
-            year=2025,
-            comparison={"identity": {"caseId": "Y25A"}, "operation": "shareOfTotal"},
-        ),
         ACTOR,
+        year=2025,
+        comparison={"identity": {"caseId": "Y25A"}, "operation": "shareOfTotal"},
     )
-    comparison = result["comparison"]
+    comparison = result.scope["comparison"]
     assert Decimal(comparison["numerator"]) == Decimal("50.25")
     assert Decimal(comparison["denominator"]) == Decimal("50.25")
     assert Decimal(comparison["value"]) == Decimal("100")
-    assert result["populationCount"] == result["observedCount"] == 1
+    assert result.scope["populationCount"] == result.scope["observedCount"] == 1
 
 
 def test_empty_and_all_missing_are_not_zero(gold_query: Any) -> None:
-    empty = analyze_population(gold_query, req(year=2023), ACTOR)
-    assert empty["value"] is None and empty["reason"] == "EMPTY_POPULATION"
-    assert empty["status"] == "UNAVAILABLE"
+    empty = run_analysis(gold_query, ACTOR, year=2023)
+    assert not empty.values and empty.scope["reason"] == "EMPTY_POPULATION"
     with gold_query.provider._engines["sample_pg"].begin() as conn:
         conn.execute(text("UPDATE sample_financial_review SET audit_profit=NULL"))
-    missing = analyze_population(gold_query, req(metric="finance.review.audit_profit"), ACTOR)
-    assert missing["value"] is None
-    assert missing["reason"] == "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION"
-    assert missing["missingCount"] == missing["populationCount"] == 3
-    excluded = analyze_population(
+    missing = run_analysis(gold_query, ACTOR, metric="finance.review.audit_profit")
+    assert missing.values == ()
+    assert missing.scope["reason"] == "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION"
+    assert missing.scope["missingCount"] == missing.scope["populationCount"] == 3
+    excluded = run_analysis(
         gold_query,
-        req(metric="finance.review.audit_profit", missingPolicy="exclude"),
         ACTOR,
+        metric="finance.review.audit_profit",
+        missing_policy="exclude",
     )
-    assert excluded["value"] is None
-    assert excluded["reason"] == "NO_OBSERVED_VALUES"
-    assert excluded["observedCount"] == 0
+    assert excluded.values == ()
+    assert excluded.scope["reason"] == "NO_OBSERVED_VALUES"
+    assert excluded.scope["observedCount"] == 0
 
 
 def test_declared_versus_audit_perspective(gold_query: Any) -> None:
-    declared = analyze_population(gold_query, req(), ACTOR)
-    audit = analyze_population(
-        gold_query, req(metric="finance.review.audit_profit", missingPolicy="exclude"), ACTOR
+    declared = run_analysis(gold_query, ACTOR)
+    audit = run_analysis(
+        gold_query, ACTOR, metric="finance.review.audit_profit", missing_policy="exclude"
     )
-    assert Decimal(declared["value"]) == sql_agg(gold_query, "avg", 2024)
-    assert Decimal(audit["value"]) == sql_agg(gold_query, "avg", 2024, "audit_profit")
-    assert declared["metric"] != audit["metric"]
-    assert audit["missingCount"] == 1 and audit["observedCount"] == 2
+    assert Decimal(declared.values[0]["value"]) == sql_agg(gold_query, "avg", 2024)
+    assert Decimal(audit.values[0]["value"]) == sql_agg(gold_query, "avg", 2024, "audit_profit")
+    assert declared.values[0]["metric"] != audit.values[0]["metric"]
+    assert audit.scope["missingCount"] == 1 and audit.scope["observedCount"] == 2
 
 
 def test_derived_profit_difference_matches_hand_decimal(gold_query: Any) -> None:
     with localcontext() as ctx:
         ctx.prec = 28
         expected = (Decimal("0.01") + Decimal("0.02")) / 2
-    result = analyze_population(
+    result = run_analysis(
         gold_query,
-        req(metric="finance.review.profitDifference", missingPolicy="exclude"),
         ACTOR,
+        metric="finance.review.profitDifference",
+        missing_policy="exclude",
     )
-    assert Decimal(result["value"]) == expected
-    assert result["unit"] == "CNY"
-    assert result["observedCount"] == 2 and result["missingCount"] == 1
+    assert Decimal(result.values[0]["value"]) == expected
+    assert result.values[0]["unit"] == "CNY"
+    assert result.scope["observedCount"] == 2 and result.scope["missingCount"] == 1
 
 
 def test_fifty_members_succeed_fifty_one_refuses_truncated_total(gold_query: Any) -> None:
@@ -152,9 +143,9 @@ def test_fifty_members_succeed_fifty_one_refuses_truncated_total(gold_query: Any
                 "FROM generate_series(1,47) i"
             )
         )
-    ok = analyze_population(gold_query, req(operation="count"), ACTOR)
-    assert Decimal(ok["value"]) == Decimal("50")
-    assert ok["populationCount"] == 50
+    ok = run_analysis(gold_query, ACTOR, operation="count")
+    assert Decimal(ok.values[0]["value"]) == Decimal("50")
+    assert ok.scope["populationCount"] == 50
     with gold_query.provider._engines["sample_pg"].begin() as conn:
         conn.execute(
             text(
@@ -163,17 +154,17 @@ def test_fifty_members_succeed_fifty_one_refuses_truncated_total(gold_query: Any
                 "VALUES ('tenant-a','E48','E48',2024,'2024-01-01','2025-01-01',1)"
             )
         )
-    larger = analyze_population(gold_query, req(operation="count"), ACTOR)
-    assert Decimal(larger["value"]) == Decimal("51")
-    assert larger["populationCount"] == 51
-    assert len(larger["members"]) == 50
+    larger = run_analysis(gold_query, ACTOR, operation="count")
+    assert Decimal(larger.values[0]["value"]) == Decimal("51")
+    assert larger.scope["populationCount"] == 51
+    assert len(larger.evidence.rows) == 50
 
 
 def test_source_error_is_not_a_successful_number(gold_query: Any) -> None:
     with gold_query.provider._engines["sample_pg"].begin() as conn:
         conn.execute(text("ALTER TABLE sample_financial_review DROP COLUMN declared_profit"))
     with pytest.raises(ValueError):
-        analyze_population(gold_query, req(), ACTOR)
+        run_analysis(gold_query, ACTOR)
 
 
 def test_http_analyze_matches_independent_sql(gold_query: Any) -> None:
@@ -191,15 +182,22 @@ def test_http_analyze_matches_independent_sql(gold_query: Any) -> None:
     app.include_router(router)
     try:
         with TestClient(app) as client:
+            headers = {"Authorization": "Bearer tenant-a-analyst"}
+            prepared = client.post(
+                "/v0.1/semantic/prepare",
+                headers=headers,
+                json=analysis_query().model_dump(by_alias=True),
+            )
+            assert prepared.status_code == 200
             response = client.post(
-                "/v0.1/analyze",
-                headers={"Authorization": "Bearer tenant-a-analyst"},
-                json={"metric": "finance.review.declared_profit", "year": 2024},
+                "/v0.1/semantic/execute",
+                headers=headers,
+                json=prepared.json()["plan"],
             )
         assert response.status_code == 200
         body = response.json()
-        assert Decimal(body["value"]) == expected
-        assert body["complete"] is True
+        assert Decimal(body["values"][0]["value"]) == expected
+        assert body["scope"]["complete"] is True
         assert body["sourceActivities"]
     finally:
         services.close()

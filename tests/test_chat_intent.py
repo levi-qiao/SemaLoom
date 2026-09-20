@@ -30,7 +30,7 @@ def test_comparison_question_cannot_submit_mean_only_evidence(gateway: SemanticT
     gateway.user_message = "2025年选定申报利润总额, 某企业比平均值高百分之多少?"
     gateway.evidence["e1"] = {
         "id": "e1",
-        "tool": "analyze_population",
+        "tool": "prepare_semantic_query",
         "result": {
             "metric": "finance.review.declared_profit",
             "operation": "mean",
@@ -65,14 +65,22 @@ def test_user_missing_prohibition_blocks_exclude_before_execution(
 
 
 def test_evaluator_rejects_conflicting_population_evidence() -> None:
-    oracle = {"metric": "x", "missingPolicy": "reject", "value": None}
+    oracle = {
+        "values": [{"value": None}],
+        "scope": {"missingPolicy": "reject"},
+        "releaseDigest": "d1",
+    }
     answer = {
         "kind": "answer",
         "evidence": [
-            {"tool": "analyze_population", "result": oracle},
+            {"tool": "prepare_semantic_query", "result": oracle},
             {
-                "tool": "analyze_population",
-                "result": {**oracle, "missingPolicy": "exclude", "value": "93.33"},
+                "tool": "prepare_semantic_query",
+                "result": {
+                    "values": [{"value": "93.33"}],
+                    "scope": {"missingPolicy": "exclude"},
+                    "releaseDigest": "d1",
+                },
             },
         ],
     }
@@ -111,12 +119,53 @@ def test_ontology_aliases_control_ambiguity_without_enterprise_branches(
     assert not TurnIntent.read("收入", custom).candidates
 
 
+def test_review_aliases_distinguish_profit_and_share_short_names(gateway: SemanticTools) -> None:
+    from semaloom.app.chat.intent import TurnIntent
+
+    bundle = gateway.query.bundle
+    profit = TurnIntent.read("2025年利润平均值", bundle)
+    assert profit.metric_ids == frozenset()
+    assert set(profit.candidates) == {
+        "finance.review.declared_profit",
+        "finance.review.audit_profit",
+    }
+    net = TurnIntent.read("2025年净利润平均值", bundle)
+    assert net.metric_ids == frozenset({"finance.review.net_profit"})
+    assert not net.candidates
+    assets = TurnIntent.read("2025年资产合计", bundle)
+    assert assets.metric_ids == frozenset({"finance.review.assets"})
+    ratio = TurnIntent.read("2025年资产负债率最大值", bundle)
+    assert ratio.metric_ids == frozenset({"finance.review.debtRatio"})
+    assert ratio.operation == "max"
+
+
+def test_share_phrasing_allows_year_and_metric_between_zhan_and_total(
+    gateway: SemanticTools,
+) -> None:
+    from semaloom.app.chat.intent import TurnIntent
+
+    intent = TurnIntent.read("样本企业 05 占2025年选定申报利润总额多少", gateway.query.bundle)
+    assert intent.comparison == "shareOfTotal"
+    assert intent.metric_ids == frozenset({"finance.review.declared_profit"})
+    assert intent.year == 2025
+
+
+def test_claim_aliases_are_read_from_ontology(gateway: SemanticTools) -> None:
+    from semaloom.app.chat.intent import TurnIntent
+
+    intent = TurnIntent.read("资产等于负债加权益吗", gateway.query.bundle)
+    assert intent.claim_ids == frozenset({"finance.review.balanceBalances"})
+
+
 def test_ambiguous_ontology_word_blocks_all_data_tools(gateway: SemanticTools) -> None:
     gateway.user_message = "这批样本2025年的收入平均多少?"
     assert len(gateway.intent.candidates) == 2
-    for name in ("find_objects", "semantic_query", "evaluate_claim", "analyze_population"):
+    for name in ("find_objects", "semantic_query", "evaluate_claim"):
         with pytest.raises(ValueError, match="CLARIFICATION_REQUIRED"):
             gateway.call(name, {})
+    prepared = gateway.call("prepare_semantic_query", {})
+    assert prepared["status"] == "NEEDS_INPUT"
+    assert prepared["question"]["slot"] == "metric"
 
 
 def test_mean_question_cannot_be_answered_with_sum(gateway: SemanticTools) -> None:
@@ -140,30 +189,28 @@ def test_model_schema_exposes_nested_comparison_fields_without_weakening_python(
 
     from pydantic import ValidationError
 
-    from semaloom.app.agent_tools import read_tools
-    from semaloom.app.chat.schema import model_schema
-    from semaloom.app.http import ClaimBody
-    from semaloom.core.results import PopulationRequest
+    from semaloom.core.semantic_query import SemanticQuery
 
     names = {item["name"] for item in gateway.catalog()}
     assert "prepare_semantic_query" in names
     assert "analyze_population" not in names
-    raw = next(
-        item
-        for item in read_tools(ClaimBody.model_json_schema(by_alias=True))
-        if item["name"] == "analyze_population"
-    )
-    schema = model_schema(raw["inputSchema"])
-    assert "$ref" not in json.dumps(schema)
-    comparison = schema["properties"]["comparison"]
+    raw = next(item for item in gateway.catalog() if item["name"] == "prepare_semantic_query")
+    schema = json.dumps(raw["inputSchema"])
+    assert "$ref" not in schema
+    comparison = raw["inputSchema"]["properties"]["query"]["properties"]["comparison"]
     assert comparison["type"] == "object"
-    assert comparison["properties"]["operation"]["enum"] == [
-        "shareOfTotal",
-        "percentAboveMean",
-        "outperforms",
-    ]
-    assert comparison["properties"]["filters"]["type"] == "object"
+    assert set(comparison["properties"]["op"]["enum"]) == {
+        "SHARE_OF_TOTAL",
+        "RELATIVE_TO_MEAN",
+        "STRICT_PEER",
+        "PERIOD_OVER_PERIOD",
+    }
+    assert comparison["properties"]["subject"]["type"] == "object"
     with pytest.raises(ValidationError):
-        PopulationRequest.model_validate(
-            {"metric": "m", "year": 2025, "comparison": '{"operation":"shareOfTotal"}'}
+        SemanticQuery.model_validate(
+            {
+                "apiVersion": "semaloom/v0.1",
+                "metrics": [{"id": "m", "aggregation": "SUM"}],
+                "comparison": '{"op":"SHARE_OF_TOTAL"}',
+            }
         )

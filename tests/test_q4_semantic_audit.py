@@ -18,7 +18,6 @@ from semaloom.app.chat.store import ChatStore
 from semaloom.app.chat.tools import SemanticTools
 from semaloom.app.http import ClaimBody
 from semaloom.compiler import compile_paths
-from semaloom.core.results import PopulationRequest
 from semaloom.core.semantic_query import (
     ChoiceError,
     ChoiceQuestion,
@@ -35,7 +34,6 @@ from semaloom.core.semantic_query import (
 from semaloom.runtime.analysis import execute, prepare
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.fixtures import engines
-from semaloom.runtime.population import analyze_population
 from semaloom.runtime.query import QueryService
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -112,14 +110,6 @@ def test_warehouse_pack_runs_without_core_change(warehouse: Any) -> None:
     )
     assert Decimal(result.values[0]["value"]) == expected
     assert expected != tenant_b
-    pop = analyze_population(
-        service,
-        PopulationRequest.model_validate(
-            {"metric": "warehouse.onHandQty", "year": 2024, "operation": "sum"}
-        ),
-        ACTOR,
-    )
-    assert Decimal(pop["value"]) == expected
     assert result.scope["populationCount"] == 2000
     assert len(result.evidence.rows) == 50
     assert result.evidence.truncated is True
@@ -150,10 +140,13 @@ def test_complete_warehouse_question_is_ready_matching_sql(warehouse: Any) -> No
 
 def test_vague_and_missing_year_need_input(warehouse: Any) -> None:
     service, _engine = warehouse
-    vague = prepare_turn(service, ACTOR, "库存多少")
+    vague = prepare_turn(service, ACTOR, "帮我统计一下")
     assert vague["status"] == "NEEDS_INPUT"
     assert vague["question"]["slot"] == "metric"
     assert any(item["choice"]["kind"] == "OTHER" for item in vague["question"]["options"])
+    stock = prepare_turn(service, ACTOR, "库存多少")
+    assert stock.get("answerReady")
+    assert stock["result"]["values"][0]["metric"] == "warehouse.onHandQty"
     missing_year = prepare_turn(service, ACTOR, "在库数量合计")
     assert missing_year.get("answerReady")
     assert any(item["slot"] == "year" for item in missing_year["assumptions"])
@@ -215,6 +208,13 @@ def test_share_of_total_denominator_is_full_population(warehouse: Any) -> None:
         assert Decimal(comparison["value"]) == subject / total * 100
 
 
+def test_named_share_question_selects_the_matching_subject(warehouse: Any) -> None:
+    service, _engine = warehouse
+    prepared = prepare_turn(service, ACTOR, "S1 占2024年在库数量总额多少")
+    assert prepared.get("answerReady")
+    assert prepared["result"]["scope"]["comparison"]["operation"] == "shareOfTotal"
+
+
 def test_missing_policy_reject_vs_exclude(warehouse: Any) -> None:
     service, read_engine = warehouse
     with read_engine.begin() as conn:
@@ -249,9 +249,9 @@ def test_choice_matrix_forged_expired_duplicate_abort_reselect(warehouse: Any) -
     service, engine = warehouse
     store = ChatStore(engine)
     row = store.create(ACTOR, service.bundle.digest)
-    first = prepare_turn(service, ACTOR, "库存多少")
+    first = prepare_turn(service, ACTOR, "帮我统计一下")
     assert first["status"] == "NEEDS_INPUT"
-    store.save_pending(ACTOR, row, first["question"], {"query": first["query"]}, "库存多少")
+    store.save_pending(ACTOR, row, first["question"], {"query": first["query"]}, "帮我统计一下")
     with pytest.raises(ChoiceError, match="UNKNOWN_OPTION"):
         submit_choice(
             store,
@@ -310,8 +310,10 @@ def test_choice_matrix_forged_expired_duplicate_abort_reselect(warehouse: Any) -
     with pytest.raises(KeyError):
         store.load(OTHER, row["id"])
     restored = store.create(ACTOR, service.bundle.digest)
-    again = prepare_turn(service, ACTOR, "库存多少")
-    store.save_pending(ACTOR, restored, again["question"], {"query": again["query"]}, "库存多少")
+    again = prepare_turn(service, ACTOR, "帮我统计一下")
+    store.save_pending(
+        ACTOR, restored, again["question"], {"query": again["query"]}, "帮我统计一下"
+    )
     loaded = store.load(ACTOR, restored["id"])
     assert loaded["pending"]["questionId"] == again["question"]["questionId"]
 
@@ -338,8 +340,8 @@ def test_source_and_save_failure_do_not_invent_answers(warehouse: Any, monkeypat
     assert failed.get("answerReady") is not True
     store = ChatStore(engines()["orders_pg"])
     row = store.create(ACTOR, service.bundle.digest)
-    first = prepare_turn(service, ACTOR, "库存多少")
-    store.save_pending(ACTOR, row, first["question"], {"query": first["query"]}, "库存多少")
+    first = prepare_turn(service, ACTOR, "帮我统计一下")
+    store.save_pending(ACTOR, row, first["question"], {"query": first["query"]}, "帮我统计一下")
 
     def boom(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("database unavailable")
@@ -372,34 +374,60 @@ def test_unsupported_month_grain_on_integer_year(warehouse: Any) -> None:
     assert prepared.capability == "TIME_GRAIN_UNSUPPORTED"
 
 
-def test_analyze_population_is_translator_only() -> None:
-    source = (ROOT / "src/semaloom/runtime/population.py").read_text(encoding="utf-8")
-    assert "execute_population" in source
-    assert "find_objects" not in source
-    tree = ast.parse(source)
-    functions = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
-    assert functions == ["analyze_population"]
+def test_semi_additive_sum_across_years_is_refused(warehouse: Any) -> None:
+    service, _engine = warehouse
+    mixed = SemanticQuery(
+        api_version="semaloom/v0.1",
+        metrics=(MetricRef(id="warehouse.onHandQty", aggregation="SUM"),),
+        filters=FilterAtom(
+            field="stockYear",
+            op="IN",
+            value=TypedValue(value_type="INTEGER", value=(2024, 2025)),
+        ),
+    )
+    prepared = prepare(service, mixed, ACTOR)
+    assert prepared.status == "UNSUPPORTED"
+    assert prepared.capability == "ADDITIVITY_VIOLATION"
+    average = mixed.model_copy(
+        update={"metrics": (MetricRef(id="warehouse.onHandQty", aggregation="AVG"),)}
+    )
+    assert prepare(service, average, ACTOR).status == "READY"
+
+
+def test_analyze_population_path_is_gone() -> None:
+    runtime = ROOT / "src/semaloom/runtime"
+    assert not (runtime / "population.py").exists()
+    http = (ROOT / "src/semaloom/app/http.py").read_text(encoding="utf-8")
+    prompt = (ROOT / "src/semaloom/app/chat/system_prompt.txt").read_text(encoding="utf-8")
+    assert "analyze_population" not in http
+    assert "/analyze" not in http
+    assert "analyze_population" not in prompt
+    tree = ast.parse((ROOT / "src/semaloom/app/agent_tools.py").read_text(encoding="utf-8"))
+    names = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+    assert "analyze_population" not in names
+    assert "semantic_prepare" in names
 
 
 def test_no_second_stats_engine_or_parallel_choice_state_machine(warehouse: Any) -> None:
     service, _engine = warehouse
-    runtime = ROOT / "src/semaloom/runtime"
     owners = list((ROOT / "src/semaloom/app/chat").glob("choices.py"))
     assert owners
-    population_impl = (runtime / "population.py").read_text(encoding="utf-8")
-    analysis_impl = (runtime / "analysis.py").read_text(encoding="utf-8")
-    assert "for record in page" not in population_impl
+    analysis_impl = (ROOT / "src/semaloom/runtime/analysis.py").read_text(encoding="utf-8")
     assert "SemanticQuery" in analysis_impl
     tools = SemanticTools(service, ACTOR)
     names = {item["name"] for item in tools.catalog()}
     assert "prepare_semantic_query" in names
     assert "analyze_population" not in names
     http_names = {item["name"] for item in read_tools(ClaimBody.model_json_schema(by_alias=True))}
-    assert "analyze_population" in http_names
+    assert "analyze_population" not in http_names
+    assert "semantic_prepare" in http_names
     plugin = (ROOT / "harness/semantic-plugin.mjs").read_text(encoding="utf-8")
     assert "waiting" in plugin
     assert "ctx.ui.select" not in plugin
     prompt = (ROOT / "src/semaloom/app/chat/system_prompt.txt").read_text(encoding="utf-8")
     assert "prepare_semantic_query" in prompt
-    assert prompt.count("analyze_population") == 1
-    assert "已废弃的 analyze_population" in prompt
+    assert "analyze_population" not in prompt

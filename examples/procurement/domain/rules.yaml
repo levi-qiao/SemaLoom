@@ -5,6 +5,13 @@
   label: 金额未超授权
   description: 判断采购订单金额是否不超过该组织的授权额度。成立后才允许创建采购草稿。结果为成立、不成立或数据不足无法判断。
   claim: procurement.amountWithinLimit
+  aliases:
+    - 采购金额是否超限
+    - 是否超额
+    - 额度核验
+    - 采购未超限
+    - 金额未超授权
+    - 是否在授权额度内
   applicability: [organizationId]
   inputs:
     - name: amount
@@ -34,14 +41,18 @@
   kind: Action
   id: procurement.CreatePurchaseDraft
   version: "1.0.0"
+  label: 创建采购草稿
+  description: 在采购业务系统中生成采购草稿，经授权额度核验后可转为正式采购订单
   targetObject: procurement.Order
   effect: Create a purchase draft in the synthetic order system
   preconditions: [procurement.amountWithinLimit]
   parameters:
     - name: amount
+      label: 金额
       valueType: DECIMAL
       required: true
     - name: note
+      label: 备注说明
       valueType: STRING
       required: false
 

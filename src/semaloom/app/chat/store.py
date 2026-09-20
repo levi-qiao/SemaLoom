@@ -47,6 +47,39 @@ class ChatStore:
             raise KeyError("CONVERSATION_NOT_FOUND")
         return dict(row)
 
+    def list_conversations(self, actor: RequestActor, limit: int = 50) -> list[dict[str, Any]]:
+        with self.engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    text("""SELECT id, release_digest, updated_at,
+                    jsonb_array_length(turns) as turn_count,
+                    (turns->0->>'question') as first_question,
+                    (query_state->>'originalQuestion') as original_question
+                    FROM chat_conversation
+                    WHERE tenant_id = :tenant AND actor_id = :actor
+                    AND (
+                        jsonb_array_length(turns) > 0
+                        OR pending IS NOT NULL
+                        OR query_state IS NOT NULL
+                    )
+                    ORDER BY updated_at DESC
+                    LIMIT :limit"""),
+                    {"tenant": actor.tenant, "actor": actor.subject, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {
+                "id": row["id"],
+                "releaseDigest": row["release_digest"],
+                "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else "",
+                "turnCount": int(row["turn_count"] or 0),
+                "title": (row["first_question"] or row["original_question"] or "未命名对话")[:80],
+            }
+            for row in rows
+        ]
+
     def create(self, actor: RequestActor, digest: str) -> dict[str, Any]:
         identity = uuid.uuid4().hex
         with self.engine.begin() as conn:

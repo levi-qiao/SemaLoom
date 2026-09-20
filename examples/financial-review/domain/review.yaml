@@ -40,12 +40,32 @@
   - id: pairingPolicy
     valueType: STRING
     label: 样本选择规则
-  - id: unitBasis
-    valueType: STRING
-    label: 金额单位依据
+    aliases:
+    - 配对规则
+    values:
+    - id: LATEST_UPDATED_SAMPLE
+      label: 最新样本
+      aliases:
+      - 最新样本
   - id: sourceReviewStatus
     valueType: STRING
     label: 来源真实复核状态
+    aliases:
+    - 复核状态
+    values:
+    - id: unreviewed
+      label: 未复核
+      aliases:
+      - 未复核
+      - 待复核
+    - id: reviewed
+      label: 已复核
+      aliases:
+      - 已复核
+      - 复核通过
+  - id: unitBasis
+    valueType: STRING
+    label: 金额单位依据
   - id: audit_profitStatus
     valueType: STRING
     label: audit_profit抽取状态
@@ -67,31 +87,76 @@
   - id: declared_profit
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 选定申报利润总额
+    aliases:
+    - 申报利润
+    - 利润
+    - 申报利润总额
+    - 选定申报利润总额
+    - 报税利润
   - id: audit_profit
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 抽取审计利润总额
+    aliases:
+    - 审计利润
+    - 利润
+    - 审计利润总额
+    - 抽取审计利润总额
+    - 审定利润
   - id: net_profit
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 抽取审计净利润
+    aliases:
+    - 净利润
+    - 审计净利润
+    - 抽取审计净利润
+    - 净收益
   - id: tax_expense
     valueType: DECIMAL
     unit: CNY
+    additivity: FULL
     label: 抽取审计所得税费用
+    aliases:
+    - 所得税费用
+    - 抽取审计所得税费用
+    - 所得税
+    - 税金费用
   - id: assets
     valueType: DECIMAL
     unit: CNY
+    additivity: SEMI
     label: 抽取审计资产总计
+    aliases:
+    - 资产
+    - 总资产
+    - 资产总计
+    - 抽取审计资产总计
   - id: liabilities
     valueType: DECIMAL
     unit: CNY
+    additivity: SEMI
     label: 抽取审计负债合计
+    aliases:
+    - 负债
+    - 负债合计
+    - 总负债
+    - 抽取审计负债合计
   - id: equity
     valueType: DECIMAL
     unit: CNY
+    additivity: SEMI
     label: 抽取审计所有者权益合计
+    aliases:
+    - 权益
+    - 所有者权益
+    - 净资产
+    - 股东权益
+    - 抽取审计所有者权益合计
   period:
     fromProperty: periodStart
     toProperty: periodTo
