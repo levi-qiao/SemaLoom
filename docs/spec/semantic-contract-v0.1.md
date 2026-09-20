@@ -323,7 +323,7 @@ Chat metadata 与业务来源分开；运行进程、时间、工具数量及输
 
 Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实际 Mapping 引用的资源与字段投影，无凭证/连接字符串；不进入模型消息。访问仍需当前 Studio 模型查看/来源权限，历史同样过滤，字段列表明确是映射定义，不代表每列都被读取。原先五个只读工具扩展为六个，原有路由保持兼容。
 
-`EvidenceTable.columns` 可附 `role`（CATEGORY / DIMENSION / MEASURE）、`valueType` 与 `unit`。这些字段只说明证据数据语义，由执行 adapter 根据实际列产生；它们不是本体展示配置，不决定颜色、组件或布局。Chat 在执行与授权之后可生成 `semaloom/presentation-v0.1` 浏览器投影：包含有界 KPI 与报告行列、原始精确值及显示值，不包含 SQL、物理来源、URL、网络动作或 json-render Spec。标量 KPI 和分组报告只来自同次执行的 `QueryResult.values`；`EvidenceTable.rows` 是逐条审计明细，MUST NOT 作为聚合图表数据。报告的 `preferredView` 由查询结构确定：timeGrain → line、单维 → bar、多维 → table。模型与调用方不能提交该投影。浏览器只验证和渲染，不能从业务名称、命名空间或字符串外形重新推断度量。Evidence 的标签目录只附当前证据实际引用的语义 ID，不得把同一 bundle 中其他领域的标签全集带入回答。没有合法投影时仍显示正文和 Evidence，不伪造可视化。
+`EvidenceTable.columns` 可附 `role`（CATEGORY / DIMENSION / MEASURE）、`valueType` 与 `unit`。这些字段只说明证据数据语义，由执行 adapter 根据实际列产生；它们不是本体展示配置，不决定颜色、组件或布局。Chat 在执行与授权之后可生成 `semaloom/presentation-v0.1` 浏览器投影：包含有界 KPI 与报告行列、原始精确值及显示值，不包含 SQL、物理来源、URL、网络动作或 json-render Spec。标量 KPI 和分组报告只来自同次执行的 `QueryResult.values`；`EvidenceTable.rows` 是逐条审计明细，MUST NOT 作为聚合图表数据。报告的 `availableViews` 由实际数据语义校验：单一分类、同单位、有限数值可比较；时间分组才允许折线；多维或混合单位保留表格。缺失单元格为 null，不补零；时间值按时间顺序展示。模型可在 `prepare_semantic_query.view` 或 `present_answer.views[{evidenceId,view}]` 提出展示偏好（auto/none/table/bar/line/relationships），用户明确偏好优先。偏好只选择兼容组件，不接受数值、任意组件属性、脚本或模型生成 Spec；不兼容时使用安全的可用视图。关系图仅使用同份已授权定义证据中的 ObjectType/Link，不推断树形层级或实例事实。没有展示价值可用 none，仅保留文字与审计证据。模型与调用方不能提交数据投影。浏览器只验证和渲染，不能从业务名称、命名空间或字符串外形重新推断度量。Evidence 的标签目录只附当前证据实际引用的语义 ID，不得把同一 bundle 中其他领域的标签全集带入回答。没有合法投影时仍显示正文和 Evidence，不伪造可视化。
 
 
 ### 集合问答审计修订
@@ -345,9 +345,9 @@ Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实�
 
 ### 主责复验增补：组合结果与澄清
 
-当前实现与未闭合目标以 [能力边界](../capabilities.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺年度/缺聚合仍返回选择题。Chat 在唯一指标已识别时可用来源最新年度和可加性合计作答，并在回答中标注假设与置信度；这不是用户已提交的选择，也不把模型自报 confidence 当正确性证明。规则检查只用于评分，不阻止回答。未要求明细时不默认按对象分组。多年度以类型化筛选表达，统计单位按声明年度组合检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
+当前实现与未闭合目标以 [能力边界](../capabilities.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺年度/缺聚合仍返回选择题。Chat 同样等待缺失的年份、统计方式和歧义口径经补充信息卡片确认，不再默认最新年度或合计，不计算或展示置信度。显式近 N 年可按可用期间解析；明确占总体总额等比较使用该算子的定义。来源故障与缺失数据不通过用户补值伪装为事实。规则返回原有确定性结论，不参与评分。模型提交的未确认年度会被拒绝，未说明的统计方式留给补充卡片。未要求明细时不默认按对象分组。多年度以类型化筛选表达，统计单位按声明年度组合检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
 
-ChoiceKind 增加 AGGREGATION、COMPARISON、FILTER、OTHER、CLAIM；FILTER 的 predicate 由服务器保留。DIMENSION_VALUE 由 Property.values 发射。选择题必须同时提供 OTHER 与 ABORT。`ChoiceQuestion.control` 由服务器按 live option 的 ChoiceKind 输出 `SELECT` 或 `CARDS`；前端不得按 slot 名或领域 ID 再决定控件，也不得同时重复渲染两套控件。前端只提交 option id。OTHER 就地提交 `otherText`，服务端并入原问题再解释。歧义指标、比较口径、比较主体、维值和同字段冲突 EQ 仍用选择式澄清。模型不能提交 decisions，不能改写用于校验的原始问题。明确缺失拒绝不能被模型排除策略覆盖。失败保留 pending，保存答案/清除 pending 原子完成。判断题命中 Rule 别名时直接 `evaluate_claim`，不送模型。
+ChoiceKind 增加 AGGREGATION、COMPARISON、FILTER、OTHER、CLAIM；FILTER 的 predicate 由服务器保留。DIMENSION_VALUE 由 Property.values 发射。选择题必须同时提供 OTHER 与 ABORT。`ChoiceQuestion.control` 由服务器按 live option 的 ChoiceKind 输出 `SELECT` 或 `CARDS`；前端不得按 slot 名或领域 ID 再决定控件，也不得同时重复渲染两套控件。前端只提交 option id。OTHER 就地提交 `otherText`，服务端并入原问题再解释。歧义指标、比较口径、比较主体、维值和同字段冲突 EQ 仍用选择式澄清。模型不能提交 decisions，不能改写用于校验的原始问题。明确缺失拒绝不能被模型排除策略覆盖。失败保留 pending，保存答案/清除 pending 原子完成。判断题命中 Rule 别名时直接 `evaluate_claim`，不送模型。其他无法定位业务范围的问题也通过补充说明卡片继续；自由文本仅追加原问题重新解释，不成为授权、事实值或直接执行参数。所有选项（包括 OTHER/ABORT）先校验题目、版本及选项身份。
 
 计划校验包含值、租户和固定 release，旧 SQL 形状摘要不能兼容新计划引用，需重新 prepare。数据库统计、比较与证据来自单来源只读重复读快照；同源快照不证明来源真实/复核。物理字段由 adapter 处理，模型和无建模权限的分析身份不接收 mappingFields。
 

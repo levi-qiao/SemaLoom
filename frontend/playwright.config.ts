@@ -27,6 +27,6 @@ export default defineConfig({
       }
     : undefined,
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    { name: "chromium", use: { ...devices["Desktop Chrome"], locale: "zh-CN" } },
   ],
 });

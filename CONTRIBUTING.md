@@ -43,7 +43,7 @@ PostgreSQL 的 `initdb` / `pg_ctl` 须在 PATH，或设置 `SEMALOOM_E2E_PG_BIND
 
 - 项目许可 [Apache-2.0](LICENSE)；Studio 打包的 React 资产见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 - 运行时依赖以 `pyproject.toml` 声明、`uv.lock` 锁定为准。重建后检查：`uv export --frozen --no-dev --no-hashes`，以及 wheel 内 `*.dist-info/METADATA` 的 `Requires-Dist`。
-- 包元数据和发行物必须包含 LICENSE。sdist 不含 `.agents/`、`runtime.env` 或私有样本说明；公共合成示例在 `examples/tax` 与 `examples/procurement`。
+- 包元数据和发行物必须包含 LICENSE。sdist 不含 `.agents/`、`runtime.env` 或私有样本说明；公开的 tax、procurement 与 financial-review 示例只使用合成数据。
 - 目前没有签名 SBOM、SLSA 证明或包签名。不要把 lockfile 当作发布证明。
 
 项目目前不要求 CLA 或 DCO。维护者见 [.github/CODEOWNERS](.github/CODEOWNERS)。社区规范见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。

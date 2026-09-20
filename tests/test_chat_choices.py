@@ -72,7 +72,7 @@ def test_recent_year_trend_uses_available_periods_and_preserves_year_grain(
                 """
             )
         )
-    result = prepare_turn(population_query, ACTOR, "近三年申报营业收入趋势")
+    result = prepare_turn(population_query, ACTOR, "近三年申报营业收入合计趋势")
     assert result["status"] == "READY"
     assert result["query"]["groupBy"] == [{"id": "taxYear", "timeGrain": "YEAR"}]
     assert {row["grain"]["taxYear"] for row in result["result"]["values"]} == {
@@ -165,6 +165,36 @@ def _load_declaration(engine: Any) -> None:
         )
 
 
+def _confirm_scope(
+    store: ChatStore, service: Any, conversation_id: str, result: dict[str, Any]
+) -> dict[str, Any]:
+    for slot, kind, value in (("year", "YEAR", "2024"), ("aggregation", "AGGREGATION", "SUM")):
+        assert result["status"] == "NEEDS_INPUT"
+        assert result["question"]["slot"] == slot
+        restored = store.load(ACTOR, conversation_id)
+        assert restored["pending"]["questionId"] == result["question"]["questionId"]
+        assert not restored["turns"]
+        option = next(
+            item
+            for item in result["question"]["options"]
+            if item["choice"]["kind"] == kind and item["choice"]["id"] == value
+        )
+        result = submit_choice(
+            store,
+            service,
+            ACTOR,
+            conversation_id,
+            ChoiceSubmit.model_validate(
+                {
+                    "questionId": result["question"]["questionId"],
+                    "revision": result["question"]["revision"],
+                    "optionIds": [option["id"]],
+                }
+            ),
+        )
+    return result
+
+
 def test_two_round_compute_uses_engine_numbers(population_query: Any) -> None:
     engine = population_query.provider._engines["sample_pg"]
     _load_declaration(engine)
@@ -188,6 +218,7 @@ def test_two_round_compute_uses_engine_numbers(population_query: Any) -> None:
             }
         ),
     )
+    second = _confirm_scope(store, population_query, row["id"], second)
     assert second.get("answerReady")
     assert second.get("textOrigin") == "ENGINE"
     assert second.get("population") is None
@@ -195,8 +226,9 @@ def test_two_round_compute_uses_engine_numbers(population_query: Any) -> None:
     assert "平均值" not in second["text"]
     assert engine_value in second["text"]
     assert second["evidence"][0]["lineage"]
-    assert second["confidence"]["label"] in {"高", "中", "低"}
-    assert any(item["slot"] == "year" for item in second["assumptions"])
+    assert "confidence" not in second
+    assert "置信度" not in second["text"]
+    assert not second["assumptions"]
 
 
 def test_two_round_submit_keeps_metric_and_year(population_query: Any) -> None:
@@ -222,11 +254,12 @@ def test_two_round_submit_keeps_metric_and_year(population_query: Any) -> None:
             }
         ),
     )
+    second = _confirm_scope(store, population_query, row["id"], second)
     assert second.get("answerReady")
     saved = store.load(ACTOR, row["id"])
     assert saved["pending"] is None
     assert saved["turns"]
-    assert saved["turns"][0]["answer"]["confidence"]["label"] in {"高", "中", "低"}
+    assert "confidence" not in saved["turns"][0]["answer"]
 
 
 def test_forged_and_abort_do_not_invent_answers(population_query: Any) -> None:
@@ -308,7 +341,8 @@ def test_http_choice_restore_roundtrip(population_query: Any) -> None:
     )
     assert chosen.status_code == 200
     body = chosen.json()
-    assert body.get("answerReady") or body["status"] == "READY"
+    assert body["status"] == "NEEDS_INPUT"
+    assert body["question"]["slot"] == "year"
 
 
 def test_direct_turn_skips_model_for_named_metric(population_query: Any) -> None:
@@ -316,21 +350,73 @@ def test_direct_turn_skips_model_for_named_metric(population_query: Any) -> None
     assert try_direct_turn(population_query, ACTOR, "你好") is None
     assert try_direct_turn(population_query, ACTOR, "申报营业收入是什么") is None
     named = try_direct_turn(population_query, ACTOR, "申报营业收入")
-    assert named is not None and named.get("answerReady")
+    assert named is not None and named["status"] == "NEEDS_INPUT"
     vague = try_direct_turn(population_query, ACTOR, "收入多少")
     assert vague is not None and vague["status"] == "NEEDS_INPUT"
     assert any(item["choice"]["kind"] == "OTHER" for item in vague["question"]["options"])
 
 
-def test_named_metric_answers_with_assumed_year(population_query: Any) -> None:
+def test_named_metric_asks_for_missing_context_without_scoring(population_query: Any) -> None:
     _load_declaration(population_query.provider._engines["sample_pg"])
     result = prepare_turn(population_query, ACTOR, "申报营业收入")
-    assert result.get("answerReady")
-    assert result["confidence"]["label"] in {"高", "中", "低"}
-    assert any(item["slot"] == "year" for item in result["assumptions"])
-    assert any(item["slot"] == "aggregation" for item in result["assumptions"])
-    assert "置信度" in result["text"]
+    assert result["status"] == "NEEDS_INPUT"
+    assert result["question"]["slot"] in {"year", "aggregation"}
+    assert not result.get("answerReady")
+    assert "confidence" not in result
+    assert not result.get("assumptions")
     assert not result["query"].get("groupBy")
+
+
+def test_model_defaults_require_user_confirmation_but_confirmed_context_survives(
+    population_query: Any,
+) -> None:
+    _load_declaration(population_query.provider._engines["sample_pg"])
+    query = query_from_intent(
+        TurnIntent.read("2024年申报营业收入合计", population_query.bundle), population_query.bundle
+    ).model_dump(mode="json", by_alias=True)
+    gateway = SemanticTools(population_query, ACTOR, "申报营业收入")
+    with pytest.raises(ValueError, match="UNCONFIRMED_YEAR"):
+        gateway.call("prepare_semantic_query", {"query": query})
+    without_year = {**query, "filters": None}
+    waiting = gateway.call("prepare_semantic_query", {"query": without_year, "view": "table"})
+    assert waiting["question"]["slot"] == "year"
+    assert waiting["query"]["metrics"][0]["aggregation"] is None
+    assert waiting["query_state"]["view"] == "table"
+    resumed = SemanticTools(population_query, ACTOR, "那用表格看", confirmed_query=query)
+    result = resumed.call("prepare_semantic_query", {"query": query, "view": "table"})
+    assert result["answerReady"]
+    assert resumed.answer is not None
+    assert resumed.answer["views"][0]["view"] == "table"
+
+
+def test_open_clarification_is_a_persisted_card_and_stale_other_is_rejected(
+    population_query: Any,
+) -> None:
+    gateway = SemanticTools(population_query, ACTOR, "帮我看看经营情况")
+    pending = gateway.call(
+        "present_answer",
+        {"kind": "clarification", "text": "希望了解哪方面的业务？", "evidenceIds": []},
+    )
+    assert pending["waiting"]
+    store = ChatStore(population_query.provider._engines["sample_pg"])
+    row = store.create(ACTOR, population_query.bundle.digest)
+    store.save_pending(ACTOR, row, pending["question"], pending["query_state"], "帮我看看经营情况")
+    submit = ChoiceSubmit(
+        question_id=pending["question"]["questionId"],
+        revision=2,
+        option_ids=("opt_other_input",),
+        other_text="2024年申报营业收入合计",
+    )
+    with pytest.raises(ChoiceError, match="VERSION_INVALID"):
+        submit_choice(store, population_query, ACTOR, row["id"], submit)
+    assert store.load(ACTOR, row["id"])["pending"]
+    continued = submit_choice(
+        store, population_query, ACTOR, row["id"], submit.model_copy(update={"revision": 1})
+    )
+    assert continued == {
+        "status": "CONTINUE",
+        "message": "帮我看看经营情况\n2024年申报营业收入合计",
+    }
 
 
 def test_unsolicited_groupby_is_stripped(population_query: Any) -> None:
@@ -515,6 +601,7 @@ def test_submit_choice_delivers_link_unsupported_as_engine_answer(population_que
             }
         ),
     )
+    done = _confirm_scope(store, split, row["id"], done)
     expected = capability_message("LINK_ANALYSIS_UNSUPPORTED")
     assert done.get("answerReady") is True
     assert done["status"] == "UNSUPPORTED"

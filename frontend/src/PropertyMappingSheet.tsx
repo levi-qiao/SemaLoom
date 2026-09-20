@@ -14,7 +14,7 @@ import {
   sameJson,
   text,
 } from "./doc";
-import { ADDITIVITY_OPTIONS, draftPreviewHint, previewOutcomeText } from "./labels";
+import { additivityOptions, draftPreviewHint, previewOutcomeText } from "./labels";
 import { bindObjectColumn, makeMappingDocument, previewFailureFromHttp } from "./MappingEditor";
 import { useRowKeys } from "./rowKeys";
 import type { DraftDocument, SourceProfileSummary, SourceResource } from "./types";
@@ -458,7 +458,7 @@ export function PropertyMappingSheet({
                       <>
                         <input aria-label="属性单位" value={text(property.unit)} placeholder="CNY" onChange={(event) => updateProperty(index, { unit: event.target.value || undefined })} />
                         <select aria-label="可加性" value={text(property.additivity) || "FULL"} onChange={(event) => updateProperty(index, { additivity: event.target.value })}>
-                          {ADDITIVITY_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                          {additivityOptions().map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                         </select>
                       </>
                     ) : null}

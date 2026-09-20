@@ -31,9 +31,14 @@ versioning for published releases. During `0.x`, incompatible changes are docume
   missing/UNKNOWN, draft Action) and expected results.
 - Packaging tests that the wheel ships LICENSE plus Studio static assets, and that sdist/wheel
   paths exclude `.agents/`, credentials, and private sample dumps.
-- Chat answers a uniquely identified metric with assumed latest year and additive SUM, plus
-  an ontology-general confidence score. Choice cards are one-click, include an Other free-text
-  option, and no longer require typing candidate labels.
+- Chat asks for unresolved business scope through ontology-derived choice cards before querying.
+  It does not expose confidence scores, raw business identities, or automatically expanded
+  provenance in the human answer.
+- Optional TypeSafe Jev routing uses the live ontology catalog, bounded conversation context,
+  locale, and generic tool schemas. It fails open to the normal Pi loop and cannot authorize or
+  execute a query.
+- Chinese and English Chat/UI resources are available. The current message determines answer
+  language, with browser locale used only as a fallback for language-neutral input.
 - Property dictionaries (`values`) drive dimension/claim choice cards. Year-over-year
   uses `PERIOD_OVER_PERIOD` on SemanticQuery, not window LAG. See ADR-0014.
 - Measurement slots declare Kimball additivity (`FULL` / `SEMI` / `NONE`, default `FULL`).

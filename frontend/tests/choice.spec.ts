@@ -71,11 +71,16 @@ test("choice cards against isolated Python Chat: three rounds, tables, refresh r
     .filter({ hasNotText: "其他" })
     .first();
   await firstLive.click();
+  await expect(page.getByRole("combobox", { name: "要计算哪一年？" })).toBeVisible();
+  await page.getByRole("combobox", { name: "要计算哪一年？" }).selectOption({ label: "2024 年" });
+  await expect(page.getByText("希望如何统计这个指标？")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "合计", exact: true }).click();
 
   await page.locator(".chat-evidence .evidence-card > summary").first().click();
   await expect(page.locator(".chat-evidence table").first()).toBeVisible({ timeout: 45_000 });
   await expect(page.getByText("引擎结果说明")).toBeVisible();
-  await expect(page.getByText(/置信度/).first()).toBeVisible();
+  await expect(page.getByText(/置信度/)).toHaveCount(0);
   await page.getByText("引擎结果说明").scrollIntoViewIfNeeded();
   await expect(page.locator(".chat-evidence pre")).toHaveCount(0);
   await shot("05-result-tables.png");

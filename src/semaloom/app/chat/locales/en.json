@@ -1,0 +1,12 @@
+{
+  "clarification.reason": "Add the business conditions that affect the answer to continue.",
+  "objectScope.prompt": "Narrow the search scope for “{object}”",
+  "objectScope.reason": "The query matches multiple records. Add one ontology field first: {properties}.",
+  "objectScope.option": "Add search conditions",
+  "objectScope.optionExplanation": "Provide a business condition such as {properties}.",
+  "objectScope.abort": "Stop this search",
+  "objectScope.abortExplanation": "Stop without displaying unfiltered object records",
+  "objectScope.modelMessage": "Add a business filter declared by the ontology before reading object records.",
+  "objectScope.propertiesFallback": "business scope",
+  "answer.completed": "Calculated using the published semantic definition."
+}

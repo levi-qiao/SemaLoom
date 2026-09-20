@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
 from semaloom.app.agent_tools import read_tools
+from semaloom.app.chat.i18n import localize_question, normalize_locale, text
 from semaloom.app.chat.intent import TurnIntent
+from semaloom.app.chat.presentation import ViewSelection
 from semaloom.app.chat.schema import model_schema
 from semaloom.app.chat.summary import evidence_summary
 from semaloom.app.http import ClaimBody, reject_forbidden
@@ -19,7 +22,15 @@ from semaloom.core.results import (
     ObjectSelect,
     QueryRequest,
 )
-from semaloom.core.semantic_query import SemanticQuery
+from semaloom.core.semantic_query import (
+    ChoiceOption,
+    ChoiceQuestion,
+    SemanticChoice,
+    SemanticQuery,
+    abort_option,
+    field_constrained,
+    with_choice_exits,
+)
 from semaloom.core.wire import wire_config
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.discovery import SemanticDiscovery
@@ -32,16 +43,33 @@ class Answer(BaseModel):
     kind: Literal["answer", "explanation", "clarification", "unsupported"]
     text: str = Field(min_length=1, max_length=6000)
     evidence_ids: list[str] = Field(max_length=12)
+    views: list[ViewSelection] = Field(default_factory=list, max_length=12)
 
 
 class SemanticTools:
-    def __init__(self, query: QueryService, actor: RequestActor, user_message: str = "") -> None:
+    def __init__(
+        self,
+        query: QueryService,
+        actor: RequestActor,
+        user_message: str = "",
+        confirmed_query: dict[str, Any] | None = None,
+        locale: str = "zh-CN",
+    ) -> None:
         self.query, self.actor = query, actor
         self.user_message = user_message
+        self.locale = normalize_locale(locale)
+        self.confirmed_query = (
+            SemanticQuery.model_validate(confirmed_query) if confirmed_query else None
+        )
         self.evidence: dict[str, dict[str, Any]] = {}
         self.identities: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
         self.answer: dict[str, Any] | None = None
         self.pending: dict[str, Any] | None = None
+        # A broad object search is a scope-discovery step, never a deliverable.
+        # Once this flag is set the model cannot bypass the server-owned card by
+        # submitting a later answer in the same turn.
+        self.object_scope_required = False
+        self.object_scope_type: str | None = None
         self.calls = 0
 
     @property
@@ -113,12 +141,18 @@ class SemanticTools:
                 "description": "Prepare then execute a composable SemanticQuery. "
                 "When the server returns NEEDS_INPUT, stop and wait for an option id. "
                 "Omit unspecified year/aggregation; do not invent SQL or groupBy "
-                "unless the user asked for a breakdown.",
+                "unless the user asked for a breakdown. groupBy ids must be declared "
+                "ObjectType property ids (qualified as ObjectType.property when needed), "
+                "never Link ids.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "question": {"type": "string"},
                         "query": model_schema(query_schema),
+                        "view": {
+                            "type": "string",
+                            "enum": ["auto", "none", "table", "bar", "line", "relationships"],
+                        },
                     },
                     "additionalProperties": False,
                 },
@@ -128,7 +162,11 @@ class SemanticTools:
                 "description": "Finish this turn. Cite evidenceId values from tools in THIS turn. "
                 "Use explanation with discovery evidence for definitions and suggested questions; "
                 "use answer with observations for facts; clarification or unsupported otherwise. "
-                "The server supplies factual cards. Never invent numbers or claim truth.",
+                "The server supplies factual cards. Never invent numbers or claim truth. "
+                "Optionally select views by evidenceId: table for precise lookup, bar for "
+                "category comparison, line for a time series, none when prose suffices. "
+                "relationships for declared ObjectType/Link definitions. "
+                "Only compatible views will be used; omit views for automatic presentation.",
                 "inputSchema": Answer.model_json_schema(by_alias=True),
             },
         ]
@@ -144,9 +182,16 @@ class SemanticTools:
             value = Answer.model_validate(arguments)
             if any(key not in self.evidence for key in value.evidence_ids):
                 raise ValueError("UNKNOWN_EVIDENCE_REFERENCE")
+            if any(view.evidence_id not in value.evidence_ids for view in value.views):
+                raise ValueError("UNKNOWN_PRESENTATION_REFERENCE")
             if value.kind in {"answer", "explanation"} and not value.evidence_ids:
                 raise ValueError("EVIDENCE_REQUIRED")
             selected = [self.evidence[key] for key in dict.fromkeys(value.evidence_ids)]
+            if self.object_scope_required:
+                # Do not let a model turn a broad object listing into an answer,
+                # even when it has already received the search result.  The user
+                # must provide a business scope from the active ontology first.
+                return self._object_scope_pending()
             if (
                 value.kind == "clarification"
                 and self.user_message
@@ -164,6 +209,24 @@ class SemanticTools:
                     dict[str, Any],
                     without_physical_metadata(self._execute("prepare_semantic_query", {})),
                 )
+            if value.kind == "clarification" and self.user_message:
+                question = ChoiceQuestion(
+                    question_id="q-context-" + uuid.uuid4().hex,
+                    revision=1,
+                    slot="context",
+                    prompt=value.text,
+                    reason=text(self.locale, "clarification.reason"),
+                    options=with_choice_exits([]),
+                )
+                self.pending = {
+                    "status": "NEEDS_INPUT",
+                    "waiting": True,
+                    "question": question.model_dump(mode="json", by_alias=True),
+                    "query_state": {"mode": "clarification"},
+                    "originalQuestion": self.user_message,
+                    "releaseDigest": self.query.bundle.digest,
+                }
+                return self.pending
             if self.user_message:
                 if (
                     self.intent.candidates or self.intent.clarify_comparison
@@ -184,7 +247,11 @@ class SemanticTools:
                 value = value.model_copy(update={"kind": "explanation"})
             if value.kind == "answer":
                 value = value.model_copy(
-                    update={"text": evidence_summary(selected, bundle=self.query.bundle)}
+                    update={
+                        "text": evidence_summary(
+                            selected, bundle=self.query.bundle, locale=self.locale
+                        )
+                    }
                 )
             follow_ups: list[dict[str, str]] = []
             seen_chips: set[str] = set()
@@ -212,6 +279,8 @@ class SemanticTools:
                 "evidence": [self.evidence[key] for key in dict.fromkeys(value.evidence_ids)],
                 "releaseDigest": self.query.bundle.digest,
                 "followUps": follow_ups,
+                "views": [view.model_dump(by_alias=True) for view in value.views],
+                "originalQuestion": self.user_message,
             }
             return {"accepted": True, "releaseDigest": self.query.bundle.digest}
         if (
@@ -237,7 +306,140 @@ class SemanticTools:
         self.evidence[key] = record
         from semaloom.app.chat.presentation import without_physical_metadata
 
+        if name == "find_objects":
+            request = ObjectSearchRequest.model_validate(arguments)
+            if _requires_object_scope(request, payload):
+                self.object_scope_required = True
+                self.object_scope_type = request.object_type
+                self._object_scope_pending()
+                # Keep raw records in the server-side evidence envelope only. The
+                # model receives the count and next step, never business IDs it
+                # could accidentally repeat in human-facing prose.
+                return {
+                    "objectType": payload.get("objectType", request.object_type),
+                    "objectCount": len(payload.get("objects") or []),
+                    "hasMore": bool(payload.get("hasMore")),
+                    "requiresSelection": True,
+                    "drilldownRequired": True,
+                    "message": text(self.locale, "objectScope.modelMessage"),
+                    "releaseDigest": payload["releaseDigest"],
+                    "evidenceId": key,
+                }
         return cast(dict[str, Any], without_physical_metadata({**payload, "evidenceId": key}))
+
+    def _object_scope_pending(self) -> dict[str, Any]:
+        if (
+            self.pending is not None
+            and self.pending.get("query_state", {}).get("mode") == "object_scope"
+        ):
+            return self.pending
+        obj = next(
+            (item for item in self.query.bundle.object_types if item.id == self.object_scope_type),
+            None,
+        )
+        object_label = (obj.label or obj.id) if obj is not None else "Object"
+        property_labels = self._object_scope_property_labels()
+        properties = (
+            "、".join(property_labels) if self.locale == "zh-CN" else ", ".join(property_labels)
+        )
+        if not properties:
+            properties = text(self.locale, "objectScope.propertiesFallback")
+        question = ChoiceQuestion(
+            question_id="q-object-scope-" + uuid.uuid4().hex,
+            revision=1,
+            slot="objectScope",
+            prompt=text(self.locale, "objectScope.prompt", object=object_label),
+            reason=text(self.locale, "objectScope.reason", properties=properties),
+            options=(
+                ChoiceOption(
+                    id="opt_object_scope_input",
+                    label=text(self.locale, "objectScope.option"),
+                    explanation=text(
+                        self.locale,
+                        "objectScope.optionExplanation",
+                        properties=properties,
+                    ),
+                    choice=SemanticChoice(kind="OTHER", id="object_scope"),
+                ),
+                abort_option(
+                    label=text(self.locale, "objectScope.abort"),
+                    explanation=text(self.locale, "objectScope.abortExplanation"),
+                ),
+            ),
+        )
+        self.pending = {
+            "status": "NEEDS_INPUT",
+            "waiting": True,
+            "question": question.model_dump(mode="json", by_alias=True),
+            "query_state": {"mode": "object_scope"},
+            "originalQuestion": self.user_message,
+            "releaseDigest": self.query.bundle.digest,
+        }
+        return self.pending
+
+    def _object_scope_property_labels(self) -> list[str]:
+        obj = next(
+            (item for item in self.query.bundle.object_types if item.id == self.object_scope_type),
+            None,
+        )
+        if obj is None:
+            return []
+        identity_fields = set(obj.identity_keys)
+        for link in self.query.bundle.links:
+            if link.source == obj.id:
+                identity_fields.update(pair.source for pair in link.identity)
+        year_property = obj.population.year_property if obj.population is not None else None
+        candidates = [prop for prop in obj.properties if prop.id not in identity_fields]
+        candidates.sort(
+            key=lambda prop: (
+                0 if prop.id == year_property else 1,
+                0 if prop.values else 1,
+                0 if prop.label else 1,
+                prop.id,
+            )
+        )
+        return [prop.label or prop.id for prop in candidates[:4]]
+
+    def _without_unconfirmed_defaults(self, query: SemanticQuery) -> SemanticQuery:
+        intent = self.intent
+        previous = self.confirmed_query
+        same_metrics = previous is not None and {ref.id for ref in previous.metrics} == {
+            ref.id for ref in query.metrics
+        }
+        if not intent.years and not intent.trend and not intent.multiple_years:
+            for ref in query.metrics:
+                metric = next((m for m in self.query.bundle.metrics if m.id == ref.id), None)
+                if (
+                    metric
+                    and metric.population
+                    and field_constrained(query.filters, metric.population.year_property)
+                ):
+                    from semaloom.core.semantic_query import equality_value
+
+                    field = metric.population.year_property
+                    if (
+                        not same_metrics
+                        or previous is None
+                        or equality_value(previous.filters, field)
+                        != equality_value(query.filters, field)
+                        or equality_value(query.filters, field) is None
+                    ):
+                        raise ValueError("UNCONFIRMED_YEAR_OMIT_FILTER_TO_ASK_USER")
+        if intent.operation is None and not intent.comparison:
+            confirmed = (
+                {ref.id: ref.aggregation for ref in previous.metrics}
+                if same_metrics and previous
+                else {}
+            )
+            return query.model_copy(
+                update={
+                    "metrics": tuple(
+                        ref.model_copy(update={"aggregation": confirmed.get(ref.id)})
+                        for ref in query.metrics
+                    )
+                }
+            )
+        return query
 
     def _execute(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         discovery = SemanticDiscovery(self.query.bundle)
@@ -268,14 +470,20 @@ class SemanticTools:
             from semaloom.app.chat.choices import prepare_turn, query_from_intent
             from semaloom.core.semantic_query import SemanticQuery
 
-            if set(args) - {"question", "query"}:
+            if set(args) - {"question", "query", "view"}:
                 raise ValueError("INVALID_ARGUMENTS")
             message = self.user_message or str(args.get("question") or "")
+            view_selection = ViewSelection(evidence_id="e1", view=args.get("view", "auto"))
             query = None
             if args.get("query"):
                 query = SemanticQuery.model_validate(args["query"])
                 if query.decisions:
                     raise ValueError("SERVER_OWNED_DECISIONS")
+                _validate_query_shape(self.query.bundle, query)
+                # Model-supplied defaults are not user confirmation. Preserve explicit
+                # filters, but do not allow an invented year or aggregate to skip cards.
+                if self.user_message:
+                    query = self._without_unconfirmed_defaults(query)
                 if (
                     query.comparison
                     and query.comparison.subject
@@ -290,7 +498,8 @@ class SemanticTools:
                     self._identity(metric.object_type, query.comparison.subject.identity)
             elif self.user_message and not self.intent.candidates:
                 query = query_from_intent(self.intent, self.query.bundle)
-            payload = prepare_turn(self.query, self.actor, message, query)
+            payload = prepare_turn(self.query, self.actor, message, query, locale=self.locale)
+            payload["question"] = localize_question(payload.get("question"), self.locale)
             if payload.get("answerReady"):
                 kind = "unsupported" if payload.get("status") == "UNSUPPORTED" else "answer"
                 self.answer = {
@@ -315,12 +524,18 @@ class SemanticTools:
                         }
                     ],
                     "releaseDigest": self.query.bundle.digest,
-                    "confidence": payload.get("confidence"),
                     "followUps": payload.get("followUps") or [],
                     "assumptions": payload.get("assumptions") or [],
                     "query": payload.get("query"),
+                    "views": [view_selection.model_dump(by_alias=True)],
+                    "originalQuestion": message,
                 }
             if payload.get("waiting"):
+                payload["query_state"] = {
+                    "query": payload.get("query"),
+                    "view": view_selection.view,
+                    "locale": self.locale,
+                }
                 self.pending = payload
             return payload
         if name == "submit_choice":
@@ -453,8 +668,48 @@ class SemanticTools:
             raise ValueError("RESOLVE_IDENTITY_WITH_FIND_OBJECTS_FIRST")
 
 
+def _validate_query_shape(bundle: Any, query: SemanticQuery) -> None:
+    """Reject model-only shape mistakes before a user choice card is issued.
+
+    A Link is a traversal declaration, not a groupable property. Keeping this
+    check at the chat gateway gives the model a repairable, typed tool error and
+    keeps the compiler/runtime responsible for the actual execution semantics.
+    """
+    property_ids = {prop.id for obj in bundle.object_types for prop in obj.properties}
+    property_ids.update(key for obj in bundle.object_types for key in obj.identity_keys)
+    qualified_property_ids = {
+        f"{obj.id}.{prop.id}" for obj in bundle.object_types for prop in obj.properties
+    }
+    qualified_property_ids.update(
+        f"{obj.id}.{key}" for obj in bundle.object_types for key in obj.identity_keys
+    )
+    link_ids = {link.id for link in bundle.links}
+    for item in query.group_by:
+        if item.id in link_ids:
+            raise ValueError("GROUP_BY_REQUIRES_PROPERTY_NOT_LINK_ID")
+        if item.id not in property_ids and item.id not in qualified_property_ids:
+            raise ValueError("INVALID_GROUP_BY_FIELD")
+
+
 def _identity_tuple(identity: dict[str, str]) -> tuple[tuple[str, str], ...]:
     return tuple(sorted(identity.items()))
+
+
+def _requires_object_scope(request: ObjectSearchRequest, result: dict[str, Any]) -> bool:
+    """Return whether an object search is still a discovery set.
+
+    A point lookup is safe to render after an exact identity or a sufficiently
+    selective business filter.  Empty filters, a provider page, or multiple
+    matches are a scope-selection step and must go back to the user as a card.
+    """
+
+    objects = result.get("objects") or []
+    return (
+        not request.filters
+        or bool(result.get("hasMore"))
+        or bool(result.get("requiresSelection"))
+        or len(objects) > 1
+    )
 
 
 SYSTEM_PROMPT = Path(__file__).with_name("system_prompt.txt").read_text()

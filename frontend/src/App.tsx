@@ -18,6 +18,7 @@ import { draftSaveLabel, gateErrorMessage } from "./labels";
 import { SourcePage } from "./SourcePage";
 import { StudioDialog } from "./StudioDialog";
 import { IconApi, IconChat, IconEntity, IconGraph, IconSource } from "./icons";
+import { useI18n } from "./i18n";
 import type { DraftDocument, Edge, GraphMeta, Mapping, Node, Source, View } from "./types";
 
 type DialogState =
@@ -25,14 +26,6 @@ type DialogState =
   | { mode: "link"; id: string }
   | { mode: "create" }
   | null;
-
-const viewNames: Record<View, { title: string; description: string }> = {
-  chat: { title: "业务问答", description: "用业务语言提问，查看规则结果与来源依据。" },
-  graph: { title: "图谱", description: "看关系和试读映射。点实体做主要维护，细节到「实体」菜单。" },
-  objects: { title: "实体", description: "维护业务对象、属性和来源字段对应。金额是带单位的属性；问答里再选合计或平均。" },
-  sources: { title: "数据源", description: "配置物理数据库连接，表结构自动读取。" },
-  apis: { title: "API 接口", description: "维护微服务与外部 API 契约，支持线上导入 OpenAPI / Swagger 与鉴权配置。" },
-};
 
 function readLocation(): { view: View; entity: string | null } {
   const params = new URLSearchParams(window.location.search);
@@ -53,6 +46,14 @@ function writeLocation(view: View, entity: string | null, history: "push" | "rep
 }
 
 export default function App() {
+  const { locale, setLocale, t } = useI18n();
+  const viewNames = useMemo<Record<View, { title: string; description: string }>>(() => ({
+    chat: { title: t("view.chat.title"), description: t("view.chat.description") },
+    graph: { title: t("view.graph.title"), description: t("view.graph.description") },
+    objects: { title: t("view.objects.title"), description: t("view.objects.description") },
+    sources: { title: t("view.sources.title"), description: t("view.sources.description") },
+    apis: { title: t("view.apis.title"), description: t("view.apis.description") },
+  }), [t, locale]);
   const initial = useMemo(() => readLocation(), []);
   const [view, setView] = useState<View>(initial.view);
   const [meta, setMeta] = useState<GraphMeta | null>(null);
@@ -295,22 +296,22 @@ export default function App() {
 
   return (
     <div className="shell">
-      <nav aria-label="工作台导航">
+      <nav aria-label="SemaLoom Studio">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">SL</span>
           <div><strong>SemaLoom</strong><small>Semantic Studio</small></div>
         </div>
         <div className="nav-group">
-          <NavButton icon={<IconGraph size={18} />} label="图谱" active={view === "graph"} onClick={() => selectView("graph")} />
-          <NavButton icon={<IconEntity size={18} />} label="实体" active={view === "objects"} onClick={() => selectView("objects")} />
-          <NavButton icon={<IconSource size={18} />} label="数据源" active={view === "sources"} onClick={() => selectView("sources")} />
-          <NavButton icon={<IconApi size={18} />} label="API 接口" active={view === "apis"} onClick={() => selectView("apis")} />
-          <NavButton icon={<IconChat size={18} />} label="问答" active={view === "chat"} onClick={() => selectView("chat")} />
+          <NavButton icon={<IconGraph size={18} />} label={t("nav.graph")} active={view === "graph"} onClick={() => selectView("graph")} />
+          <NavButton icon={<IconEntity size={18} />} label={t("nav.objects")} active={view === "objects"} onClick={() => selectView("objects")} />
+          <NavButton icon={<IconSource size={18} />} label={t("nav.sources")} active={view === "sources"} onClick={() => selectView("sources")} />
+          <NavButton icon={<IconApi size={18} />} label={t("nav.apis")} active={view === "apis"} onClick={() => selectView("apis")} />
+          <NavButton icon={<IconChat size={18} />} label={t("nav.chat")} active={view === "chat"} onClick={() => selectView("chat")} />
         </div>
         <div className="nav-spacer" />
         <div className="environment">
           <span className="status-dot" aria-hidden="true" />
-          <span><strong>本地开发环境</strong><small>业务样本请查看数据源</small></span>
+          <span><strong>{t("environment.local")}</strong><small>{t("environment.samples")}</small></span>
         </div>
       </nav>
       <main>
@@ -320,10 +321,17 @@ export default function App() {
             <small>{viewNames[view].description}</small>
           </div>
           <div className="header-actions">
+            <label className="locale-switcher">
+              <span className="sr-only">{t("language.label")}</span>
+              <select value={locale} onChange={(event) => setLocale(event.target.value as "zh-CN" | "en")}>
+                <option value="zh-CN">{t("language.zh")}</option>
+                <option value="en">{t("language.en")}</option>
+              </select>
+            </label>
             {view === "chat" ? null : (
               <label className="search-field">
-                <span className="sr-only">搜索当前视图</span>
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称或 ID" />
+                <span className="sr-only">{t("common.search")}</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("common.search")} />
               </label>
             )}
             {status || (sourceDirty && view === "sources") ? (
@@ -346,9 +354,9 @@ export default function App() {
           <div className="error" role="alert">
             <span>操作未完成：{error}</span>
             {unsaved ? (
-              <button onClick={() => setError(null)}>关闭</button>
+              <button onClick={() => setError(null)}>{t("common.close")}</button>
             ) : (
-              <button onClick={() => void loadInitialState()}>重新载入</button>
+              <button onClick={() => void loadInitialState()}>{t("common.reload")}</button>
             )}
           </div>
         ) : null}

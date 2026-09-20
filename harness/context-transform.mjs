@@ -58,7 +58,7 @@ export function transformContext(messages, options = {}) {
       if (text.length > pruneToolResultLength) {
         return {
           ...m,
-          content: [{ type: 'text', text: '[历史语义工具结果已核对并归档，业务结论见下方回答]' }],
+          content: [{ type: 'text', text: '[Prior semantic tool results were verified and archived; the business conclusion follows below.]' }],
         };
       }
     }
@@ -107,7 +107,7 @@ export function transformContext(messages, options = {}) {
       }
       if (q) {
         const shortAns = a.length > 200 ? a.slice(0, 190) + '...' : a;
-        summaryParts.push(`- 问: ${q}\n  答: ${shortAns || '已按发布口径完成计算核实'}`);
+        summaryParts.push(`- Question: ${q}\n  Answer: ${shortAns || 'Calculated and verified from the published semantic definition.'}`);
       }
     }
   }

@@ -59,7 +59,7 @@ test('transformContext prunes bulky historical toolResult while preserving activ
   // Turn 1 tool result should be pruned
   assert.match(
     extractContentText(transformed[2].content),
-    /历史语义工具结果已核对并归档/
+    /Prior semantic tool results were verified/
   );
   // Active turn tool result must NOT be pruned
   assert.match(

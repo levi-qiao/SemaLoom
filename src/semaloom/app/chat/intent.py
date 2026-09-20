@@ -114,7 +114,11 @@ class TurnIntent:
         period_over_period = (not month_over_month) and bool(
             re.search(r"环比|同比|比上年|比去年|year.?over.?year|period.?over.?period", text)
         )
-        slots = dimension_slots(bundle)
+        # Dictionary values are scoped to the metric's object graph when the
+        # metric is known.  Matching every dictionary in a multi-domain bundle
+        # makes short aliases such as ``高`` leak out of unrelated prose (for
+        # example, the ``高`` in ``从高到低`` becoming a delivery-risk filter).
+        slots = _slots_for_metrics(bundle, explicit or frozenset(ambiguous))
         value_hits = _match_dimension_values(text, slots)
         mentioned = _mentioned_dimensions(text, slots)
         valued_fields = {hit.field for hit in value_hits}
@@ -310,6 +314,21 @@ def slots_for_metric(bundle: CompiledBundle, metric_id: str) -> tuple[DimensionS
     )
 
 
+def _slots_for_metrics(
+    bundle: CompiledBundle, metric_ids: frozenset[str]
+) -> tuple[DimensionSlot, ...]:
+    if not metric_ids:
+        return dimension_slots(bundle)
+    slots: list[DimensionSlot] = []
+    seen: set[str] = set()
+    for metric_id in sorted(metric_ids):
+        for slot in slots_for_metric(bundle, metric_id):
+            if slot.field not in seen:
+                seen.add(slot.field)
+                slots.append(slot)
+    return tuple(slots)
+
+
 def _property_terms(prop: EmbeddedProperty) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
@@ -346,12 +365,37 @@ def _match_dimension_values(
                 )
     for term, hit in sorted(candidates, key=lambda row: len(row[0]), reverse=True):
         for match in re.finditer(re.escape(term), text):
+            # One-character dictionary aliases are useful when the user names
+            # the property (``交货风险高``), but far too ambiguous on their own.
+            # Require a nearby property label/alias so ordinary language such
+            # as ``从高到低排名`` cannot become a hidden filter.
+            if len(term) <= 1 and not _has_value_context(
+                text, match.start(), match.end(), hit, slots
+            ):
+                continue
             if not any(start <= match.start() and end >= match.end() for start, end, _ in hits):
                 hits.append((match.start(), match.end(), hit))
     unique: dict[str, DimensionValueHit] = {}
     for _, _, hit in hits:
         unique[hit.field] = hit
     return tuple(unique.values())
+
+
+def _has_value_context(
+    text: str,
+    start: int,
+    end: int,
+    hit: DimensionValueHit,
+    slots: tuple[DimensionSlot, ...],
+) -> bool:
+    slot = next((item for item in slots if item.field == hit.field), None)
+    if slot is None:
+        return False
+    property_terms = {term for term in slot.terms if len(term) >= 2}
+    if not property_terms:
+        return False
+    window = text[max(0, start - 12) : min(len(text), end + 12)]
+    return any(term in window for term in property_terms)
 
 
 def _mentioned_dimensions(text: str, slots: tuple[DimensionSlot, ...]) -> list[DimensionSlot]:

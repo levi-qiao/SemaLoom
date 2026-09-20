@@ -23,8 +23,6 @@
   aliases:
     - 采购数量
     - 订货量
-    - 订单总数
-    - 订货总数
     - 采购件数
 
 - apiVersion: semaloom/v0.1

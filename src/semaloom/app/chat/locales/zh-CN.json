@@ -1,0 +1,12 @@
+{
+  "clarification.reason": "补充影响答案的业务条件后继续。",
+  "objectScope.prompt": "请先缩小“{object}”的查询范围",
+  "objectScope.reason": "当前查询匹配到多条记录。请先补充一个本体字段：{properties}。",
+  "objectScope.option": "补充筛选条件",
+  "objectScope.optionExplanation": "可填写 {properties} 等业务条件。",
+  "objectScope.abort": "暂不查询",
+  "objectScope.abortExplanation": "停止本次查询，不展示未筛选的对象记录",
+  "objectScope.modelMessage": "请先补充本体中声明的业务筛选字段，再读取对象记录。",
+  "objectScope.propertiesFallback": "业务范围",
+  "answer.completed": "已按发布口径完成计算。"
+}

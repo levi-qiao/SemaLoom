@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from semaloom.app.chat.choices import try_direct_turn
+from semaloom.app.chat.i18n import localize_question, message_locale, text
 from semaloom.app.chat.presentation import project_browser_answer, visible_answer
 from semaloom.app.chat.store import ChatStore
 from semaloom.app.chat.tools import SYSTEM_PROMPT, SemanticTools
@@ -35,6 +36,7 @@ class ChatService:
             "apiKey": str(config["apiKey"]),
             "model": str(config.get("model", "deepseek-v4.1-flash")),
         }
+        self.decision = self._decision_config()
         source_worker = Path(__file__).resolve().parents[4] / "harness" / "worker.mjs"
         default_worker = (
             source_worker
@@ -47,8 +49,30 @@ class ChatService:
         self.busy: set[str] = set()
         self.processes: set[asyncio.subprocess.Process] = set()
 
-    def status(self) -> dict[str, Any]:
+    @staticmethod
+    def _decision_config() -> dict[str, Any] | None:
+        api_key = os.getenv("TYPESAFE_API_KEY", "").strip()
+        if not api_key:
+            return None
+        mode = os.getenv("SEMALOOM_JEV_MODE", "shadow").strip().lower()
+        if mode not in {"shadow", "enforce"}:
+            raise ValueError("SEMALOOM_JEV_MODE must be shadow or enforce")
+        confidence = float(os.getenv("SEMALOOM_JEV_MIN_CONFIDENCE", "0.85"))
+        if not 0 <= confidence <= 1:
+            raise ValueError("SEMALOOM_JEV_MIN_CONFIDENCE must be between 0 and 1")
+        base_url = os.getenv("TYPESAFE_BASE_URL", "").strip() or None
+        if base_url is not None and not base_url.startswith("https://"):
+            raise ValueError("TypeSafe provider requires HTTPS")
         return {
+            "apiKey": api_key,
+            "baseURL": base_url,
+            "model": os.getenv("TYPESAFE_DEFAULT_MODEL", "jev-latest").strip() or "jev-latest",
+            "minConfidence": confidence,
+            "mode": mode,
+        }
+
+    def status(self) -> dict[str, Any]:
+        status = {
             "enabled": True,
             "ready": bool(
                 self.node
@@ -59,6 +83,13 @@ class ChatService:
             "provider": "百炼 Token Plan",
             "limits": {"turns": 12, "toolCalls": 20, "seconds": 180},
         }
+        if self.decision:
+            status.update(
+                decisionProvider="TypeSafe Jev",
+                decisionModel=self.decision["model"],
+                decisionMode=self.decision["mode"],
+            )
+        return status
 
     async def close(self) -> None:
         for process in tuple(self.processes):
@@ -73,7 +104,9 @@ class ChatService:
         query: QueryService,
         actor: RequestActor,
         guard: Callable[[], RequestActor | None],
+        locale: str = "zh-CN",
     ) -> AsyncIterator[str]:
+        locale = message_locale(message, locale)
         identity = str(row["id"])
         if identity in self.busy or len(self.busy) >= 4:
             yield event("error", code="CHAT_BUSY")
@@ -82,8 +115,13 @@ class ChatService:
         process = None
         try:
             guard()
-            direct = await asyncio.to_thread(try_direct_turn, query, actor, message)
+            direct = (
+                None
+                if self.decision
+                else await asyncio.to_thread(try_direct_turn, query, actor, message, locale)
+            )
             if direct and (direct.get("answerReady") or direct.get("waiting")):
+                direct["question"] = localize_question(direct.get("question"), locale)
                 yield event(
                     "start",
                     conversationId=identity,
@@ -96,9 +134,10 @@ class ChatService:
                         actor,
                         row,
                         direct.get("question"),
-                        direct.get("query_state")
-                        or {
+                        {
+                            **(direct.get("query_state") or {}),
                             "query": direct.get("query"),
+                            "locale": locale,
                             **(
                                 {"mode": direct["mode"], "claimId": direct.get("claimId")}
                                 if direct.get("mode")
@@ -118,9 +157,11 @@ class ChatService:
                     return
                 answer = project_browser_answer(
                     {
-                        "kind": "answer",
+                        "kind": "unsupported"
+                        if direct.get("status") == "UNSUPPORTED"
+                        else "answer",
                         "textOrigin": "ENGINE",
-                        "text": direct.get("text") or "已按发布口径完成计算。",
+                        "text": direct.get("text") or text(locale, "answer.completed"),
                         "evidence": [
                             {
                                 "id": "e1",
@@ -129,18 +170,20 @@ class ChatService:
                             }
                         ],
                         "releaseDigest": query.bundle.digest,
-                        "confidence": direct.get("confidence"),
                         "followUps": direct.get("followUps") or [],
                         "assumptions": direct.get("assumptions") or [],
                         "query": direct.get("query"),
+                        "originalQuestion": message,
                     },
                     query.bundle,
+                    locale,
                 )
                 refreshed = {
                     **row,
                     "query_state": {
                         "query": direct.get("query"),
                         "originalQuestion": message,
+                        "locale": locale,
                     },
                 }
                 new_turn = {"question": message, "answer": answer}
@@ -152,7 +195,10 @@ class ChatService:
                 assistant_msg = {
                     "role": "assistant",
                     "content": [
-                        {"type": "text", "text": answer.get("text") or "已按发布口径完成计算。"}
+                        {
+                            "type": "text",
+                            "text": answer.get("text") or text(locale, "answer.completed"),
+                        }
                     ],
                     "timestamp": int(time.time() * 1000),
                 }
@@ -174,7 +220,14 @@ class ChatService:
                 yield event("answer", answer=visible_answer(answer, current_actor))
                 yield event("done")
                 return
-            gateway = SemanticTools(query, actor, user_message=message)
+            previous_query = (row.get("query_state") or {}).get("query")
+            gateway = SemanticTools(
+                query,
+                actor,
+                user_message=message,
+                confirmed_query=previous_query,
+                locale=locale,
+            )
             guard()
             process = await asyncio.create_subprocess_exec(
                 self.node or "node",
@@ -201,6 +254,9 @@ class ChatService:
                 "history": row.get("history") or [],
                 "message": message,
                 "releaseDigest": query.bundle.digest,
+                "locale": locale,
+                "semanticContext": json.loads(gateway.overview()),
+                "decision": self.decision,
             }
             process.stdin.write((json.dumps(payload) + "\n").encode())
             await process.stdin.drain()
@@ -271,7 +327,11 @@ class ChatService:
                                 actor,
                                 row,
                                 gateway.pending.get("question"),
-                                {"query": gateway.pending.get("query")},
+                                {
+                                    **(gateway.pending.get("query_state") or {}),
+                                    "query": gateway.pending.get("query"),
+                                    "locale": locale,
+                                },
                                 message,
                             )
                             yield event(
@@ -286,8 +346,19 @@ class ChatService:
                         if gateway.answer is None:
                             raise ValueError("ANSWER_NOT_VALIDATED")
                         guard()
-                        browser_answer = project_browser_answer(gateway.answer, query.bundle)
+                        browser_answer = project_browser_answer(
+                            gateway.answer, query.bundle, locale
+                        )
                         new_turn = {"question": message, "answer": browser_answer}
+                        if browser_answer.get("query"):
+                            row = {
+                                **row,
+                                "query_state": {
+                                    "query": browser_answer["query"],
+                                    "originalQuestion": message,
+                                    "locale": locale,
+                                },
+                            }
                         saved_history = item.get("history")
                         if not isinstance(saved_history, list):
                             user_msg = {
@@ -301,7 +372,7 @@ class ChatService:
                                     {
                                         "type": "text",
                                         "text": browser_answer.get("text")
-                                        or "已按发布口径完成计算。",
+                                        or text(locale, "answer.completed"),
                                     }
                                 ],
                                 "timestamp": int(time.time() * 1000),

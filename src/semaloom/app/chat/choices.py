@@ -11,7 +11,7 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
-from semaloom.app.chat.confidence import score_answer
+from semaloom.app.chat.i18n import localize_question
 from semaloom.app.chat.intent import TurnIntent, slots_for_metric
 from semaloom.app.chat.presentation import project_browser_answer
 from semaloom.app.chat.store import ChatStore
@@ -125,9 +125,9 @@ def query_from_intent(intent: TurnIntent, bundle: CompiledBundle) -> SemanticQue
             field=year_field, op="IN", value=TypedValue(value_type="INTEGER", value=intent.years)
         )
     aggregation = _AGG.get(intent.operation) if intent.operation else None
-    if aggregation is None and (intent.comparison or intent.period_over_period) and metrics:
-        first = next((item for item in bundle.metrics if item.id == metrics[0].id), None)
-        aggregation = default_aggregation(first.additivity or "FULL") if first else "SUM"
+    if aggregation is None and intent.comparison and metrics:
+        metric = next((item for item in bundle.metrics if item.id == metrics[0].id), None)
+        aggregation = default_aggregation(metric.additivity or "FULL") if metric else None
     metrics = tuple(item.model_copy(update={"aggregation": aggregation}) for item in metrics)
     comparison = None
     if intent.period_over_period and len(metrics) == 1:
@@ -271,17 +271,16 @@ def _years_for(service: QueryService, metric_id: str, tenant: str) -> list[int]:
     return [int(year) for year in years]
 
 
-def _apply_defaults(
+def _complete_explicit_scope(
     query: SemanticQuery,
     intent: TurnIntent,
     bundle: CompiledBundle,
     service: QueryService,
     actor: RequestActor,
 ) -> tuple[SemanticQuery, list[dict[str, str]]]:
-    """Fill only Chat-layer defaults. Engine prepare still rejects incomplete queries."""
+    """Resolve explicit scope; leave missing business choices to engine prepare."""
     updates: dict[str, Any] = {}
     assumptions: list[dict[str, str]] = []
-    decided = {item.choice.kind for item in query.decisions}
     if query.group_by and not (
         intent.breakdown
         or intent.group_label
@@ -323,80 +322,44 @@ def _apply_defaults(
                     value=TypedValue(value_type="INTEGER", value=tuple(years)),
                 ),
             )
-    if (
-        year_field
-        and intent.year is None
-        and "YEAR" not in decided
-        and query.metrics
-        and not intent.multiple_years
-        and not intent.trend
-    ):
-        existing_year = equality_value(query.filters, year_field)
-        if existing_year is None:
-            years = _years_for(service, query.metrics[0].id, actor.tenant)
-            if years:
-                latest = max(years)
-                updates["filters"] = _append_filter(query.filters, _year_filter(year_field, latest))
-                assumptions.append(
-                    {"slot": "year", "id": str(latest), "reason": "LATEST_AVAILABLE_YEAR"}
-                )
-        else:
-            assumptions.append(
-                {"slot": "year", "id": str(existing_year), "reason": "LATEST_AVAILABLE_YEAR"}
-            )
-    if query.metrics and intent.operation is None and "AGGREGATION" not in decided:
-        if any(item.aggregation is None for item in query.metrics):
-            kinds = []
-            for item in query.metrics:
-                metric = next((row for row in bundle.metrics if row.id == item.id), None)
-                kinds.append(metric.additivity or "FULL" if metric else "FULL")
-            default = default_aggregation(kinds[0]) if len(set(kinds)) == 1 else None
-            if default:
-                updates["metrics"] = tuple(
-                    item.model_copy(update={"aggregation": item.aggregation or default})
-                    for item in query.metrics
-                )
-                assumptions.append(
-                    {"slot": "aggregation", "id": default, "reason": "ADDITIVE_MEASURE_DEFAULT"}
-                )
     return query.model_copy(update=updates) if updates else query, assumptions
 
 
-def _follow_ups(
-    bundle: CompiledBundle,
-    query: SemanticQuery,
-    assumptions: list[dict[str, str]],
-    years: list[int],
-) -> list[dict[str, str]]:
+def _follow_ups(bundle: CompiledBundle, query: SemanticQuery) -> list[dict[str, str]]:
+    if not query.metrics:
+        return []
     labels = {metric.id: metric.label or metric.id for metric in bundle.metrics}
-    name = labels.get(query.metrics[0].id, query.metrics[0].id) if query.metrics else ""
-    assumed_year = next((item["id"] for item in assumptions if item["slot"] == "year"), None)
+    name = "、".join(labels.get(ref.id, ref.id) for ref in query.metrics)
+    year_field = _year_property(bundle, {ref.id for ref in query.metrics})
+    year = equality_value(query.filters, year_field) if year_field else None
+    # Follow-ups are new questions: only suggest a scope we can preserve exactly.
+    if query.filters is not None and year is None:
+        return []
+    if isinstance(query.filters, FilterGroup) and len(query.filters.args) > 1:
+        return []
+    year_text = f"{year}年" if year is not None else ""
+    operations = {ref.aggregation for ref in query.metrics}
+    operation = (
+        {
+            "SUM": "合计",
+            "AVG": "平均值",
+            "MIN": "最小值",
+            "MAX": "最大值",
+            "COUNT": "有效观测数量",
+        }.get(next(iter(operations)) or "", "")
+        if len(operations) == 1
+        else ""
+    )
     items: list[dict[str, str]] = []
-    if assumed_year:
-        for year in sorted(years, reverse=True):
-            if str(year) != assumed_year:
-                items.append({"label": f"{year} 年", "message": f"{name} {year}年合计"})
-        items.append({"label": "看环比", "message": f"{name} {assumed_year}年环比"})
-    if query.metrics:
-        for slot in slots_for_metric(bundle, query.metrics[0].id)[:2]:
+    for slot in slots_for_metric(bundle, query.metrics[0].id)[:2]:
+        if not query.group_by or query.group_by[0].id != slot.field:
             label = slot.prop.label or slot.prop.id
-            if not query.group_by or query.group_by[0].id != slot.field:
-                items.append({"label": f"按{label}看", "message": f"{name}按{label}合计"})
-    if any(item["slot"] == "aggregation" for item in assumptions):
-        year_bit = f"{assumed_year}年" if assumed_year else ""
-        items.append(
-            {
-                "label": "看平均值",
-                "message": f"{name} {year_bit}平均值".replace("  ", " "),
-            }
-        )
+            items.append(
+                {"label": f"按{label}看", "message": f"{year_text}{name}按{label}{operation}"}
+            )
     if not query.group_by:
-        year_bit = f"{assumed_year}年" if assumed_year else ""
         items.append(
-            {
-                "label": "看各对象明细",
-                "message": f"{name} {year_bit}按对象列出明细".replace("  ", " "),
-            }
+            {"label": "看各对象明细", "message": f"{year_text}{name}按对象列出明细{operation}"}
         )
     return items[:3]
 
@@ -408,22 +371,19 @@ def _completed_payload(
     semantic: SemanticQuery,
     result: QueryResult,
     assumptions: list[dict[str, str]],
+    locale: str = "zh-CN",
 ) -> dict[str, Any]:
-    intent = TurnIntent.read(message, service.bundle)
-    confidence = score_answer(service.bundle, intent, semantic, result, assumptions)
-    years = _years_for(service, semantic.metrics[0].id, actor.tenant) if semantic.metrics else []
     return {
         "status": "READY",
         "answerReady": True,
         "textOrigin": "ENGINE",
-        "text": semantic_summary(service.bundle, semantic, result, assumptions, confidence),
+        "text": semantic_summary(service.bundle, semantic, result, assumptions, locale),
         "result": result.model_dump(mode="json", by_alias=True),
         "query": semantic.model_dump(mode="json", by_alias=True),
         "originalQuestion": message,
         "releaseDigest": service.bundle.digest,
         "assumptions": assumptions,
-        "confidence": confidence,
-        "followUps": _follow_ups(service.bundle, semantic, assumptions, years),
+        "followUps": _follow_ups(service.bundle, semantic),
     }
 
 
@@ -453,7 +413,7 @@ def _unique_named_option(message: str, question: ChoiceQuestion, kind: str) -> C
 
 
 def try_direct_turn(
-    service: QueryService, actor: RequestActor, message: str
+    service: QueryService, actor: RequestActor, message: str, locale: str = "zh-CN"
 ) -> dict[str, Any] | None:
     """Answer or ask from ontology intent without a model when the question is structured."""
     text = message.strip()
@@ -462,6 +422,13 @@ def try_direct_turn(
     intent = TurnIntent.read(text, service.bundle)
     if intent.claim_ids or intent.claim_candidates:
         return prepare_claim_turn(service, actor, text)
+    if re.search(
+        r"排名|排行|排序|前[0-9一二两三四五六七八九十]+|从高到低|从低到高|最高|最低",
+        text,
+    ):
+        # Ranking needs a typed orderBy/limit from the model, even when a known
+        # dictionary dimension makes the rest of the question look structured.
+        return None
     structured = bool(
         intent.period_over_period
         or intent.month_over_month
@@ -472,18 +439,22 @@ def try_direct_turn(
         or intent.multiple_years
     )
     if structured and (intent.metric_ids or intent.candidates):
-        return prepare_turn(service, actor, text)
+        return prepare_turn(service, actor, text, locale=locale)
     if _CLAIM_LANGUAGE.search(text) and not (intent.metric_ids or intent.candidates):
         return prepare_claim_turn(service, actor, text)
     if _COMPLEX_QUERY.search(text):
         return None
     if not (intent.metric_ids or intent.candidates):
         return None
-    return prepare_turn(service, actor, text)
+    return prepare_turn(service, actor, text, locale=locale)
 
 
 def prepare_turn(
-    service: QueryService, actor: RequestActor, message: str, query: SemanticQuery | None = None
+    service: QueryService,
+    actor: RequestActor,
+    message: str,
+    query: SemanticQuery | None = None,
+    locale: str = "zh-CN",
 ) -> dict[str, Any]:
     intent = TurnIntent.read(message, service.bundle)
     semantic = query or query_from_intent(intent, service.bundle)
@@ -499,7 +470,9 @@ def prepare_turn(
                 ChoiceOption(
                     id="opt_metric_" + metric_id.replace(".", "_"),
                     label=metric.label or metric_id,
-                    explanation=metric.description or metric_id,
+                    # Internal semantic ids remain in the submitted choice,
+                    # while the card shows only ontology-authored business copy.
+                    explanation=metric.description or metric.label or metric_id,
                     choice=SemanticChoice(kind="METRIC", id=metric_id),
                 )
             )
@@ -559,7 +532,7 @@ def prepare_turn(
             "kind": "unsupported",
             "answerReady": True,
             "textOrigin": "ENGINE",
-            "text": capability_message("TIME_GRAIN_UNSUPPORTED"),
+            "text": capability_message("TIME_GRAIN_UNSUPPORTED", locale),
             "errorCode": "TIME_GRAIN_UNSUPPORTED",
             "query": semantic.model_dump(mode="json", by_alias=True),
             "originalQuestion": message,
@@ -580,7 +553,7 @@ def prepare_turn(
                 "kind": "unsupported",
                 "answerReady": True,
                 "textOrigin": "ENGINE",
-                "text": capability_message("ADDITIVITY_VIOLATION"),
+                "text": capability_message("ADDITIVITY_VIOLATION", locale),
                 "errorCode": "ADDITIVITY_VIOLATION",
                 "query": semantic.model_dump(mode="json", by_alias=True),
                 "originalQuestion": message,
@@ -637,10 +610,24 @@ def prepare_turn(
                     "releaseDigest": service.bundle.digest,
                 }
     semantic = _apply_intent(semantic, intent, service.bundle)
-    semantic, assumptions = _apply_defaults(semantic, intent, service.bundle, service, actor)
+    semantic, assumptions = _complete_explicit_scope(
+        semantic, intent, service.bundle, service, actor
+    )
     try:
         prepared = prepare(service, semantic, actor)
     except AnalysisError as exc:
+        if exc.code == "INVALID_PROPERTIES":
+            return {
+                "status": "UNSUPPORTED",
+                "kind": "unsupported",
+                "answerReady": True,
+                "textOrigin": "ENGINE",
+                "text": capability_message(exc.code, locale),
+                "errorCode": exc.code,
+                "retryable": False,
+                "query": semantic.model_dump(mode="json", by_alias=True),
+                "releaseDigest": service.bundle.digest,
+            }
         if exc.code != "PROVIDER_UNAVAILABLE":
             raise
         return {
@@ -671,9 +658,9 @@ def prepare_turn(
                     option_ids=(picked.id,),
                 ),
             )
-            return prepare_turn(service, actor, message, semantic)
+            return prepare_turn(service, actor, message, semantic, locale)
     if prepared.status == "UNSUPPORTED":
-        text = capability_message(prepared.capability or prepared.error_message)
+        text = capability_message(prepared.capability or prepared.error_message, locale)
         payload.update(
             {
                 "status": "UNSUPPORTED",
@@ -696,7 +683,7 @@ def prepare_turn(
                     "retryable": True,
                     "releaseDigest": service.bundle.digest,
                 }
-            text = capability_message(exc.code)
+            text = capability_message(exc.code, locale)
             return {
                 "status": "UNSUPPORTED",
                 "kind": "unsupported",
@@ -707,7 +694,9 @@ def prepare_turn(
                 "retryable": False,
                 "releaseDigest": service.bundle.digest,
             }
-        completed = _completed_payload(service, actor, message, semantic, result, assumptions)
+        completed = _completed_payload(
+            service, actor, message, semantic, result, assumptions, locale
+        )
         payload.update(completed)
     if prepared.status == "NEEDS_INPUT":
         payload["waiting"] = True
@@ -794,10 +783,9 @@ def prepare_claim_turn(
     metric = next(item for item in service.bundle.metrics if item.id == rule.inputs[0].metric)
     obj = next(item for item in service.bundle.object_types if item.id == metric.object_type)
     year = intent.year
-    if year is None:
-        years = _years_for(service, metric.id, actor.tenant)
-        year = max(years) if years else None
-    filters: dict[str, str | int | bool] = {}
+    filters: dict[str, str | int | bool] = dict(identity or {})
+    if year is not None and obj.population is not None:
+        filters[obj.population.year_property] = year
     display = [
         prop.id
         for prop in obj.properties
@@ -806,7 +794,16 @@ def prepare_claim_turn(
     period_fields: tuple[str, ...] = ()
     if obj.period is not None:
         period_fields = (obj.period.from_property, obj.period.to_property)
-    requested = tuple(dict.fromkeys([*display, *period_fields, *rule.applicability]))
+    requested = tuple(
+        dict.fromkeys(
+            [
+                *display,
+                *period_fields,
+                *rule.applicability,
+                *([obj.population.year_property] if obj.population else []),
+            ]
+        )
+    )
     found = service.find_objects(
         ObjectSearchRequest(
             object_type=obj.id,
@@ -817,9 +814,6 @@ def prepare_claim_turn(
         actor,
     )
     rows = list(found.get("objects") or [])
-    if identity:
-        key = next(iter(identity))
-        rows = [row for row in rows if str(row.get("identity", {}).get(key)) == identity[key]]
     named = []
     folded = unicodedata.normalize("NFKC", message).casefold()
     for row in rows:
@@ -835,8 +829,9 @@ def prepare_claim_turn(
         rows = named
     elif named:
         rows = named
-    if len(rows) != 1:
+    if len(rows) != 1 or (found.get("hasMore") and identity is None):
         options = []
+        subjects = {}
         for index, row in enumerate(rows[:4]):
             ident = row.get("identity") or {}
             key = obj.identity_keys[0]
@@ -849,6 +844,9 @@ def prepare_claim_turn(
                     *[item for item in parts if item != str(props["name"])],
                 ]
             label = " · ".join(dict.fromkeys(parts)) or value
+            if obj.population and props.get(obj.population.year_property) is not None:
+                label += f" · {props[obj.population.year_property]} 年"
+            subjects[f"opt_claim_subject_{index}"] = ident
             options.append(
                 ChoiceOption(
                     id=f"opt_claim_subject_{index}",
@@ -887,6 +885,7 @@ def prepare_claim_turn(
                 "mode": "claim",
                 "claimId": claim_id,
                 "originalQuestion": message,
+                "subjects": subjects,
             },
             "originalQuestion": message,
             "releaseDigest": service.bundle.digest,
@@ -904,8 +903,25 @@ def prepare_claim_turn(
     period_from = str(props.get(period_fields[0])) if period_fields else ""
     period_to = str(props.get(period_fields[1])) if len(period_fields) > 1 else ""
     if not period_from or period_from == "None":
-        period_from = f"{year}-01-01" if year else "2024-01-01"
-        period_to = f"{int(year) + 1}-01-01" if year else "2025-01-01"
+        if year is None:
+            question = ChoiceQuestion(
+                question_id="q-claim-year-" + uuid.uuid4().hex,
+                revision=1,
+                slot="claimYear",
+                prompt="要按哪个业务年度核验？",
+                reason="规则可能随期间变化，请补充业务年度。",
+                options=with_choice_exits([]),
+            )
+            return {
+                "status": "NEEDS_INPUT",
+                "waiting": True,
+                "question": question.model_dump(mode="json", by_alias=True),
+                "query_state": {"mode": "claim", "claimId": claim_id, "identity": bindings},
+                "originalQuestion": message,
+                "releaseDigest": service.bundle.digest,
+            }
+        period_from = f"{year}-01-01"
+        period_to = f"{year + 1}-01-01"
     dimensions = {
         key: str(props[key]) for key in rule.applicability if props.get(key) not in {None, ""}
     }
@@ -933,16 +949,17 @@ def prepare_claim_turn(
         }
     truth = claim.truth
     if truth == "TRUE":
-        status_desc = "规则校验通过"
+        status_desc = "规则成立"
     elif truth == "FALSE":
-        status_desc = "规则校验存在差异/未通过"
+        status_desc = "规则不成立"
     else:
-        status_desc = "规则状态未知"
+        status_desc = "现有数据不足以判断"
     label = rule.label or claim_id
     text = (
-        f"### {status_desc}\n\n**{label}** 的结论是 `{truth}`。"
-        f"对象身份：{bindings}。业务期间 `{period_from}`–`{period_to}`。"
-        " TRUE 不等于真实性或合规认可；UNKNOWN 不等于不一致。"
+        f"**{label}：{status_desc}。**\n\n"
+        f"核验对象：{'、'.join(str(value) for value in bindings.values())}。"
+        f"业务期间：{period_from} 至 {period_to}（不含止日）。"
+        "本次仅核验该规则，不代表来源真实性或其他业务判断。"
     )
     return {
         "status": "READY",
@@ -981,7 +998,18 @@ def submit_choice(
     if not pending:
         raise ChoiceError("QUESTION_MISMATCH")
     question = ChoiceQuestion.model_validate(pending)
+    if submit.question_id != question.question_id:
+        raise ChoiceError("QUESTION_MISMATCH")
+    if submit.revision != question.revision:
+        raise ChoiceError("VERSION_INVALID")
+    if not question.multi_select and len(submit.option_ids) != 1:
+        raise ChoiceError("SINGLE_SELECT_REQUIRED")
+    if any(
+        option_id not in {item.id for item in question.options} for option_id in submit.option_ids
+    ):
+        raise ChoiceError("UNKNOWN_OPTION")
     state = row.get("query_state") or {}
+    locale = str(state.get("locale") or "zh-CN")
     query = SemanticQuery.model_validate(state.get("query") or {"apiVersion": "semaloom/v0.1"})
     original = str(state.get("originalQuestion") or "")
     selected = [item for item in question.options if item.id in submit.option_ids]
@@ -993,10 +1021,19 @@ def submit_choice(
         if not text:
             raise ChoiceError("OTHER_TEXT_REQUIRED")
         combined = original + "\n" + text
+        if state.get("mode") in {"clarification", "object_scope"}:
+            store.save_pending(actor, row, None, None, original)
+            return {"status": "CONTINUE", "message": combined}
         prepared = (
-            prepare_claim_turn(service, actor, combined, claim_id=state.get("claimId"))
+            prepare_claim_turn(
+                service,
+                actor,
+                combined,
+                claim_id=state.get("claimId"),
+                identity=state.get("identity"),
+            )
             if claim_flow
-            else prepare_turn(service, actor, combined, query)
+            else prepare_turn(service, actor, combined, query, locale)
         )
         return _persist_prepared(store, service, actor, row, original, prepared, query)
     if submit.other_text:
@@ -1020,7 +1057,8 @@ def submit_choice(
                 actor,
                 original,
                 claim_id=str(state.get("claimId") or ""),
-                identity={chosen.choice.field: chosen.choice.id},
+                identity=state.get("subjects", {}).get(chosen.id)
+                or {chosen.choice.field: chosen.choice.id},
             )
         return _persist_prepared(store, service, actor, row, original, prepared, query)
     try:
@@ -1030,7 +1068,7 @@ def submit_choice(
             store.save_pending(actor, row, None, None, original)
             return {"status": "ABORTED", "errorCode": "ABORTED"}
         raise
-    prepared = prepare_turn(service, actor, original, merged)
+    prepared = prepare_turn(service, actor, original, merged, locale)
     return _persist_prepared(store, service, actor, row, original, prepared, merged)
 
 
@@ -1043,9 +1081,13 @@ def _persist_prepared(
     prepared: dict[str, Any],
     fallback_query: SemanticQuery,
 ) -> dict[str, Any]:
+    locale = str((row.get("query_state") or {}).get("locale") or "zh-CN")
+    prepared["question"] = localize_question(prepared.get("question"), locale)
     pending_out = prepared.get("question") if prepared.get("status") == "NEEDS_INPUT" else None
     query_state = {
         "query": prepared.get("query") or fallback_query.model_dump(mode="json", by_alias=True),
+        "view": (row.get("query_state") or {}).get("view", "auto"),
+        "locale": (row.get("query_state") or {}).get("locale", "zh-CN"),
         **(prepared.get("query_state") or {}),
     }
     if prepared.get("mode"):
@@ -1066,11 +1108,17 @@ def _persist_prepared(
             if unsupported
             else {}
         )
+        locale = str(query_state["locale"])
         answer = project_browser_answer(
             {
                 "kind": kind,
                 "textOrigin": "ENGINE",
-                "text": prepared.get("text") or "已按发布口径完成计算。",
+                "text": prepared.get("text")
+                or (
+                    "Calculated from the published semantic definition."
+                    if locale.startswith("en")
+                    else "已按发布口径完成计算。"
+                ),
                 "evidence": [
                     {
                         "id": "e1",
@@ -1079,12 +1127,14 @@ def _persist_prepared(
                     }
                 ],
                 "releaseDigest": service.bundle.digest,
-                "confidence": prepared.get("confidence"),
                 "followUps": prepared.get("followUps") or [],
                 "assumptions": prepared.get("assumptions") or [],
                 "query": prepared.get("query"),
+                "originalQuestion": follow_question,
+                "views": [{"evidenceId": "e1", "view": query_state["view"]}],
             },
             service.bundle,
+            locale,
         )
         new_turn = {"question": original, "answer": answer}
         user_msg = {
@@ -1094,7 +1144,17 @@ def _persist_prepared(
         }
         assistant_msg = {
             "role": "assistant",
-            "content": [{"type": "text", "text": answer.get("text") or "已按发布口径完成计算。"}],
+            "content": [
+                {
+                    "type": "text",
+                    "text": answer.get("text")
+                    or (
+                        "Calculated from the published semantic definition."
+                        if locale.startswith("en")
+                        else "已按发布口径完成计算。"
+                    ),
+                }
+            ],
             "timestamp": int(time.time() * 1000),
         }
         history = [*refreshed.get("history", []), user_msg, assistant_msg]

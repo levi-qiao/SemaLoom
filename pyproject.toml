@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "semaloom"
 version = "0.1.0"
-description = "Enterprise business semantic layer"
+description = "Ontology-driven business layer for serious AI questions over existing data sources"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.13"
 authors = [{ name = "SemaLoom contributors" }]
-keywords = ["semantic-layer", "enterprise", "knowledge-graph", "ai-agents"]
+keywords = ["ontology", "semantic-layer", "enterprise-ai", "knowledge-graph", "ai-agents"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "License :: OSI Approved :: Apache Software License",
@@ -66,6 +66,7 @@ include = [
     "/CONTRIBUTING.md",
     "/LICENSE",
     "/README.md",
+    "/README.zh-CN.md",
     "/SECURITY.md",
     "/SUPPORT.md",
     "/THIRD_PARTY_NOTICES.md",
@@ -135,6 +136,7 @@ default-groups = ["dev"]
 [tool.hatch.build.targets.wheel.force-include]
 "harness/worker.mjs" = "semaloom/app/chat/harness/worker.mjs"
 "harness/context-transform.mjs" = "semaloom/app/chat/harness/context-transform.mjs"
+"harness/jev-decision.mjs" = "semaloom/app/chat/harness/jev-decision.mjs"
 "harness/semantic-plugin.mjs" = "semaloom/app/chat/harness/semantic-plugin.mjs"
 "harness/provider.mjs" = "semaloom/app/chat/harness/provider.mjs"
 "harness/package.json" = "semaloom/app/chat/harness/package.json"

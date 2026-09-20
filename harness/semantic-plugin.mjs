@@ -1,8 +1,9 @@
 /** A domain-neutral pi-core plugin. Python owns authorization, rules and answer evidence. */
-export function createSemanticPlugin({ catalog, invoke, releaseDigest, maxCalls = 20 }) {
+export function createSemanticPlugin({ catalog, invoke, releaseDigest, maxCalls = 20, preferredTool }) {
   const allowed = new Set(catalog.map(t => t.name));
   let calls = 0;
   let completed = false;
+  let routeRepairAvailable = Boolean(preferredTool && allowed.has(preferredTool));
   return {
     tools: catalog.map(t => ({
       name: t.name, label: t.name, description: t.description,
@@ -16,6 +17,11 @@ export function createSemanticPlugin({ catalog, invoke, releaseDigest, maxCalls 
     beforeToolCall: async ({ toolCall }) => {
       if (completed || !allowed.has(toolCall.name))
         return { block: true, reason: 'TOOL_NOT_ALLOWED', terminate: true };
+      if (routeRepairAvailable && toolCall.name !== preferredTool) {
+        routeRepairAvailable = false;
+        return { block: true, reason: 'DECISION_ROUTE_MISMATCH', terminate: false };
+      }
+      routeRepairAvailable = false;
       if (++calls > maxCalls)
         return { block: true, reason: 'TOOL_BUDGET_EXCEEDED', terminate: true };
     },

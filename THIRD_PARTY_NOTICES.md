@@ -6,7 +6,8 @@ build in `src/semaloom/app/static/third-party-licenses.txt` and served at
 `/studio/third-party-licenses.txt`.
 
 The optional Chat worker uses the MIT-licensed official
-[@earendil-works/pi-agent-core and pi-ai](https://github.com/earendil-works/pi).
+[@earendil-works/pi-agent-core and pi-ai](https://github.com/earendil-works/pi)
+and [@typesafe-ai/sdk](https://github.com/typesafe-ai/typesafe-sdk-js).
 Their pinned npm distributions retain their own license files; the Python wheel
 ships only SemaLoom's worker and dependency manifest, not installed npm packages.
 

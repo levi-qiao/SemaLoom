@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from semaloom.adapters.postgres import PostgresReadProvider
+from semaloom.app.chat.tools import SemanticTools
 from semaloom.compiler.yaml_load import load_yaml_documents
 from semaloom.core.expr import parse_expr
 from semaloom.core.model import RuleDef
@@ -159,6 +160,35 @@ def test_search_requires_selection_and_limits_tenant(financial_query: QueryServi
         ACTOR,
     )
     assert not missing["objects"]
+
+
+def test_chat_gateway_turns_broad_object_search_into_scope_card(
+    financial_query: QueryService,
+) -> None:
+    tools = SemanticTools(financial_query, ACTOR, "年度申报表数据如何？")  # noqa: RUF001
+    result = tools.call(
+        "find_objects",
+        {
+            "objectType": "finance.ReviewCase",
+            "filters": {},
+            "properties": ["companyName", "taxYear", "declared_profit"],
+            "limit": 20,
+        },
+    )
+
+    assert result["drilldownRequired"] is True
+    assert "objects" not in result
+    assert tools.pending is not None
+    question = tools.pending["question"]
+    assert question["slot"] == "objectScope"
+    assert question["options"][0]["choice"]["kind"] == "OTHER"
+    assert (
+        tools.call(
+            "present_answer",
+            {"kind": "answer", "text": "不应直接展示", "evidenceIds": [result["evidenceId"]]},
+        )["waiting"]
+        is True
+    )
 
 
 def test_wrong_period_and_incomplete_grain_do_not_return_numbers(

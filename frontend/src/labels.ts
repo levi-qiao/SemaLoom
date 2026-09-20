@@ -1,18 +1,25 @@
 export type PackLabel = { id: string; namespace?: string; label: string };
+import { currentLocale } from "./i18n";
+
+const en = () => currentLocale() === "en";
 
 export function namespaceLabel(id: string, packs: PackLabel[] = []) {
   const pack = packs.find((item) => item.id === id || item.namespace === id);
   return pack?.label || id;
 }
 
-export const ADDITIVITY_OPTIONS = [
-  { id: "FULL", label: "可合计" },
-  { id: "SEMI", label: "时点存量" },
-  { id: "NONE", label: "不可合计" },
-] as const;
+export function additivityOptions() {
+  return [
+    { id: "FULL", label: en() ? "Additive" : "可合计" },
+    { id: "SEMI", label: en() ? "Snapshot measure" : "时点存量" },
+    { id: "NONE", label: en() ? "Non-additive" : "不可合计" },
+  ] as const;
+}
 
 export function cardinalityLabel(cardinality: string) {
-  return cardinality === "MANY" ? "源到目标可有多个" : "源到目标至多一个";
+  return cardinality === "MANY"
+    ? (en() ? "Source may have many targets" : "源到目标可有多个")
+    : (en() ? "Source has at most one target" : "源到目标至多一个");
 }
 
 export function cardinalityMark(cardinality: string) {
@@ -20,21 +27,21 @@ export function cardinalityMark(cardinality: string) {
 }
 
 export function cardinalityHint(sourceLabel: string, targetLabel: string, cardinality: string) {
-  if (cardinality === "MANY") return `每个${sourceLabel}可对应多个${targetLabel}`;
-  return `每个${sourceLabel}对应一个${targetLabel}`;
+  if (cardinality === "MANY") return en() ? `Each ${sourceLabel} may have many ${targetLabel}` : `每个${sourceLabel}可对应多个${targetLabel}`;
+  return en() ? `Each ${sourceLabel} has one ${targetLabel}` : `每个${sourceLabel}对应一个${targetLabel}`;
 }
 
 export function draftPreviewHint(saved: boolean, revision: number) {
-  if (!saved) return "先保存再试读。";
-  return `试读已保存模型 r${revision}（与问答同一份）。`;
+  if (!saved) return en() ? "Save before previewing." : "先保存再试读。";
+  return en() ? `Previewing saved model r${revision}, shared with Chat.` : `试读已保存模型 r${revision}（与问答同一份）。`;
 }
 
 export function publishedExecutionHint() {
-  return "保存后，试读与问答使用同一份模型。";
+  return en() ? "After saving, preview and Chat use the same model." : "保存后，试读与问答使用同一份模型。";
 }
 
 export function draftSaveLabel() {
-  return "保存";
+  return en() ? "Save" : "保存";
 }
 
 export function gateErrorMessage(detail: string, status?: number) {

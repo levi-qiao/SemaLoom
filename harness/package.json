@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
-  "engines": {"node": ">=22.19.0"},
-  "scripts": {"test": "node --test test/*.test.mjs"},
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1"
+    "@earendil-works/pi-ai": "0.85.1",
+    "@typesafe-ai/sdk": "0.6.0"
   }
 }

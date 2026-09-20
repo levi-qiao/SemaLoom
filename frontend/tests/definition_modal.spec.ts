@@ -95,6 +95,9 @@ test('definition modal renders ontology labels and physical provenance for actio
   await page.getByLabel('业务问题').fill('有哪些采购定义?');
   await page.getByRole('button', { name: '发送', exact: true }).click();
 
+  // Provenance is closed by default; definition inspection is available only
+  // after the user deliberately opens the evidence drawer.
+  await page.locator('details.evidence-card > summary').click();
   const inspectBtns = page.getByRole('button', { name: '查看定义' });
   await inspectBtns.first().click();
 

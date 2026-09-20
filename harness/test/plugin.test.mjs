@@ -77,3 +77,19 @@ test('server converts prose clarification into a persisted choice and pi stops i
   assert.deepEqual(await plugin.afterToolCall({toolCall:{name:'present_answer'},result,isError:false}),{terminate:true});
   assert.equal(plugin.completed,true);
 });
+
+test('Jev route gets one generic repair through the Pi beforeToolCall hook', async()=>{
+  const plugin=createSemanticPlugin({
+    catalog:[
+      {name:'find_objects',description:'find',inputSchema:{type:'object'}},
+      {name:'present_answer',description:'finish',inputSchema:{type:'object'}},
+    ],
+    releaseDigest:'d1',preferredTool:'find_objects',invoke:async()=>({releaseDigest:'d1'}),
+  });
+  assert.deepEqual(
+    await plugin.beforeToolCall({toolCall:{name:'present_answer'}}),
+    {block:true,reason:'DECISION_ROUTE_MISMATCH',terminate:false},
+  );
+  assert.equal(await plugin.beforeToolCall({toolCall:{name:'present_answer'}}),undefined);
+  assert.equal(plugin.calls,1);
+});

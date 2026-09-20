@@ -37,6 +37,11 @@
   - id: uniquePair
     valueType: BOOLEAN
     label: 该年度是否仅有一份申报和报告
+    values:
+    - id: "true"
+      label: 唯一配对
+    - id: "false"
+      label: 存在多个候选
   - id: pairingPolicy
     valueType: STRING
     label: 样本选择规则
@@ -68,22 +73,76 @@
     label: 金额单位依据
   - id: audit_profitStatus
     valueType: STRING
-    label: audit_profit抽取状态
+    label: 审计利润总额抽取状态
+    values:
+    - id: observed
+      label: 已取得数值
+    - id: not_disclosed
+      label: 来源未披露
+    - id: extraction_failed
+      label: 抽取未成功
+    - id: not_evaluated
+      label: 尚未抽取
   - id: net_profitStatus
     valueType: STRING
-    label: net_profit抽取状态
+    label: 审计净利润抽取状态
+    values:
+    - id: observed
+      label: 已取得数值
+    - id: not_disclosed
+      label: 来源未披露
+    - id: extraction_failed
+      label: 抽取未成功
+    - id: not_evaluated
+      label: 尚未抽取
   - id: tax_expenseStatus
     valueType: STRING
-    label: tax_expense抽取状态
+    label: 所得税费用抽取状态
+    values:
+    - id: observed
+      label: 已取得数值
+    - id: not_disclosed
+      label: 来源未披露
+    - id: extraction_failed
+      label: 抽取未成功
+    - id: not_evaluated
+      label: 尚未抽取
   - id: assetsStatus
     valueType: STRING
-    label: assets抽取状态
+    label: 资产总计抽取状态
+    values:
+    - id: observed
+      label: 已取得数值
+    - id: not_disclosed
+      label: 来源未披露
+    - id: extraction_failed
+      label: 抽取未成功
+    - id: not_evaluated
+      label: 尚未抽取
   - id: liabilitiesStatus
     valueType: STRING
-    label: liabilities抽取状态
+    label: 负债合计抽取状态
+    values:
+    - id: observed
+      label: 已取得数值
+    - id: not_disclosed
+      label: 来源未披露
+    - id: extraction_failed
+      label: 抽取未成功
+    - id: not_evaluated
+      label: 尚未抽取
   - id: equityStatus
     valueType: STRING
-    label: equity抽取状态
+    label: 所有者权益合计抽取状态
+    values:
+    - id: observed
+      label: 已取得数值
+    - id: not_disclosed
+      label: 来源未披露
+    - id: extraction_failed
+      label: 抽取未成功
+    - id: not_evaluated
+      label: 尚未抽取
   - id: declared_profit
     valueType: DECIMAL
     unit: CNY

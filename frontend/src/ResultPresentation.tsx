@@ -14,10 +14,12 @@ import {
   YAxis,
 } from "recharts";
 import { z } from "zod";
+import { useI18n } from "./i18n";
 type Tone = "neutral" | "positive" | "warning" | "danger";
 type Column = { key: string; label: string };
 type Series = { key: string; label: string; unit?: string };
-type ReportRow = Record<string, string>;
+type ReportRow = Record<string, string | null>;
+type ReportView = "table" | "bar" | "line";
 
 const MAX_NODES = 48;
 const MAX_ROWS = 50;
@@ -34,17 +36,17 @@ export function formatExactNumber(raw: unknown): string {
   return decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt;
 }
 
-function formatYAxisTick(value: number): string {
+function formatYAxisTick(value: number, locale: "zh-CN" | "en" = "zh-CN"): string {
   if (!Number.isFinite(value) || value === 0) return "0";
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
   if (abs >= 1e8) {
     const v = (abs / 1e8).toFixed(2).replace(/\.?0+$/, "");
-    return `${sign}${v} 亿`;
+    return locale === "en" ? `${sign}${Number(v) * 100}M` : `${sign}${v} 亿`;
   }
   if (abs >= 1e4) {
     const v = (abs / 1e4).toFixed(2).replace(/\.?0+$/, "");
-    return `${sign}${v} 万`;
+    return locale === "en" ? `${sign}${Number(v) * 10}K` : `${sign}${v} 万`;
   }
   return `${sign}${abs.toLocaleString()}`;
 }
@@ -62,12 +64,18 @@ const presentationSchema = z.object({
       role: z.enum(["CATEGORY", "DIMENSION", "MEASURE"]).nullable(),
       valueType: z.string().nullable(), unit: z.string().nullable(),
     })).max(12),
-    rows: z.array(z.record(z.string(), z.string())).max(MAX_ROWS),
+    rows: z.array(z.record(z.string(), z.string().nullable())).max(MAX_ROWS),
     categoryKey: z.string(),
     series: z.array(z.object({key: z.string(), label: z.string(), unit: z.string().optional()})).max(4),
-    preferredView: z.enum(["table", "bar", "line"]).default("bar"),
+    preferredView: z.enum(["table", "bar", "line"]).default("table"),
+    availableViews: z.array(z.enum(["table", "bar", "line"])).default(["table"]),
     truncated: z.boolean(), rowCount: z.number().int().nonnegative(),
   })).max(4),
+  relationships: z.array(z.object({
+    id: z.string(), edges: z.array(z.object({
+      source: z.string(), target: z.string(), label: z.string(), cardinality: z.string(),
+    })).max(20),
+  })).max(4).default([]),
 });
 
 const resultCatalog = defineCatalog(schema, {
@@ -77,9 +85,11 @@ const resultCatalog = defineCatalog(schema, {
       slots: ["default"],
       description: "A bounded stack of deterministic business result views.",
     },
-    ResultIntro: {
-      props: z.object({ kicker: z.string(), title: z.string(), description: z.string() }),
-      description: "A compact introduction for engine-generated result visuals.",
+    RelationshipMap: {
+      props: z.object({ edges: z.array(z.object({
+        source: z.string(), target: z.string(), label: z.string(), cardinality: z.string(),
+      })).max(20) }),
+      description: "Declared business relationships, never inferred instance relationships or a forced tree.",
     },
     MetricGrid: {
       props: z.object({ label: z.string() }),
@@ -101,10 +111,11 @@ const resultCatalog = defineCatalog(schema, {
         title: z.string(),
         description: z.string(),
         columns: z.array(z.object({ key: z.string(), label: z.string() })).max(12),
-        rows: z.array(z.record(z.string(), z.string())).max(MAX_ROWS),
+        rows: z.array(z.record(z.string(), z.string().nullable())).max(MAX_ROWS),
         categoryKey: z.string(),
         series: z.array(z.object({ key: z.string(), label: z.string(), unit: z.string().optional() })).max(4),
         preferredView: z.enum(["table", "bar", "line"]),
+        availableViews: z.array(z.enum(["table", "bar", "line"])),
       }),
       description: "A table with optional bar and line views over the same authorized rows.",
     },
@@ -113,17 +124,21 @@ const resultCatalog = defineCatalog(schema, {
 });
 
 function ResultStack({ children }: { children?: ReactNode }) {
-  return <section className="result-presentation" aria-label="业务结果概览">{children}</section>;
+  const { t } = useI18n();
+  return <section className="result-presentation" aria-label={t("result.overview")}>{children}</section>;
 }
 
-function ResultIntro({ props }: { props: { kicker: string; title: string; description: string } }) {
-  return <header className="result-intro">
-    <span>{props.kicker}</span>
-    <div>
-      <h3>{props.title}</h3>
-      <p>{props.description}</p>
-    </div>
-  </header>;
+function RelationshipMap({ props }: { props: { edges: { source: string; target: string; label: string; cardinality: string }[] } }) {
+  const { t } = useI18n();
+  return <section className="result-relationships" aria-label={t("result.relationships")}>
+    <h4>{t("result.relationships")}</h4>
+    <p>{t("result.relationships.note")}</p>
+    <ul>{props.edges.map((edge, index) => <li key={index}>
+      <strong>{edge.source}</strong>
+      <span className="result-relationship-edge">{edge.label}<small>→ {edge.cardinality}</small></span>
+      <strong>{edge.target}</strong>
+    </li>)}</ul>
+  </section>;
 }
 
 function MetricGrid({ children, props }: { children?: ReactNode; props: { label: string } }) {
@@ -136,11 +151,7 @@ function MetricValue({ props }: { props: { label: string; value: string; unit: s
     <article className="result-metric" data-tone={props.tone}>
       <div className="result-metric-head">
         <span className="result-metric-label">{props.label}</span>
-        {props.tone !== "neutral" && (
-          <span className={`result-metric-badge tone-${props.tone}`}>
-            {props.tone === "positive" ? "正常" : props.tone === "warning" ? "关注" : "异常"}
-          </span>
-        )}
+
       </div>
       <strong className="result-metric-num">
         <span className="result-metric-value">{formatted}</span>
@@ -217,43 +228,45 @@ function ReportTable({ columns, rows, seriesKeys }: { columns: Column[]; rows: R
   );
 }
 
-function ReportExplorer({ props }: { props: { title: string; description: string; columns: Column[]; rows: ReportRow[]; categoryKey: string; series: Series[]; preferredView: "table" | "bar" | "line" } }) {
-  const canChart = props.rows.length > 1 && props.series.length > 0;
-  const [view, setView] = useState<"table" | "bar" | "line">(canChart ? props.preferredView : "table");
+function ReportExplorer({ props }: { props: { title: string; description: string; columns: Column[]; rows: ReportRow[]; categoryKey: string; series: Series[]; preferredView: ReportView; availableViews: ReportView[] } }) {
+  const { locale, t } = useI18n();
+  const canChart = props.availableViews.some(view => view !== "table");
+  const [view, setView] = useState<ReportView>(props.availableViews.includes(props.preferredView) ? props.preferredView : "table");
   const [seriesKey, setSeriesKey] = useState("all");
   const reducedMotion = useReducedMotion();
   const seriesKeys = useMemo(() => new Set(props.series.map(s => s.key)), [props.series]);
   const visibleSeries = seriesKey === "all" ? props.series : props.series.filter(item => item.key === seriesKey);
   const chartRows = useMemo(() => props.rows.map(row => {
-    const converted: Record<string, string | number> = { ...row };
+    const converted: Record<string, string | number | null> = { ...row };
     for (const item of props.series) {
-      const value = Number(row[item.key]);
-      converted[item.key] = Number.isFinite(value) ? value : 0;
+      const raw = row[item.key];
+      const value = raw == null || raw === "" ? NaN : Number(raw);
+      converted[item.key] = Number.isFinite(value) ? value : null;
       converted[`${item.key}Exact`] = `${formatExactNumber(row[item.key])}${item.unit ? ` ${item.unit}` : ""}`;
     }
     return converted;
   }), [props.rows, props.series]);
-  const categoryLabel = props.columns.find(column => column.key === props.categoryKey)?.label ?? "类别";
-  const chartLabel = `${props.title}。横轴为${categoryLabel}，包含 ${props.rows.length} 项。`;
+  const categoryLabel = props.columns.find(column => column.key === props.categoryKey)?.label ?? t("result.category");
+  const chartLabel = locale === "en" ? `${props.title}. X axis: ${categoryLabel}; ${props.rows.length} items.` : `${props.title}。横轴为${categoryLabel}，包含 ${props.rows.length} 项。`;
 
   return <section className="result-explorer">
     <div className="result-explorer-head">
       <div><h4>{props.title}</h4><p>{props.description}</p></div>
       {canChart ? <div className="result-explorer-controls">
-        {props.series.length > 1 ? <label className="result-series-select">图表指标
+        {props.series.length > 1 ? <label className="result-series-select">{t("result.metric")}
           <select value={seriesKey} onChange={event => setSeriesKey(event.target.value)}>
-            <option value="all">全部指标</option>
+            <option value="all">{t("result.allMetrics")}</option>
             {props.series.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
           </select>
         </label> : null}
-        <div className="result-view-tabs" role="tablist" aria-label={`${props.title}展示方式`}>
-          {(["bar", "line", "table"] as const).map(option => <button
+        <div className="result-view-tabs" role="tablist" aria-label={t("result.view", { title: props.title })}>
+          {props.availableViews.map(option => <button
             type="button"
             role="tab"
             aria-selected={view === option}
             key={option}
             onClick={() => setView(option)}
-          >{option === "bar" ? "柱状" : option === "line" ? "趋势" : "表格"}</button>)}
+          >{t(`result.view.${option}`)}</button>)}
         </div>
       </div> : null}
     </div>
@@ -263,13 +276,13 @@ function ReportExplorer({ props }: { props: { title: string; description: string
           {view === "bar" ? <BarChart data={chartRows} margin={{ top: 16, right: 16, bottom: 8, left: 6 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.06)" />
             <XAxis dataKey={props.categoryKey} tickLine={false} axisLine={false} tick={{ fill: "var(--text-tertiary)", fontSize: 11 }} />
-            <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatYAxisTick} tick={{ fill: "var(--text-tertiary)", fontSize: 11 }} />
+            <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={value => formatYAxisTick(value, locale)} tick={{ fill: "var(--text-tertiary)", fontSize: 11 }} />
             <Tooltip content={<ExactTooltip />} cursor={{ fill: "rgba(31, 111, 95, 0.05)" }} />
             {visibleSeries.map((item, index) => <Bar key={item.key} dataKey={item.key} name={item.label} fill={palette[index % palette.length]} radius={[6, 6, 0, 0]} maxBarSize={48} isAnimationActive={!reducedMotion} />)}
           </BarChart> : <LineChart data={chartRows} margin={{ top: 16, right: 20, bottom: 8, left: 6 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.06)" />
             <XAxis dataKey={props.categoryKey} tickLine={false} axisLine={false} tick={{ fill: "var(--text-tertiary)", fontSize: 11 }} />
-            <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={formatYAxisTick} tick={{ fill: "var(--text-tertiary)", fontSize: 11 }} />
+            <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={value => formatYAxisTick(value, locale)} tick={{ fill: "var(--text-tertiary)", fontSize: 11 }} />
             <Tooltip content={<ExactTooltip />} />
             {visibleSeries.map((item, index) => <Line key={item.key} type="monotone" dataKey={item.key} name={item.label} stroke={palette[index % palette.length]} strokeWidth={2.5} dot={{ r: 3.5, strokeWidth: 1.5, fill: "#ffffff", stroke: palette[index % palette.length] }} activeDot={{ r: 6, stroke: "#ffffff", strokeWidth: 2, fill: palette[index % palette.length] }} isAnimationActive={!reducedMotion} />)}
           </LineChart>}
@@ -280,7 +293,7 @@ function ReportExplorer({ props }: { props: { title: string; description: string
 }
 
 const { registry } = defineRegistry(resultCatalog, {
-  components: { ResultStack, ResultIntro, MetricGrid, MetricValue, ReportExplorer },
+  components: { ResultStack, RelationshipMap, MetricGrid, MetricValue, ReportExplorer },
 });
 
 function naturalNumber(value: unknown): string {
@@ -291,13 +304,14 @@ function naturalNumber(value: unknown): string {
   return compact === "-0" ? "0" : compact;
 }
 
-function buildPresentation(input: unknown): Spec | null {
+function buildPresentation(input: unknown, t: (key: string, values?: Record<string, string | number>) => string): Spec | null {
   const parsed = presentationSchema.safeParse(input);
   if (!parsed.success) return null;
   const presentation = parsed.data;
   const elements: Spec["elements"] = {};
   const metricKeys: string[] = [];
   const reportKeys: string[] = [];
+  const relationKeys: string[] = [];
   let nodeCount = 3;
 
   for (const metric of presentation.metrics) {
@@ -313,26 +327,28 @@ function buildPresentation(input: unknown): Spec | null {
     if (nodeCount >= MAX_NODES) break;
     const key = `report-${reportKeys.length}`;
     elements[key] = { type: "ReportExplorer", props: {
-      title: report.title, description: report.description,
-      columns: report.columns.map(column => ({key: column.key, label: column.label})),
+      title: report.title, description: report.description + (report.truncated ? t("result.more", { count: report.rows.length }) : ""),
+      columns: report.columns.map(column => ({key: column.key, label: column.unit ? `${column.label}（${column.unit}）` : column.label})),
       rows: report.rows, categoryKey: report.categoryKey, series: report.series,
-      preferredView: report.preferredView,
+      preferredView: report.preferredView, availableViews: report.availableViews,
     }, children: [] };
     reportKeys.push(key); nodeCount += 1;
   }
 
-  if (!metricKeys.length && !reportKeys.length) return null;
-  const children = ["intro"];
-  elements.intro = { type: "ResultIntro", props: {
-    kicker: "确定性结果", title: "业务结果概览",
-    description: "数值与判断来自同一次引擎执行；完整口径和来源保留在下方核验区。",
-  }, children: [] };
+  for (const relation of presentation.relationships) {
+    const key = `relationships-${relationKeys.length}`;
+    elements[key] = { type: "RelationshipMap", props: { edges: relation.edges }, children: [] };
+    relationKeys.push(key);
+  }
+  if (!metricKeys.length && !reportKeys.length && !relationKeys.length) return null;
+  const children: string[] = [];
   if (metricKeys.length) {
-    elements.metrics = { type: "MetricGrid", props: { label: "关键结果" }, children: metricKeys };
+    elements.metrics = { type: "MetricGrid", props: { label: t("result.key") }, children: metricKeys };
     children.push("metrics");
   }
   children.push(...reportKeys);
-  elements.root = { type: "ResultStack", props: { label: "业务结果概览" }, children };
+  children.push(...relationKeys);
+  elements.root = { type: "ResultStack", props: { label: t("result.overview") }, children };
   const spec: Spec = { root: "root", elements };
   if (Object.keys(elements).length > MAX_NODES) return null;
   const catalogResult = resultCatalog.validate(spec);
@@ -341,7 +357,8 @@ function buildPresentation(input: unknown): Spec | null {
 }
 
 export function ResultPresentation({ presentation }: { presentation?: unknown }) {
-  const spec = useMemo(() => buildPresentation(presentation), [presentation]);
+  const { locale, t } = useI18n();
+  const spec = useMemo(() => buildPresentation(presentation, t), [presentation, t, locale]);
   if (!spec) return null;
   return <JSONUIProvider registry={registry}>
     <Renderer spec={spec} registry={registry} />

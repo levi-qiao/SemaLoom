@@ -42,7 +42,7 @@
 
 ## 交互契约
 
-`prepare` 返回 READY / NEEDS_INPUT / UNSUPPORTED / SOURCE_ERROR。选择题含 option id、业务标签、说明、服务器持有的类型化 `SemanticChoice`。提交含 `questionId`、`revision`、`optionIds`；`OTHER` 另带 `otherText`，由服务端并入原问题再 prepare，不把自由文本当 SQL 或计划补丁。过期、伪造、重复、串会话、版本变化由 `ChoiceError` 区分。ABORT（都不符合/暂不清楚）不产生猜测答案。Chat 在唯一指标已识别时可按最新年度与可加性合计作答并附置信度，这不是用户已提交的选择。会话恢复字段见 `QuerySessionState`。样例：[直接计算](../spec/samples/semantic-query-direct.json)、[两轮选择](../spec/samples/semantic-query-two-round.json)。
+`prepare` 返回 READY / NEEDS_INPUT / UNSUPPORTED / SOURCE_ERROR。选择题含 option id、业务标签、说明、服务器持有的类型化 `SemanticChoice`。提交含 `questionId`、`revision`、`optionIds`；`OTHER` 另带 `otherText`，由服务端并入原问题再 prepare，不把自由文本当 SQL 或计划补丁。过期、伪造、重复、串会话、版本变化由 `ChoiceError` 区分。ABORT（都不符合/暂不清楚）不产生猜测答案。Chat 对缺失的年度、统计方式或比较口径等待用户补充卡片确认，不用模型评分或未确认默认值替代选择。会话恢复字段见 `QuerySessionState`。样例：[直接计算](../spec/samples/semantic-query-direct.json)、[两轮选择](../spec/samples/semantic-query-two-round.json)。
 
 pi agent-core 没有网页选择插件；coding-agent 的 `ctx.ui.select` 不适配当前 headless Node。选择题由 Studio 自己的卡片实现。
 

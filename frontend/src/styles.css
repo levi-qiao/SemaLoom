@@ -2998,44 +2998,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   line-height: 1.4;
 }
 
-.chat-confidence {
-  margin: 12px 0;
-  padding: 10px 14px;
-  border-radius: var(--control-radius);
-  background: #f8fafc;
-  font-size: 12.5px;
-  font-weight: 650;
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
-.chat-confidence[data-level="high"] {
-  border-left: 4px solid var(--success);
-  background: #f0fdf4;
-  color: #166534;
-}
-
-.chat-confidence[data-level="medium"] {
-  border-left: 4px solid var(--warning);
-  background: #fffbeb;
-  color: #92400e;
-}
-
-.chat-confidence[data-level="low"] {
-  border-left: 4px solid var(--danger);
-  background: #fef2f2;
-  color: #991b1b;
-}
-
-.chat-confidence small {
-  color: inherit;
-  opacity: 0.85;
-  font-weight: 400;
-  font-size: 11.5px;
-  line-height: 1.5;
-}
 
 .chat-markdown {
   font-size: 13.5px;
@@ -3847,6 +3810,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* ==========================================================================
    Deterministic Result Presentation (json-render catalog)
    ========================================================================== */
+
+.result-relationships { padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
+.result-relationships h4 { margin: 0 0 6px; }
+.result-relationships p { color: var(--text-secondary); font-size: 12px; }
+.result-relationships ul { list-style: none; padding: 0; margin: 12px 0 0; }
+.result-relationships li { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 12px; align-items: center; padding: 12px 0; }
+.result-relationships li strong { padding: 10px; background: var(--surface-subtle); border-radius: 6px; overflow-wrap: anywhere; font-size: 13px; }
+.result-relationship-edge { border-bottom: 1px solid var(--border); text-align: center; font-size: 12px; }
+.result-relationship-edge small { display: block; color: var(--text-secondary); padding: 4px 0; }
 
 .result-presentation {
   display: grid;

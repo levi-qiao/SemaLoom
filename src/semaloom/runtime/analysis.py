@@ -110,7 +110,9 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
             ChoiceOption(
                 id="opt_metric_" + metric.id.replace(".", "_"),
                 label=metric.label or metric.id,
-                explanation=metric.description or metric.id,
+                # Keep the stable id in the typed choice payload. Human cards
+                # use only ontology-authored business copy.
+                explanation=metric.description or metric.label or " ",
                 choice=SemanticChoice(kind="METRIC", id=metric.id),
             )
             for metric in service.bundle.metrics

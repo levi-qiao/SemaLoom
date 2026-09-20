@@ -3,6 +3,7 @@ import { Agent } from '@earendil-works/pi-agent-core';
 import { createProvider } from './provider.mjs';
 import { createSemanticPlugin } from './semantic-plugin.mjs';
 import { transformContext } from './context-transform.mjs';
+import { createJevDecisionHook, orderCatalog } from './jev-decision.mjs';
 
 const send = data => process.stdout.write(JSON.stringify(data) + '\n');
 const lines = createInterface({ input: process.stdin });
@@ -24,15 +25,29 @@ lines.on('close', () => { agent?.abort(); for (const w of pending.values()) w.re
 async function run(input) {
   try {
     const provider = createProvider(input.provider);
+    const decisionHook = createJevDecisionHook({ config: input.decision });
+    const decision = await decisionHook.decide({
+      message: input.message,
+      history: input.history,
+      semanticContext: input.semanticContext,
+      catalog: input.catalog,
+      locale: input.locale,
+    });
+    const catalog = orderCatalog(input.catalog, decision.preferredTool);
     const plugin = createSemanticPlugin({
-      catalog: input.catalog, releaseDigest: input.releaseDigest,
+      catalog, releaseDigest: input.releaseDigest,
+      preferredTool: input.decision?.mode === 'enforce' ? decision.preferredTool : undefined,
       invoke: (id, name, args) => new Promise((resolve,reject) => {
         pending.set(id,{resolve,reject}); send({type:'call',id,name,args});
       }),
     });
     let turns = 0;
     agent = new Agent({
-      initialState: { model: provider.model, systemPrompt: input.systemPrompt,
+      initialState: { model: provider.model, systemPrompt: input.systemPrompt
+        + `\nRespond in the requested locale: ${input.locale ?? 'zh-CN'}.`
+        + '\nMachine decision hook (advisory; server validation remains authoritative):\n'
+        + JSON.stringify({preferredTool: decision.preferredTool,
+          requiresClarification: decision.requiresClarification}),
         tools: plugin.tools, messages: input.history, thinkingLevel: 'off' },
       streamFn: provider.streamFn, toolExecution: 'sequential',
       beforeToolCall: plugin.beforeToolCall, afterToolCall: plugin.afterToolCall,
@@ -46,7 +61,7 @@ async function run(input) {
     });
     await agent.prompt(input.message);
     if (!plugin.completed && turns < 12 && !agent.state.error) {
-      await agent.prompt('请调用 present_answer 完成本次回答；只能引用本次真实工具返回的 evidenceId。无法回答时用 clarification 或 unsupported，不要猜测。');
+      await agent.prompt('Call present_answer to complete this turn. Cite only evidenceId values returned by tools in this turn. Use clarification or unsupported when needed; do not guess.');
     }
     if (!plugin.completed) {
       send({type:'error',code:agent.state.error ? 'MODEL_REQUEST_FAILED' : 'ANSWER_NOT_VALIDATED'});

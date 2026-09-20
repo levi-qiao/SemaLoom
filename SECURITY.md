@@ -1,5 +1,10 @@
 # Security baseline
 
+SemaLoom is currently a pre-alpha project and does not claim production security readiness. Report
+vulnerabilities privately through [GitHub Security Advisories](https://github.com/levi-qiao/SemaLoom/security/advisories/new),
+and never attach secrets, real business records, or private schemas to a public issue. The detailed
+baseline below defines the trust, authorization, data, action, and optional model-provider boundaries.
+
 当前为设计基线，尚无生产安全保证。以下规则适用于所有实现任务；行为细节以 [semantic contract](docs/spec/semantic-contract-v0.1.md) 为准。
 
 ## Trust boundaries
@@ -50,6 +55,8 @@ Studio 同源会话使用安全 cookie 与 CSRF/Origin 检查，退出和撤销�
 ## Optional embedded Chat
 
 配置 SEMALOOM_CHAT_CONFIG 后，Chat 模块可把用户问题和已授权的语义结果发送给服务端配置的模型 provider。密钥只经父子进程私有 stdin 传给 pi；不注入浏览器、模型上下文或业务工具。Pi 不获得业务数据库凭证，不自动加载用户目录的 coding-agent 插件、shell 或文件工具。
+
+配置 `TYPESAFE_API_KEY` 还会启用一个独立外部决策 provider。发送范围限于用户问题、脱敏且有界的对话摘要、授权本体目录投影、locale 与工具 Schema；不发送原始工具结果、物理映射、数据库凭证或业务身份值。该 provider 只给出内部路由建议，不能授权、执行查询或生成证据。密钥不得进入 provider 配置文件、前端、历史、trace 或源码，状态接口只报告非秘密的 provider、模型与模式。
 
 Chat 历史保存在现有 metadata PostgreSQL，按 tenant + actor 隔离，生产 retention 尚未实现。切换主体/退出/版本变化后禁止继续释放旧运行结果；取消终止 task-owned Node。事实卡直接来自服务器引擎，不以模型文本作为审计证据。原有生产 profile 限制仍有效。
 

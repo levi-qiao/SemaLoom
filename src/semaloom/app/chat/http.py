@@ -24,6 +24,7 @@ class TurnBody(BaseModel):
     model_config = wire_config(frozen=False)
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    locale: str | None = Field(default=None, max_length=35, pattern=r"^[A-Za-z0-9,;=._ -]+$")
 
 
 def chat_actor(request: Request, authorization: str | None) -> RequestActor:
@@ -124,7 +125,10 @@ async def choose(
 
 @router.post("/turns")
 async def turn(
-    body: TurnBody, request: Request, authorization: str | None = Header(default=None)
+    body: TurnBody,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    accept_language: str | None = Header(default=None),
 ) -> StreamingResponse:
     actor = chat_actor(request, authorization)
     chat = service(request)
@@ -158,7 +162,14 @@ async def turn(
         return current
 
     return StreamingResponse(
-        chat.stream(row, body.message, query, actor, guard),
+        chat.stream(
+            row,
+            body.message,
+            query,
+            actor,
+            guard,
+            body.locale or accept_language or "zh-CN",
+        ),
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )

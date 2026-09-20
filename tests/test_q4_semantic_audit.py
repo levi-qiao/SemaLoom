@@ -132,7 +132,7 @@ def test_complete_warehouse_question_is_ready_matching_sql(warehouse: Any) -> No
     )
     value = prepared["result"]["values"][0]["value"]
     assert Decimal(value) == expected
-    assert value in prepared["text"]
+    assert format(expected.normalize(), "f") in prepared["text"]
     assert "合计" in prepared["text"]
     assert "平均值" not in prepared["text"]
     assert prepared.get("population") is None
@@ -145,11 +145,11 @@ def test_vague_and_missing_year_need_input(warehouse: Any) -> None:
     assert vague["question"]["slot"] == "metric"
     assert any(item["choice"]["kind"] == "OTHER" for item in vague["question"]["options"])
     stock = prepare_turn(service, ACTOR, "库存多少")
-    assert stock.get("answerReady")
-    assert stock["result"]["values"][0]["metric"] == "warehouse.onHandQty"
+    assert stock["status"] == "NEEDS_INPUT"
+    assert stock["query"]["metrics"][0]["id"] == "warehouse.onHandQty"
     missing_year = prepare_turn(service, ACTOR, "在库数量合计")
-    assert missing_year.get("answerReady")
-    assert any(item["slot"] == "year" for item in missing_year["assumptions"])
+    assert missing_year["status"] == "NEEDS_INPUT"
+    assert missing_year["question"]["slot"] == "year"
 
 
 def test_row_average_differs_from_sum_and_matches_sql(warehouse: Any) -> None:
@@ -320,15 +320,31 @@ def test_choice_matrix_forged_expired_duplicate_abort_reselect(warehouse: Any) -
 
 def test_two_round_keeps_metric_then_year(warehouse: Any) -> None:
     service, read_engine = warehouse
-    done = prepare_turn(service, ACTOR, "在库数量合计")
+    pending = prepare_turn(service, ACTOR, "在库数量合计")
+    store = ChatStore(read_engine)
+    row = store.create(ACTOR, service.bundle.digest)
+    store.save_pending(ACTOR, row, pending["question"], {"query": pending["query"]}, "在库数量合计")
+    done = submit_choice(
+        store,
+        service,
+        ACTOR,
+        row["id"],
+        ChoiceSubmit.model_validate(
+            {
+                "questionId": pending["question"]["questionId"],
+                "revision": 1,
+                "optionIds": ["opt_year_2024"],
+            }
+        ),
+    )
     assert done.get("answerReady")
     expected = _sql(
         read_engine,
         "SELECT SUM(on_hand) FROM warehouse_sku WHERE tenant_id='tenant-a' AND stock_year=2024",
     )
     assert Decimal(done["result"]["values"][0]["value"]) == expected
-    assert done["result"]["values"][0]["value"] in done["text"]
-    assert done["confidence"]["label"] in {"高", "中", "低"}
+    assert format(expected.normalize(), "f") in done["text"]
+    assert "confidence" not in done
 
 
 def test_source_and_save_failure_do_not_invent_answers(warehouse: Any, monkeypatch: Any) -> None:

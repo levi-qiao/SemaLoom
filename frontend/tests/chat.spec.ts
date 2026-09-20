@@ -59,10 +59,10 @@ test('choice cards submit on click and other accepts inline text', async ({page}
   await page.getByRole('button', {name: '发送', exact: true}).click();
   await expect(page.getByRole('form', {name: '业务选择'})).toBeVisible();
   await page.getByRole('button', {name: '其他', exact: true}).click();
-  await page.getByLabel('其他说明').fill('申报营业收入 2024年合计');
+  await page.locator('#chat-choice-other-input').fill('申报营业收入 2024年合计');
   await page.getByRole('button', {name: '按补充说明继续'}).click();
   await expect(page.getByText('申报营业收入合计 1.00 CNY')).toBeVisible();
-  await expect(page.getByText('置信度 中')).toBeVisible();
+  await expect(page.getByText('置信度 中')).toHaveCount(0);
   expect(submitted?.optionIds).toEqual(['opt_other_input']);
   expect(submitted?.otherText).toBe('申报营业收入 2024年合计');
 });
@@ -157,7 +157,7 @@ test('authorized engine rows render as exact metrics with smooth chart and table
         columns: [
           {key: 'c0', semanticId: 'year', label: '年度', role: 'CATEGORY', valueType: 'INTEGER', unit: null},
           {key: 'c1', semanticId: 'revenue', label: '营业收入', role: 'MEASURE', valueType: 'DECIMAL', unit: 'CNY'},
-          {key: 'c2', semanticId: 'orders', label: '订单数', role: 'MEASURE', valueType: 'INTEGER', unit: 'count'},
+          {key: 'c2', semanticId: 'cost', label: '成本', role: 'MEASURE', valueType: 'DECIMAL', unit: 'CNY'},
         ],
         rows: [
           {c0: '2023', c1: '928.5', c2: '18'},
@@ -165,8 +165,8 @@ test('authorized engine rows render as exact metrics with smooth chart and table
           {c0: '2025', c1: '1468.25', c2: '29'},
         ],
         categoryKey: 'c0',
-        series: [{key: 'c1', label: '营业收入', unit: 'CNY'}, {key: 'c2', label: '订单数', unit: 'count'}],
-        preferredView: 'line',
+        series: [{key: 'c1', label: '营业收入', unit: 'CNY'}, {key: 'c2', label: '成本', unit: 'CNY'}],
+        preferredView: 'line', availableViews: ['table', 'bar', 'line'],
         truncated: false, rowCount: 3,
       }],
     },
@@ -219,8 +219,10 @@ test('ontology explanations show definition tables and keep the answer beginning
   await page.goto('/studio/?view=chat');
   await page.getByLabel('业务问题').fill('有哪些数据可问?');
   await page.getByRole('button',{name:'发送',exact:true}).click();
-  await expect(page.getByText('本体说明 · AI 解读，非数据查询结果',{exact:true})).toBeInViewport();
+  await expect(page.getByText('本体说明 · AI 解读',{exact:true})).toBeInViewport();
   await expect(page.getByText('可以围绕当前库存模型提问。',{exact:true})).toBeInViewport();
+  await expect(page.locator('.ontology-catalog')).not.toHaveAttribute('open', '');
+  await page.locator('.ontology-catalog > summary').click();
   await expect(page.getByRole('cell',{name:'当前版本声明的库存口径',exact:true})).toBeVisible();
   expect(await page.locator('.ontology-catalog > .evidence-table-wrap').evaluate(e=>e.getBoundingClientRect().height)).toBeLessThanOrEqual(361);
   await page.getByRole('button', {name: '查看定义'}).click();
@@ -349,7 +351,7 @@ test('chat history drawer lists past conversations and switches active conversat
 
   await page.getByRole('button', {name: '历史会话'}).click();
   await expect(page.getByText('当前', {exact: true})).toBeVisible();
-  await page.getByRole('button', {name: '关闭历史会话'}).click();
+  await page.getByRole('button', {name: '关闭'}).click();
 
   // Continue conversation in the loaded historical session
   let continuedReq: {message?: string; conversationId?: string} | null = null;
@@ -372,4 +374,3 @@ test('chat history drawer lists past conversations and switches active conversat
   expect(continuedReq?.conversationId).toBe(conv1);
   expect(continuedReq?.message).toBe('前三的供应商是谁？');
 });
-

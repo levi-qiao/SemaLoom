@@ -98,6 +98,9 @@
   - id: reviewStatus
     valueType: STRING
     label: 模拟流转状态
+    values:
+    - id: PENDING
+      label: 待处理（模拟）
   description: 报告按文件和年度区分；reviewStatus 完全来自本地 mock，不是远程审计复核结果。
 - apiVersion: semaloom/v0.1
   version: 1.0.0
@@ -126,9 +129,27 @@
   - id: currentStatus
     valueType: STRING
     label: 本期抽取状态
+    values:
+    - id: observed
+      label: 已取得数值
+    - id: not_disclosed
+      label: 来源未披露
+    - id: extraction_failed
+      label: 抽取未成功
+    - id: not_evaluated
+      label: 尚未抽取
   - id: priorStatus
     valueType: STRING
     label: 上期抽取状态
+    values:
+    - id: observed
+      label: 已取得数值
+    - id: not_disclosed
+      label: 来源未披露
+    - id: extraction_failed
+      label: 抽取未成功
+    - id: not_evaluated
+      label: 尚未抽取
   description: 保留来源抽取状态，不将 extraction_failed、not_disclosed 或 not_evaluated 解释为零。
 - apiVersion: semaloom/v0.1
   version: 1.0.0

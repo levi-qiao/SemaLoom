@@ -5,13 +5,16 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+import pytest
 from sqlalchemy import text
 
 from semaloom.app.chat.choices import prepare_turn, try_direct_turn
 from semaloom.app.chat.intent import TurnIntent
+from semaloom.app.chat.tools import SemanticTools
 from semaloom.core.semantic_query import (
     ComparisonExpr,
     FilterAtom,
+    GroupByItem,
     MetricRef,
     SemanticQuery,
     TypedValue,
@@ -79,6 +82,29 @@ def test_status_dictionary_filters_open_orders(procurement_query: Any) -> None: 
     result = prepare_turn(procurement_query, ACTOR, "未关闭订单金额合计")
     assert result.get("status") == "READY"
     assert result["result"]["values"][0]["value"] == "175.0100"
+
+
+def test_link_id_cannot_be_used_as_model_group_field(procurement_query: Any) -> None:  # noqa: F811
+    query = SemanticQuery(
+        api_version="semaloom/v0.1",
+        metrics=(MetricRef(id="procurement.orderAmount", aggregation="SUM"),),
+        group_by=(GroupByItem(id="procurement.orderSupplier"),),
+    )
+    gateway = SemanticTools(
+        procurement_query,
+        ACTOR,
+        user_message="按供应商名称汇总采购金额，从高到低排名",  # noqa: RUF001
+    )
+    with pytest.raises(ValueError, match="GROUP_BY_REQUIRES_PROPERTY_NOT_LINK_ID"):
+        gateway.call("prepare_semantic_query", {"query": query.model_dump(mode="json")})
+    result = prepare_turn(
+        procurement_query,
+        ACTOR,
+        "按供应商名称汇总采购金额，从高到低排名",  # noqa: RUF001
+        query,
+    )
+    assert result["status"] == "UNSUPPORTED"
+    assert result["errorCode"] == "INVALID_PROPERTIES"
 
 
 def test_category_dictionary_filters_warehouse(warehouse: Any) -> None:  # noqa: F811
@@ -161,7 +187,7 @@ def test_period_over_period_compares_two_years(financial_query: Any) -> None:  #
     assert comparison.get("currentYear") == 2025
     assert comparison.get("priorYear") == 2024
     assert Decimal(comparison["value"]) > 0
-    chat = prepare_turn(financial_query, ACTOR, "2025年选定申报利润总额环比")
+    chat = prepare_turn(financial_query, ACTOR, "2025年选定申报利润总额合计环比")
     assert chat.get("status") == "READY"
     assert "较上年同期" in chat["text"]
 

@@ -8,10 +8,26 @@ from typing import Any
 import pytest
 from ops.ai.evaluate_chat import verdict
 
+from semaloom.app.bootstrap import compile_examples
+from semaloom.app.chat.intent import TurnIntent
 from semaloom.app.chat.tools import SemanticTools
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
 from semaloom.sdk import compile_paths
+
+
+def test_sort_direction_does_not_become_a_dictionary_filter() -> None:
+    intent = TurnIntent.read(
+        "按供应商名称汇总采购金额，从高到低排名",  # noqa: RUF001
+        compile_examples(),
+    )
+    assert intent.dimension_filters == ()
+
+
+def test_explicit_short_value_still_works_when_its_field_is_named() -> None:
+    intent = TurnIntent.read("交货风险高的采购金额合计", compile_examples())
+    assert len(intent.dimension_filters) == 1
+    assert intent.dimension_filters[0].stored == "HIGH"
 
 
 @pytest.fixture

@@ -76,6 +76,14 @@ uv run semaloom serve --host 127.0.0.1 --port 8000
 
 provider 端点来自用户配置，调用已验证 `/models` 存在的 `qwen3.7-plus`。保留 Token Plan 的 key/URL 配对，不自动改到按量计费。其 OpenAI-compatible 接入方式与配对要求见 [百炼官方说明](https://help.aliyun.com/zh/model-studio/more-tools)。API key 仅在服务端；不经前端表单传输、不回显、不进入 source control。
 
+### 可选 Jev 决策钩子
+
+设置服务端环境变量 `TYPESAFE_API_KEY` 后，harness 使用官方 `@typesafe-ai/sdk`，把用户问题、Pi 有界上下文摘要、当前本体目录投影、locale 和实时工具 Schema 交给 Jev 做 typed route/scope 判断。它不接收数据库凭证和物理映射，不产生业务事实，也不能绕过 Python 授权与 typed request 校验。未设置时完全不调用该外部服务。
+
+`SEMALOOM_JEV_MODE=shadow` 是默认值：判断只影响工具排序和模型上下文。完成领域及语言评测后可设为 `enforce`，此时 Pi 的 `beforeToolCall` 只对首个高阈值路由分歧做一次可恢复拦截。`SEMALOOM_JEV_MIN_CONFIDENCE` 默认 `0.85`，只在内部使用；页面不展示概率。可用 `TYPESAFE_DEFAULT_MODEL` 固定经过评测的模型，`TYPESAFE_BASE_URL` 仅接受 HTTPS。任何 Jev 超时、限流或错误都会回到原 Pi 路径。
+
+浏览器发送用户当前选择的 locale；服务端优先按当前消息的 Unicode 文字特征选择回答语言，纯编号等无法判断语言的输入才回退到该 locale。本体业务名称仍来自发布定义。当前提供 `zh-CN` 与 `en` 的应用文案、补充卡片和确定性结果摘要；通用 system prompt 与工具说明统一使用英文。新增语言只增加资源与评测，不修改领域判断代码。
+
 `harness/provider.mjs` 是模型协议替换位置；默认使用 pi-ai 的 OpenAI-compatible 实现。更换同接口服务需检查兼容参数，不能假定所有厂商接受 Qwen 的 `enable_thinking`。不会为了换模型改业务 Runtime 或 Rule。
 
 wheel 含可选 harness 源码和锁文件，不包含 node_modules。仅开启聊天时需 Node >=22.19，并在 wheel 内 `semaloom/app/chat/harness` 目录运行 pnpm 安装；也可以用 `SEMALOOM_CHAT_WORKER` 指向已安装依赖的独立 harness/worker.mjs。原 Python-only 运行方式保持可用。
@@ -103,3 +111,9 @@ wheel 含可选 harness 源码和锁文件，不包含 node_modules。仅开启�
 **Agent C：页面体验**
 
 > 验收 /studio/?view=chat，先读 AGENTS.md、docs/DESIGN.md 和 docs/chat-harness.md。检查首次进入、连续追问、刷新恢复、新建、停止、失败重试、小屏和键盘输入；检查 AI 解读与引擎事实卡区分、Rule 定义不冒充 Claim 结果、外部 Markdown 图片不加载。优先沿用 frontend/tests/chat.spec.ts 的离线接口，不批量消耗模型额度。提交缺陷复现步骤及截图位置。
+
+## 补充信息与动态组件（2026-09-20）
+
+Chat 与引擎共用缺年度/缺统计方式的补充卡片；已移除默认年度、默认合计及置信度评分。模型可通过已有工具的 view/views 提交展示偏好，服务端投影仍拥有事实数据。当前组件支持文字、数值卡、表格、分类柱图、时间折线与已声明关系图，具体约束见 [契约](spec/semantic-contract-v0.1.md#集合统计与浏览器来源表格增补)。不新增模型循环、上下文拼接或第二套计算引擎。自由说明卡片提交后通过原 Chat 入口继续，模型不会获得新的执行权限。
+
+完整合成财务数据与可重复问题见 [财务 demo](../examples/financial-review/fixtures/README.md)。独立真实模型浏览器验证可显式设置 `SEMALOOM_E2E_CHAT_CONFIG`；默认测试仍为 faux provider，不消费模型服务。

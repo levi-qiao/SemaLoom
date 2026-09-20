@@ -5,19 +5,19 @@ import { apiHeaders, checkedJson, errorDetail, type StudioSession } from "./api"
 
 import { EvidenceCard, type Evidence } from "./EvidenceCard";
 import { IconHistory, IconSend, IconSparkle } from "./icons";
+import { useI18n, type Locale } from "./i18n";
 const ResultPresentation = lazy(() => import("./ResultPresentation").then(module => ({ default: module.ResultPresentation })));
-type Confidence = { score: number; level: string; label: string; factors: { code: string; detail: string }[] };
 type FollowUp = { label: string; message: string };
 type Answer = {
   textOrigin?: string; text: string; kind: string; releaseDigest: string; evidence: Evidence[];
-  confidence?: Confidence; followUps?: FollowUp[]; presentation?: unknown;
+  followUps?: FollowUp[]; presentation?: unknown;
 };
 type Turn = { question: string; answer?: Answer };
 type ChoiceOption = { id: string; label: string; explanation: string; choice?: { kind: string; id: string } };
 type ChoiceQuestion = { questionId: string; revision: number; slot: string; prompt: string; reason: string; control?: "CARDS" | "SELECT"; options: ChoiceOption[] };
 type ConversationSummary = { id: string; releaseDigest: string; updatedAt: string; turnCount: number; title: string };
 
-function formatHistoryTime(iso: string): string {
+function formatHistoryTime(iso: string, locale: Locale): string {
   if (!iso) return "";
   try {
     const d = new Date(iso);
@@ -25,7 +25,7 @@ function formatHistoryTime(iso: string): string {
     const day = d.getDate();
     const h = String(d.getHours()).padStart(2, "0");
     const min = String(d.getMinutes()).padStart(2, "0");
-    return `${m}月${day}日 ${h}:${min}`;
+    return locale === "en" ? `${m}/${day} ${h}:${min}` : `${m}月${day}日 ${h}:${min}`;
   } catch {
     return iso.slice(0, 16);
   }
@@ -36,7 +36,7 @@ function choiceControl(question: ChoiceQuestion): "CARDS" | "SELECT" {
   const kinds = new Set(question.options.map(item => item.choice?.kind).filter(kind => kind && kind !== "ABORT" && kind !== "OTHER"));
   return kinds.size > 0 && [...kinds].every(kind => ["YEAR", "DIMENSION_VALUE", "CLAIM", "SUBJECT"].includes(kind ?? "")) ? "SELECT" : "CARDS";
 }
-const messages: Record<string, string> = {
+const messagesZh: Record<string, string> = {
   CHAT_NOT_CONFIGURED: "尚未配置模型连接。请在服务端配置 provider 后重新启动。",
   HARNESS_NOT_INSTALLED: "pi 模块依赖尚未安装，请完成 harness 安装后重试。",
   CHAT_HISTORY_SAVE_FAILED: "分析结果未能保存，本次未交付成功。请重试。",
@@ -49,14 +49,36 @@ const messages: Record<string, string> = {
   FORBIDDEN: "当前身份不能读取业务数据，请切换到有分析权限的身份。",
   SESSION_EXPIRED: "会话已失效，请重新登录。",
 };
-const toolNames: Record<string, string> = {
+const messagesEn: Record<string, string> = {
+  CHAT_NOT_CONFIGURED: "No model provider is configured. Configure it on the server and restart.",
+  HARNESS_NOT_INSTALLED: "The Pi harness is not installed.",
+  CHAT_HISTORY_SAVE_FAILED: "The result could not be saved. Please retry.",
+  CHAT_BUSY: "This conversation is already running, or the service is busy.",
+  CHAT_TIMEOUT: "The analysis timed out. Narrow the question and retry.",
+  MODEL_REQUEST_FAILED: "The model request failed. Check the provider or retry later.",
+  ANSWER_NOT_VALIDATED: "The model did not submit a verifiable answer. Rephrase and retry.",
+  RELEASE_CHANGED_START_NEW_CHAT: "The semantic release changed. Start a new conversation.",
+  CONTEXT_LIMIT_START_NEW_CHAT: "This conversation reached its context limit. Start a new one.",
+  FORBIDDEN: "This identity cannot read the requested business data.",
+  SESSION_EXPIRED: "The session expired. Sign in again.",
+};
+const toolNamesZh: Record<string, string> = {
   list_semantics: "浏览当前业务模型", search_semantics: "查找业务定义", describe_semantic: "确认业务口径",
   find_objects: "定位业务对象", semantic_query: "读取指标与事实",
   prepare_semantic_query: "准备语义分析",
   evaluate_claim: "执行确定性规则", present_answer: "核对回答证据",
 };
+const toolNamesEn: Record<string, string> = {
+  list_semantics: "Browsing ontology", search_semantics: "Searching business definitions",
+  describe_semantic: "Confirming semantic definition", find_objects: "Locating business objects",
+  semantic_query: "Reading metrics and facts", prepare_semantic_query: "Preparing semantic analysis",
+  evaluate_claim: "Evaluating deterministic rule", present_answer: "Validating evidence",
+};
 
 export function ChatPage({ session }: { session: StudioSession }) {
+  const { locale, t } = useI18n();
+  const messages = locale === "en" ? messagesEn : messagesZh;
+  const toolNames = locale === "en" ? toolNamesEn : toolNamesZh;
   const storageKey = `semaloom.chat.${session.tenant}.${session.subject}`;
   const [conversation, setConversation] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -161,20 +183,24 @@ export function ChatPage({ session }: { session: StudioSession }) {
       setError(messages[errorDetail(cause)] ?? errorDetail(cause));
     }
   }
-  async function send(preset?: string) {
+  async function send(preset?: string, continuePending = false) {
     const question = (preset ?? text).trim();
-    if (!question || busy || !config?.ready) return;
+    if (!question || (busy && !continuePending) || !config?.ready) return;
     const controller = new AbortController(); abort.current = controller;
-    setText(""); setError(""); setBusy(true); setPhase("正在理解问题");
-    setTurns(previous => [...previous, { question }]);
+    setText(""); setError(""); setBusy(true); setPhase(locale === "en" ? "Understanding the question" : "正在理解问题");
+    setTurns(previous => [...(continuePending && !previous.at(-1)?.answer ? previous.slice(0, -1) : previous), { question }]);
     let answered = false;
     try {
       const response = await fetch("/v0.1/chat/turns", {
         method: "POST", headers: apiHeaders(), signal: controller.signal,
-        body: JSON.stringify({ message: question, conversationId: conversation }),
+        body: JSON.stringify({
+          message: question,
+          conversationId: conversation,
+          locale,
+        }),
       });
       if (!response.ok) await checkedJson(response);
-      if (!response.body) throw new Error("无法读取响应");
+      if (!response.body) throw new Error(locale === "en" ? "The response body is unavailable" : "无法读取响应");
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
@@ -188,7 +214,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
           if (item.type === "start") {
             setConversation(item.conversationId); sessionStorage.setItem(storageKey, item.conversationId);
           } else if (item.type === "progress") {
-            setPhase(item.stage === "tool" ? toolNames[item.name] ?? "读取业务信息" : item.outcome === "error" ? `正在修正工具请求（${item.code}）` : "正在组织分析");
+            setPhase(item.stage === "tool" ? toolNames[item.name] ?? (locale === "en" ? "Reading business information" : "读取业务信息") : item.outcome === "error" ? (locale === "en" ? `Correcting tool request (${item.code})` : `正在修正工具请求（${item.code}）`) : (locale === "en" ? "Preparing analysis" : "正在组织分析"));
           } else if (item.type === "choice") {
             answered = true;
             setPending({ question: item.question, originalQuestion: item.originalQuestion ?? question });
@@ -199,9 +225,9 @@ export function ChatPage({ session }: { session: StudioSession }) {
           } else if (item.type === "error") throw new Error(messages[item.code] ?? item.code);
         }
       }
-      if (!answered) throw new Error("连接已结束，但未收到完整回答，请重试。");
+      if (!answered) throw new Error(locale === "en" ? "The connection ended without a complete answer." : "连接已结束，但未收到完整回答，请重试。");
     } catch (cause) {
-      setError(controller.signal.aborted ? "已停止本次分析。" : messages[errorDetail(cause)] ?? errorDetail(cause));
+      setError(controller.signal.aborted ? (locale === "en" ? "Analysis stopped." : "已停止本次分析。") : messages[errorDetail(cause)] ?? errorDetail(cause));
       setText(question);
       if (!answered) setTurns(previous => previous.slice(0, -1));
     } finally { setBusy(false); setPhase(""); abort.current = null; }
@@ -223,6 +249,11 @@ export function ChatPage({ session }: { session: StudioSession }) {
         }),
       }).then(checkedJson);
       if (result.status === "ABORTED") { setPending(null); setPicked(""); setOtherText(""); return; }
+      if (result.status === "CONTINUE" && result.message) {
+        setPending(null); setPicked(""); setOtherText("");
+        await send(result.message, true);
+        return;
+      }
       if (result.status === "NEEDS_INPUT" && result.question) {
         setPending({ question: result.question, originalQuestion: pending.originalQuestion });
         setPicked(""); setOtherText("");
@@ -232,10 +263,10 @@ export function ChatPage({ session }: { session: StudioSession }) {
         const answer = {
           kind: result.status === "UNSUPPORTED" ? "unsupported" : (result.kind ?? "answer"),
           textOrigin: result.textOrigin ?? "ENGINE",
-          text: result.text ?? "已按发布口径完成计算。",
+          text: result.text ?? (locale === "en" ? "Calculated from the published semantic definition." : "已按发布口径完成计算。"),
           releaseDigest: result.plan?.releaseDigest ?? result.releaseDigest ?? "",
           evidence: result.evidence ?? [{ id: "e1", tool: "prepare_semantic_query", result: result.population ?? result.result ?? result }],
-          confidence: result.confidence, followUps: result.followUps ?? [], presentation: result.presentation,
+          followUps: result.followUps ?? [], presentation: result.presentation,
         };
         setTurns(previous => {
           const last = previous[previous.length - 1];
@@ -248,85 +279,84 @@ export function ChatPage({ session }: { session: StudioSession }) {
         return;
       }
       if (result.status === "SOURCE_ERROR" || result.status === "UNSUPPORTED") {
-        setError(result.errorMessage ?? result.errorCode ?? "当前无法确定结果，请核对条件或稍后重试。");
+        setError(result.errorMessage ?? result.errorCode ?? (locale === "en" ? "The result cannot be determined. Check the scope or retry later." : "当前无法确定结果，请核对条件或稍后重试。"));
       }
     } catch (cause) {
       setError(messages[errorDetail(cause)] ?? errorDetail(cause));
     } finally { setBusy(false); }
   }
 
-  return <section className="chat-page" aria-label="业务问答">
+  return <section className="chat-page" aria-label={t("view.chat.title")}>
     <div className="chat-toolbar">
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <span style={{ display: "grid", placeItems: "center", width: 28, height: 28, borderRadius: 6, background: "var(--accent-subtle)", color: "var(--accent)" }}>
           <IconSparkle size={15} />
         </span>
         <div>
-          <strong>业务分析助手</strong>
-          <small>{config?.model ?? "正在检查连接"} · 基于当前运行模型</small>
+          <strong>{t("chat.title")}</strong>
+          <small>{config?.model ?? t("chat.checking")} · {t("chat.modelSuffix")}</small>
         </div>
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <button className="secondary" type="button" onClick={() => void openHistory()} disabled={busy}>
           <IconHistory size={14} style={{ marginRight: 4, verticalAlign: "middle" }} />
-          历史会话
+          {t("chat.history")}
         </button>
-        <button className="secondary" onClick={fresh} disabled={busy}>新建对话</button>
+        <button className="secondary" onClick={fresh} disabled={busy}>{t("chat.new")}</button>
       </div>
     </div>
     <div className="chat-history" aria-live="polite">
       {!turns.length && !pending && <div className="chat-empty">
         <div className="chat-empty-badge">
           <IconSparkle size={13} />
-          <span>企业级语义智能体</span>
+          <span>{t("chat.empty.eyebrow")}</span>
         </div>
-        <h2>从一个业务问题开始</h2>
-        <p className="chat-empty-sub">基于已发布的语义本体模型与确定性计算引擎，实时穿透业务对象、聚合度量与合规判断。</p>
+        <h2>{t("chat.empty.title")}</h2>
+        <p className="chat-empty-sub">{t("chat.empty.description")}</p>
         <div className="chat-empty-grid">
-          <button type="button" className="chat-empty-card" onClick={() => setText("当前有哪些可分析的业务对象？")}>
-            <span className="chat-empty-card-tag">对象与实体</span>
-            <strong className="chat-empty-card-title">当前有哪些可分析的业务对象？</strong>
-            <small className="chat-empty-card-desc">浏览系统已声明的实体概念、身份键与关键业务属性</small>
+          <button type="button" className="chat-empty-card" onClick={() => setText(t("chat.suggestion.objects.question"))}>
+            <span className="chat-empty-card-tag">{t("chat.suggestion.objects.tag")}</span>
+            <strong className="chat-empty-card-title">{t("chat.suggestion.objects.question")}</strong>
+            <small className="chat-empty-card-desc">{t("chat.suggestion.objects.description")}</small>
           </button>
-          <button type="button" className="chat-empty-card" onClick={() => setText("当前模型有哪些业务规则和适用范围？")}>
-            <span className="chat-empty-card-tag">规则与合规</span>
-            <strong className="chat-empty-card-title">当前模型有哪些业务规则和适用范围？</strong>
-            <small className="chat-empty-card-desc">查验确定性规则的判断标准、适用条件与前置依赖</small>
+          <button type="button" className="chat-empty-card" onClick={() => setText(t("chat.suggestion.rules.question"))}>
+            <span className="chat-empty-card-tag">{t("chat.suggestion.rules.tag")}</span>
+            <strong className="chat-empty-card-title">{t("chat.suggestion.rules.question")}</strong>
+            <small className="chat-empty-card-desc">{t("chat.suggestion.rules.description")}</small>
           </button>
-          <button type="button" className="chat-empty-card" onClick={() => setText("各供应商按采购金额排名前五的是哪些？")}>
-            <span className="chat-empty-card-tag">度量与排序</span>
-            <strong className="chat-empty-card-title">各供应商按采购金额排名前五的是哪些？</strong>
-            <small className="chat-empty-card-desc">执行多维聚合与排序，由引擎提供完整计算溯源</small>
+          <button type="button" className="chat-empty-card" onClick={() => setText(t("chat.suggestion.metrics.question"))}>
+            <span className="chat-empty-card-tag">{t("chat.suggestion.metrics.tag")}</span>
+            <strong className="chat-empty-card-title">{t("chat.suggestion.metrics.question")}</strong>
+            <small className="chat-empty-card-desc">{t("chat.suggestion.metrics.description")}</small>
           </button>
-          <button type="button" className="chat-empty-card" onClick={() => setText("企业近三年的营业收入趋势如何？")}>
-            <span className="chat-empty-card-tag">时序分析</span>
-            <strong className="chat-empty-card-title">企业近三年的营业收入趋势如何？</strong>
-            <small className="chat-empty-card-desc">生成年度对比与趋势图表，数据与口径双向对应</small>
+          <button type="button" className="chat-empty-card" onClick={() => setText(t("chat.suggestion.time.question"))}>
+            <span className="chat-empty-card-tag">{t("chat.suggestion.time.tag")}</span>
+            <strong className="chat-empty-card-title">{t("chat.suggestion.time.question")}</strong>
+            <small className="chat-empty-card-desc">{t("chat.suggestion.time.description")}</small>
           </button>
         </div>
       </div>}
       {turns.map((turn, index) => <article className="chat-turn" key={index}>
-        <div className="chat-question"><small>你</small><p>{turn.question}</p></div>
-        {turn.answer && <div className="chat-answer" ref={index === turns.length - 1 ? answerStart : undefined}><small>{turn.answer.kind === "explanation" ? "本体说明 · AI 解读，非数据查询结果" : turn.answer.textOrigin === "ENGINE" ? "引擎结果说明" : "AI 解读"}</small>{turn.answer.kind === "explanation" && <p className="evidence-note">以下解释基于本体定义；尚未核查实际记录、年份覆盖或来源可用性。以定义证据表中的口径为准。</p>}
-          {turn.answer.confidence && <p className="chat-confidence" data-level={turn.answer.confidence.level}>置信度 {turn.answer.confidence.label}<small>{turn.answer.confidence.factors.map(item => item.detail).join("；")}</small></p>}
+        <div className="chat-question"><small>{t("chat.you")}</small><p>{turn.question}</p></div>
+        {turn.answer && <div className="chat-answer" ref={index === turns.length - 1 ? answerStart : undefined}><small>{turn.answer.kind === "explanation" ? t("chat.answer.definition") : turn.answer.textOrigin === "ENGINE" ? t("chat.answer.engine") : t("chat.answer.ai")}</small>{turn.answer.kind === "explanation" && <p className="evidence-note">{t("chat.definitionNotice")}</p>}
           <div className="chat-markdown"><Markdown remarkPlugins={[remarkGfm]} disallowedElements={["img"]}>{turn.answer.text}</Markdown></div>
-          <Suspense fallback={<div className="result-loading" role="status">正在整理可视化结果…</div>}>
+          <Suspense fallback={<div className="result-loading" role="status">{t("chat.visualizing")}</div>}>
             <ResultPresentation presentation={turn.answer.presentation} />
           </Suspense>
-          <div className="chat-audit-label"><span>核验与来源</span><small>展开查看口径、逐项计算与物理来源</small></div>
+          <div className="chat-audit-label"><span>{t("chat.audit.title")}</span><small>{t("chat.audit.description")}</small></div>
           <div className="chat-evidence">{turn.answer.evidence.map(item => <EvidenceCard key={item.id} evidence={item} />)}</div>
-          {!!turn.answer.followUps?.length && <div className="chat-followups" aria-label="继续分析">{turn.answer.followUps.map(item => <button type="button" className="secondary" key={item.label} disabled={busy} onClick={() => void send(item.message)}>{item.label}</button>)}</div>}
-          <small className="chat-version">语义版本 {turn.answer.releaseDigest.slice(0, 12)} · 数值与判断以引擎结果为准</small>
+          {!!turn.answer.followUps?.length && <div className="chat-followups" aria-label={t("chat.followUps")}>{turn.answer.followUps.map(item => <button type="button" className="secondary" key={item.label} disabled={busy} onClick={() => void send(item.message)}>{item.label}</button>)}</div>}
+          <small className="chat-version">{t("chat.version", { digest: turn.answer.releaseDigest.slice(0, 12) })}</small>
         </div>}
       </article>)}
       {pending && <form className="chat-choice" aria-label="业务选择" onSubmit={event => { event.preventDefault(); void submitChoice(); }}>
         <div className="chat-choice-header">
-          <span className="chat-choice-badge">业务口径确认</span>
+          <span className="chat-choice-badge">{t("chat.choice.badge")}</span>
           <strong>{pending.question.prompt}</strong>
           <p className="chat-choice-reason">{pending.question.reason}</p>
         </div>
         {choiceControl(pending.question) === "SELECT" ? <>
-          <label className="chat-choice-select"><span>请选择</span>
+          <label className="chat-choice-select"><span>{t("chat.choice.select")}</span>
             <select aria-label={pending.question.prompt} value={picked} disabled={busy}
               onChange={event => {
                 const value = event.target.value;
@@ -335,19 +365,19 @@ export function ChatPage({ session }: { session: StudioSession }) {
                 if (option?.choice?.kind === "OTHER") { setPicked(value); return; }
                 void submitChoice(value);
               }}>
-              <option value="">请选择…</option>
+              <option value="">{t("common.select")}…</option>
               {pending.question.options.map(option => (
                 <option key={option.id} value={option.id}>{option.label}</option>
               ))}
             </select>
           </label>
           {pending.question.options.find(item => item.id === picked)?.choice?.kind === "OTHER" ? <div className="chat-choice-other chat-choice-other-standalone">
-            <label className="chat-choice-other-label" htmlFor="chat-choice-other-input">补充说明</label>
-            <textarea id="chat-choice-other-input" aria-label="其他说明" value={otherText} maxLength={400} disabled={busy}
-              placeholder="请补充业务条件或口径…" onChange={event => setOtherText(event.target.value)} />
+            <label className="chat-choice-other-label" htmlFor="chat-choice-other-input">{t("chat.choice.other")}</label>
+            <textarea id="chat-choice-other-input" aria-label={t("chat.choice.other")} value={otherText} maxLength={400} disabled={busy}
+              placeholder={t("chat.choice.otherPlaceholder")} onChange={event => setOtherText(event.target.value)} />
             <div className="chat-choice-other-footer">
               <small>{otherText.length} / 400</small>
-              <button className="primary" type="submit" disabled={busy || !otherText.trim()}>按补充说明继续</button>
+              <button className="primary" type="submit" disabled={busy || !otherText.trim()}>{t("chat.choice.continue")}</button>
             </div>
           </div> : null}
         </> : <div className="chat-choice-cards" role="radiogroup" aria-label={pending.question.prompt}>
@@ -363,12 +393,12 @@ export function ChatPage({ session }: { session: StudioSession }) {
                 </div>
               </button>
               {isSelected && <div className="chat-choice-other">
-                <label className="chat-choice-other-label" htmlFor="chat-choice-other-input">补充说明</label>
-                <textarea id="chat-choice-other-input" aria-label="其他说明" value={otherText} maxLength={400} disabled={busy}
-                  placeholder="例如：只要 2024 年平均值，或指定某个特定口径…" onChange={event => setOtherText(event.target.value)} />
+                <label className="chat-choice-other-label" htmlFor="chat-choice-other-input">{t("chat.choice.other")}</label>
+                <textarea id="chat-choice-other-input" aria-label={t("chat.choice.other")} value={otherText} maxLength={400} disabled={busy}
+                  placeholder={t("chat.choice.otherPlaceholder")} onChange={event => setOtherText(event.target.value)} />
                 <div className="chat-choice-other-footer">
                   <small>{otherText.length} / 400</small>
-                  <button className="primary" type="submit" disabled={busy || !otherText.trim()}>按补充说明继续</button>
+                  <button className="primary" type="submit" disabled={busy || !otherText.trim()}>{t("chat.choice.continue")}</button>
                 </div>
               </div>}
             </div>;
@@ -389,30 +419,30 @@ export function ChatPage({ session }: { session: StudioSession }) {
     {error && <p className="chat-error" role="alert">{error}</p>}
     {config && !config.ready && <p className="chat-error">{config.enabled ? messages.HARNESS_NOT_INSTALLED : messages.CHAT_NOT_CONFIGURED}</p>}
     <form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
-      <textarea aria-label="业务问题" placeholder="输入业务问题，Enter 发送，Shift + Enter 换行" value={text} maxLength={4000} disabled={busy || !config?.ready}
+      <textarea aria-label={t("chat.question")} placeholder={t("chat.placeholder")} value={text} maxLength={4000} disabled={busy || !config?.ready}
         onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
-      {busy ? <button type="button" className="secondary" onClick={() => abort.current?.abort()}>停止分析</button>
+      {busy ? <button type="button" className="secondary" onClick={() => abort.current?.abort()}>{t("chat.stop")}</button>
         : <button className="primary" type="submit" disabled={!text.trim() || !config?.ready}>
             <IconSend size={13} style={{ marginRight: 4, verticalAlign: "middle" }} />
-            发送
+            {t("chat.send")}
           </button>}
     </form>
-    <p className="chat-footnote">来源未复核、对象不唯一或数据缺失时，会明确说明；规则成立不代表其他业务判断。</p>
+    <p className="chat-footnote">{t("chat.footnote")}</p>
     {historyOpen && (
       <div className="chat-history-drawer-backdrop" onClick={() => setHistoryOpen(false)}>
-        <aside className="chat-history-drawer" onClick={e => e.stopPropagation()} aria-label="历史会话列表">
+        <aside className="chat-history-drawer" onClick={e => e.stopPropagation()} aria-label={t("chat.history.list")}>
           <div className="chat-history-drawer-head">
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <IconHistory size={16} />
-              <strong>历史会话</strong>
+              <strong>{t("chat.history")}</strong>
             </div>
-            <button type="button" className="chat-history-close" onClick={() => setHistoryOpen(false)} aria-label="关闭历史会话">✕</button>
+            <button type="button" className="chat-history-close" onClick={() => setHistoryOpen(false)} aria-label={t("common.close")}>✕</button>
           </div>
           <div className="chat-history-drawer-body">
             {historyLoading ? (
-              <p className="chat-history-empty">正在加载历史记录…</p>
+              <p className="chat-history-empty">{t("chat.history.loading")}</p>
             ) : historyList.length === 0 ? (
-              <p className="chat-history-empty">暂无历史会话记录</p>
+              <p className="chat-history-empty">{t("chat.history.empty")}</p>
             ) : (
               <div className="chat-history-list">
                 {historyList.map(item => {
@@ -425,14 +455,14 @@ export function ChatPage({ session }: { session: StudioSession }) {
                       onClick={() => void selectConversation(item.id)}
                     >
                       <div className="chat-history-item-main">
-                        <span className="chat-history-item-title">{item.title || "未命名会话"}</span>
+                        <span className="chat-history-item-title">{item.title || t("chat.history.untitled")}</span>
                         <div className="chat-history-item-meta">
-                          <span>{item.turnCount} 轮问答</span>
+                          <span>{t("chat.history.turns", { count: item.turnCount })}</span>
                           <span>·</span>
-                          <span>{formatHistoryTime(item.updatedAt)}</span>
+                          <span>{formatHistoryTime(item.updatedAt, locale)}</span>
                         </div>
                       </div>
-                      {isActive && <span className="chat-history-active-badge">当前</span>}
+                      {isActive && <span className="chat-history-active-badge">{t("common.current")}</span>}
                     </button>
                   );
                 })}

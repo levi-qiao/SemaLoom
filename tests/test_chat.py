@@ -1,5 +1,7 @@
 """Harness boundary tests. No provider key, model call or real business data required."""
 
+# ruff: noqa: RUF001 -- fixtures intentionally exercise Chinese localized copy.
+
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from semaloom.app.bootstrap import build_services
+from semaloom.app.chat.i18n import localize_question, message_locale, normalize_locale
 from semaloom.app.chat.service import ChatService
 from semaloom.app.chat.store import ChatStore
 from semaloom.app.chat.tools import SemanticTools
@@ -19,6 +22,36 @@ from semaloom.core.results import MetricSelect
 from semaloom.runtime.auth import RequestActor
 
 ACTOR = RequestActor(tenant="tenant-a", subject="alice", roles=("analyst",))
+
+
+def test_chat_locale_normalization() -> None:
+    assert normalize_locale("en-US,en;q=0.9") == "en"
+    assert normalize_locale("zh_Hans-CN") == "zh-CN"
+    assert normalize_locale("fr-FR") == "zh-CN"
+    assert message_locale("Show annual revenue", "zh-CN") == "en"
+    assert message_locale("请查询年度收入", "en-US") == "zh-CN"
+    assert message_locale("2025", "en-US") == "en"
+
+
+def test_choice_copy_localizes_without_changing_semantic_payload() -> None:
+    question = {
+        "slot": "aggregation",
+        "prompt": "希望如何统计这个指标？",
+        "reason": "合计和平均值等计算含义不同，需要明确。",
+        "options": [
+            {
+                "id": "opt_agg_SUM",
+                "label": "合计",
+                "explanation": "合计（按当前筛选范围）",
+                "choice": {"kind": "AGGREGATION", "id": "SUM"},
+            }
+        ],
+    }
+    localized = localize_question(question, "en-US")
+    assert localized is not None
+    assert localized["prompt"] == "How should this metric be calculated?"
+    assert localized["options"][0]["label"] == "Total"  # type: ignore[index]
+    assert localized["options"][0]["choice"] == question["options"][0]["choice"]  # type: ignore[index]
 
 
 @pytest.fixture
@@ -140,7 +173,8 @@ def test_http_stream_history_and_no_key_exposure(client: TestClient) -> None:
     )
     assert (
         client.get(
-            "/v0.1/chat/conversations/" + cid, headers={"Authorization": "Bearer tenant-b-analyst"}
+            "/v0.1/chat/conversations/" + cid,
+            headers={"Authorization": "Bearer tenant-b-analyst"},
         ).status_code
         == 404
     )
@@ -158,6 +192,32 @@ def test_http_stream_history_and_no_key_exposure(client: TestClient) -> None:
         ).status_code
         == 422
     )
+
+
+def test_jev_configuration_is_server_only_and_shadow_by_default(
+    tmp_path: Path, services: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "provider.json"
+    config.write_text(json.dumps({"apiKey": "chat-key", "baseUrl": "https://example.invalid/v1"}))
+    monkeypatch.setenv("TYPESAFE_API_KEY", "decision-secret")
+    chat = ChatService(ChatStore(services.studio_drafts.engine), config)
+    status = chat.status()
+    assert status["decisionProvider"] == "TypeSafe Jev"
+    assert status["decisionMode"] == "shadow"
+    assert "decision-secret" not in json.dumps(status)
+
+
+def test_object_scope_card_uses_locale_and_ontology_labels(services: Any) -> None:
+    tools = SemanticTools(services.query, ACTOR, user_message="Show records", locale="en-US")
+    tools.object_scope_required = True
+    tools.object_scope_type = "tax.Filing"
+    result = tools._object_scope_pending()
+    assert result["waiting"] is True
+    assert tools.pending is not None
+    question = tools.pending["question"]
+    assert question["prompt"].startswith("Narrow the search scope")
+    obj = next(item for item in services.bundle.object_types if item.id == "tax.Filing")
+    assert (obj.label or obj.id) in question["prompt"]
 
 
 def test_chat_rechecks_release_and_requires_csrf(client: TestClient) -> None:
@@ -238,7 +298,7 @@ def test_save_failure_has_its_own_error_and_never_reports_success(
     response = client.post(
         "/v0.1/chat/turns",
         headers={"Authorization": "Bearer tenant-a-analyst"},
-        json={"message": "申报收入?"},
+        json={"message": "申报收入明细?"},
     )
     events = [json.loads(line) for line in response.text.splitlines()]
     assert events[-1] == {"type": "error", "code": "CHAT_HISTORY_SAVE_FAILED"}
@@ -276,7 +336,7 @@ io.on('line',line=>{
 def test_list_conversations_and_continue_conversation(client: TestClient) -> None:
     headers = {"Authorization": "Bearer tenant-a-analyst"}
     # 1. First turn direct calculation
-    res1 = client.post("/v0.1/chat/turns", headers=headers, json={"message": "采购订单总额"})
+    res1 = client.post("/v0.1/chat/turns", headers=headers, json={"message": "采购订单总额合计"})
     events1 = [json.loads(line) for line in res1.text.splitlines() if line.strip()]
     assert events1[-1]["type"] == "done"
     cid = events1[0]["conversationId"]
@@ -289,7 +349,9 @@ def test_list_conversations_and_continue_conversation(client: TestClient) -> Non
 
     # 3. Continue conversation in the same session
     res2 = client.post(
-        "/v0.1/chat/turns", headers=headers, json={"message": "各区域采购额", "conversationId": cid}
+        "/v0.1/chat/turns",
+        headers=headers,
+        json={"message": "各区域采购额合计", "conversationId": cid},
     )
     events2 = [json.loads(line) for line in res2.text.splitlines() if line.strip()]
     assert events2[-1]["type"] == "done"
@@ -298,8 +360,8 @@ def test_list_conversations_and_continue_conversation(client: TestClient) -> Non
     # 4. Check loaded session has both turns preserved
     detail = client.get(f"/v0.1/chat/conversations/{cid}", headers=headers).json()
     assert len(detail["turns"]) == 2
-    assert detail["turns"][0]["question"] == "采购订单总额"
-    assert detail["turns"][1]["question"] == "各区域采购额"
+    assert detail["turns"][0]["question"] == "采购订单总额合计"
+    assert detail["turns"][1]["question"] == "各区域采购额合计"
 
     # 5. Check listing now reflects 2 turns
     listing2 = client.get("/v0.1/chat/conversations", headers=headers).json()

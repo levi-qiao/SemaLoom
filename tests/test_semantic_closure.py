@@ -45,7 +45,13 @@ def test_all_metrics_and_groups_are_answered(population_query: Any) -> None:  # 
     narrative = semantic_summary(population_query.bundle, query, result)
     for value in result.values:
         assert value["value"] in narrative
-        assert value["grain"]["companyId"] in narrative
+        company_id = value["grain"]["companyId"]
+        company_label = value.get("labels", {}).get("companyId")
+        if company_label:
+            assert company_label in narrative
+            assert f"（{company_id}）" not in narrative
+        else:
+            assert company_id in narrative
     assert {value["metric"] for value in result.values} == {ref.id for ref in query.metrics}
     assert result.scope["consistency"] == "SOURCE_REPEATABLE_READ"
 
@@ -190,9 +196,11 @@ def test_save_failure_keeps_pending_choice_retryable(
     _load_declaration(engine)
     store = ChatStore(engine)
     row = store.create(ACTOR, population_query.bundle.digest)
-    pending = prepare_turn(population_query, ACTOR, "收入多少？")
+    pending = prepare_turn(population_query, ACTOR, "2024年收入合计")
     assert pending["status"] == "NEEDS_INPUT"
-    store.save_pending(ACTOR, row, pending["question"], {"query": pending["query"]}, "收入多少？")
+    store.save_pending(
+        ACTOR, row, pending["question"], {"query": pending["query"]}, "2024年收入合计"
+    )
     question = pending["question"]
     metric_opt = next(
         item["id"] for item in question["options"] if item["choice"]["kind"] == "METRIC"
@@ -271,7 +279,8 @@ def test_authoritative_prose_cannot_invent_rule_truth(population_query: Any) -> 
         "present_answer",
         {"kind": "answer", "text": "所有审计全部通过,绝对合规", "evidenceIds": ["e1"]},
     )
-    assert "UNKNOWN" in gateway.answer["text"]
+    assert "数据不足以判断" in gateway.answer["text"]
+    assert gateway.answer["evidence"][0]["result"]["claim"]["truth"] == "UNKNOWN"
     assert "绝对合规" not in gateway.answer["text"]
     assert gateway.answer["textOrigin"] == "ENGINE"
 
@@ -330,5 +339,7 @@ def test_renamed_business_year_needs_no_core_special_case(population_query: Any)
     )
     result = prepare_turn(population_query, ACTOR, "2024年选定申报利润总额合计")
     assert result["answerReady"]
-    assert "fiscalCycle" in result["text"]
+    assert "fiscalCycle" in str(result["query"]["filters"])
+    assert "2024" in result["text"]
+    assert "fiscalCycle" not in result["text"]
     assert Decimal(result["result"]["values"][0]["value"]) == Decimal("300.03")
