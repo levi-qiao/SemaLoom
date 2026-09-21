@@ -19,6 +19,8 @@ dist/
 !.env.example
 *.log
 node_modules/
-frontend/dist/
-frontend/test-results/
+
+# Local Playwright / probe output. One-off screenshots and live specs stay out of the tree.
 test-results/
+playwright-report/
+blob-report/
