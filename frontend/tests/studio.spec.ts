@@ -27,6 +27,8 @@ test("model, source and definition workflow is complete", async ({ page }) => {
   await expect(page.getByRole("button", { name: /采购订单/ })).toHaveCount(0);
   await page.getByLabel("领域").selectOption("procurement");
   await expect(page.getByRole("button", { name: /采购订单/ })).toBeVisible();
+  await page.getByRole("button", { name: /采购订单/ }).click();
+  await expect(page.getByRole("complementary", { name: "采购订单" })).toBeVisible();
   await page.getByRole("button", { name: /属性与来源/ }).click();
   await expect(page.getByText("一行属性对应一个表字段或接口字段")).toBeVisible();
   await expect(page.getByRole("button", { name: "添加表 / 接口" })).toBeVisible();
