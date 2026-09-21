@@ -207,6 +207,48 @@ def test_jev_configuration_is_server_only_and_shadow_by_default(
     assert "decision-secret" not in json.dumps(status)
 
 
+def test_jev_configuration_keeps_deterministic_follow_up_path(
+    tmp_path: Path, services: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "provider.json"
+    config.write_text(json.dumps({"apiKey": "chat-key", "baseUrl": "https://example.invalid/v1"}))
+    monkeypatch.setenv("TYPESAFE_API_KEY", "decision-secret")
+    chat = ChatService(ChatStore(services.studio_drafts.engine), config)
+    query = services.query_active("tenant-a")
+    row = chat.store.create(ACTOR, query.bundle.digest)
+
+    async def run() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        first = [
+            json.loads(item)
+            async for item in chat.stream(
+                row,
+                "2024年申报收入合计",
+                query,
+                ACTOR,
+                lambda: ACTOR,
+            )
+        ]
+        continued_row = chat.store.load(ACTOR, row["id"])
+        second = [
+            json.loads(item)
+            async for item in chat.stream(
+                continued_row,
+                "那查一下2026年",
+                query,
+                ACTOR,
+                lambda: ACTOR,
+            )
+        ]
+        await chat.close()
+        return first, second
+
+    first, second = asyncio.run(run())
+    assert any(item["type"] == "answer" for item in first)
+    answer = next(item["answer"] for item in second if item["type"] == "answer")
+    assert answer["evidence"][0]["result"]["scope"]["reason"] == "EMPTY_POPULATION"
+    assert not any(item["type"] == "error" for item in [*first, *second])
+
+
 def test_object_scope_card_uses_locale_and_ontology_labels(services: Any) -> None:
     tools = SemanticTools(services.query, ACTOR, user_message="Show records", locale="en-US")
     tools.object_scope_required = True

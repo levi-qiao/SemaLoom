@@ -22,6 +22,7 @@
   - id: taxYear
     valueType: INTEGER
     label: 会计年度
+    semanticRoles: [time.year, time.sequence]
   - id: reportId
     valueType: STRING
     label: 审计报告编号
@@ -221,5 +222,5 @@
     toProperty: periodTo
   population:
     unitProperty: companyId
-    yearProperty: taxYear
+    scopeProperties: [taxYear]
     description: 当前授权本地样本中每企业每年一份选定分析样本；不代表全行业、全部正式报告或已复核数据。重复企业年度拒绝汇总。

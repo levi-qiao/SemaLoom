@@ -381,12 +381,20 @@ def _materialize_metrics(
                 updates["additivity"] = prop.additivity or "FULL"
             if prop.aliases:
                 updates["aliases"] = tuple(dict.fromkeys((*prop.aliases, *metric.aliases)))
-        if metric.population is None and obj is not None and obj.population is not None:
-            updates["population"] = obj.population
+        population = metric.population or (obj.population if obj is not None else None)
+        if population is not None:
+            fixed_dimensions = set(metric.select)
+            updates["population"] = population.model_copy(
+                update={
+                    "scope_properties": tuple(
+                        field
+                        for field in population.scope_properties
+                        if field not in fixed_dimensions
+                    )
+                }
+            )
         if not metric.grain:
             select_keys = set(metric.select)
-            if metric.perspective:
-                select_keys.add("perspective")
             covering = _covering_mappings(metric, mappings)
             dims: list[str] = []
             if covering:
@@ -685,18 +693,21 @@ def _check_object_metrics(
         property_ids = {prop.id for prop in obj.properties}
         if metric.population:
             spec = metric.population
-            types = {prop.id: prop.value_type for prop in obj.properties}
             if (
                 spec.unit_property not in property_ids
-                or types.get(spec.year_property) != "INTEGER"
+                or any(item not in property_ids for item in spec.scope_properties)
+                or len(set(spec.scope_properties)) != len(spec.scope_properties)
                 or len(obj.identity_keys) != 1
-                or set(metric.grain) - {*obj.identity_keys, spec.year_property, "perspective"}
+                or set(metric.grain) - {*obj.identity_keys, *spec.scope_properties}
             ):
                 diagnostics.append(
                     Diagnostic(
                         code="INVALID_POPULATION",
                         path=metric.id,
-                        message="population needs unit, integer year and scalar object grain",
+                        message=(
+                            "population needs a unit, declared scope properties, "
+                            "and scalar object grain"
+                        ),
                     )
                 )
         if not metric.grain:

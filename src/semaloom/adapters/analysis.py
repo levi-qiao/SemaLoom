@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlglot import exp
 
-from semaloom.adapters.postgres import require_ident
+from semaloom.adapters.identifiers import require_ident
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.measure import aggregation_legal
 from semaloom.core.model import EmbeddedProperty, LinkDef, MappingDef, MetricDef, ObjectTypeDef
@@ -53,6 +53,7 @@ _ALLOWED_FUNCS = frozenset(
         "max",
         "count",
         "avg",
+        "round",
         "nullif",
         "date_trunc",
         "and",
@@ -71,6 +72,7 @@ _ALLOWED_FUNCS = frozenset(
     }
 )
 _OP_SQL = {"EQ": "=", "NE": "<>", "LT": "<", "LE": "<=", "GT": ">", "GE": ">="}
+_POSTGRES_TIME_GRAINS = frozenset({"YEAR", "QUARTER", "MONTH", "WEEK", "DAY"})
 
 _CMP_BACK = {
     "SHARE_OF_TOTAL": "shareOfTotal",
@@ -137,6 +139,7 @@ def _derived_sql(service: _Context, metric: MetricDef, projection: dict[str, str
         return None
     inputs: dict[str, str] = {}
     locations = set()
+    physical_filters: list[dict[str, Any]] = []
     rule = next((item for item in service.bundle.rules if item.output_metric == metric.id), None)
     if rule is None:
         return None
@@ -145,25 +148,49 @@ def _derived_sql(service: _Context, metric: MetricDef, projection: dict[str, str
             return None
         mapping = _mapping(service, spec.metric)
         locations.add((mapping.source_id, mapping.physical.get("table")))
+        physical_filters.append(dict(mapping.physical.get("filters") or {}))
         column = _projection(mapping).get("__value__")
         if column is None:
             return None
         inputs[spec.name] = column
     if len(locations) != 1:
         raise AnalysisError("LINK_ANALYSIS_UNSUPPORTED")
+    # Inputs selected from different EAV rows need an explicit pivot/relationship plan.
+    # Treating identical value columns as if they were columns on one row is incorrect.
+    if any(physical_filters):
+        raise AnalysisError("LINK_ANALYSIS_UNSUPPORTED")
     return _sql_expr(rule.expression, inputs)
 
 
 def _sql_expr(expr: dict[str, Any], inputs: dict[str, str]) -> str | None:
+    lowered = _sql_expr_ast(expr, inputs)
+    return lowered.sql(dialect="postgres") if lowered is not None else None
+
+
+def _sql_expr_ast(expr: dict[str, Any], inputs: dict[str, str]) -> exp.Expression | None:
+    """Lower the closed semantic expression IR; never parse configured SQL text."""
     op = expr.get("op")
     if op == "ref":
-        return inputs.get(str(expr.get("name")))
+        column = inputs.get(str(expr.get("name")))
+        return exp.column(column) if column is not None else None
+    if op == "decimal":
+        return exp.Literal.number(str(expr.get("value")))
     if op in {"add", "sub", "mul", "div"}:
-        args = [_sql_expr(item, inputs) for item in expr.get("args", ())]
+        args = [_sql_expr_ast(item, inputs) for item in expr.get("args", ())]
         if any(item is None for item in args):
             return None
-        joiner = {"add": "+", "sub": "-", "mul": "*", "div": "/"}[op]
-        return "(" + f" {joiner} ".join(args) + ")"  # type: ignore[arg-type]
+        nodes = [item for item in args if item is not None]
+        result: Any = nodes[0]
+        operators = {"add": exp.Add, "sub": exp.Sub, "mul": exp.Mul, "div": exp.Div}
+        for item in nodes[1:]:
+            result = operators[op](this=result, expression=item)
+        return exp.Paren(this=result)
+    if op == "round" and expr.get("mode", "ROUND_HALF_UP") == "ROUND_HALF_UP":
+        value = _sql_expr_ast(expr.get("value", {}), inputs)
+        places = expr.get("places")
+        if value is None or type(places) is not int:
+            return None
+        return exp.Round(this=value, decimals=exp.Literal.number(places))
     return None
 
 
@@ -386,18 +413,11 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
         raise AnalysisError("AGGREGATION_REQUIRED")
     if aggregation not in {"SUM", "MIN", "MAX", "COUNT", "AVG"}:
         raise AnalysisError("OPERATOR_NOT_SUPPORTED")
-    year_property = metric.population.year_property if metric.population else None
-    if not aggregation_legal(metric.additivity or "FULL", aggregation, query, year_property):
+    scope_properties = metric.population.scope_properties if metric.population else ()
+    if not aggregation_legal(metric.additivity or "FULL", aggregation, query, scope_properties):
         raise AnalysisError("ADDITIVITY_VIOLATION")
     if metric.value_type not in {"DECIMAL", "INTEGER"} and aggregation != "COUNT":
         raise AnalysisError("OPERATOR_NOT_SUPPORTED")
-    for item in query.group_by:
-        if (
-            item.time_grain == "MONTH"
-            and metric.population is not None
-            and _bare(item.id) == metric.population.year_property
-        ):
-            raise AnalysisError("TIME_GRAIN_UNSUPPORTED")
     try:
         metric_mapping = _mapping(service, metric.id)
     except AnalysisError:
@@ -517,8 +537,8 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     if query.comparison and query.comparison.subject and query.comparison.subject.filters:
         subject_keys = set(query.comparison.subject.filters)
         overlap = subject_keys & _filter_fields(query.filters)
-        year = metric.population.year_property if metric.population else ""
-        if overlap - {year}:
+        scope = set(metric.population.scope_properties) if metric.population else set()
+        if overlap - scope:
             raise AnalysisError("SUBJECT_FILTER_MUST_NOT_RESTRICT_POPULATION")
     groups, aliases = _group_sql(query, projection, types)
     select_groups = ", ".join(
@@ -542,13 +562,19 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     unit_col = None
     if metric.population is not None:
         unit_col = projection.get(metric.population.unit_property)
+    population_columns: list[str] = []
+    if metric.population:
+        scope_columns = [projection.get(field) for field in metric.population.scope_properties]
+        if unit_col is None or not all(scope_columns):
+            raise AnalysisError("INVALID_PROPERTIES")
+        population_columns = [unit_col, *(str(column) for column in scope_columns)]
     count_sql = (
         f"SELECT COUNT(*) AS population, COUNT({value_col}) AS observed, "
         f"COUNT(*) - COUNT({value_col}) AS missing"
         + (
-            f", COUNT(DISTINCT ({unit_col}, {projection[metric.population.year_property]})) "
+            f", COUNT(DISTINCT ({', '.join(population_columns)})) "
             f"FILTER (WHERE {unit_col} IS NOT NULL) AS units"
-            if unit_col and metric.population
+            if population_columns and all(population_columns)
             else ""
         )
         + f" FROM {from_sql} WHERE {' AND '.join(where)}"
@@ -669,9 +695,11 @@ def _group_sql(
         column = projection.get(item.id) or projection.get(name)
         if column is None:
             raise AnalysisError("INVALID_PROPERTIES")
+        if item.time_grain and item.time_grain.upper() not in _POSTGRES_TIME_GRAINS:
+            raise AnalysisError("TIME_GRAIN_UNSUPPORTED")
         if item.time_grain and types.get(name) in {"DATE", "DATETIME"}:
             sqls.append(f"date_trunc('{item.time_grain.lower()}', {column})")
-        elif item.time_grain == "MONTH":
+        elif item.time_grain:
             raise AnalysisError("TIME_GRAIN_UNSUPPORTED")
         else:
             sqls.append(column)
@@ -721,34 +749,58 @@ def _runner(service: _Context) -> Any:
     raise AnalysisError("CROSS_SOURCE_SQL")
 
 
-def _distinct_years(service: _Context, metric: MetricDef, tenant: str) -> list[int]:
+def _distinct_dimension_values(
+    service: _Context, metric: MetricDef, field: str, tenant: str
+) -> list[str | int | bool]:
     try:
         metric_mapping = _mapping(service, metric.id)
     except AnalysisError:
         metric_mapping = None
-    mapping = _mapping(
-        service,
-        metric.object_type,
-        prefer_table=None if metric_mapping is None else metric_mapping.physical.get("table"),
-    )
+    mapping = metric_mapping or _mapping(service, metric.object_type)
     projection = _projection(mapping)
-    assert metric.population is not None
-    column = projection.get(metric.population.year_property)
+    if metric.population is None or field not in metric.population.scope_properties:
+        raise AnalysisError("INVALID_PROPERTIES")
+    obj = _object_type(service.bundle, metric.object_type)
+    prop = next((item for item in obj.properties if item.id == field), None) if obj else None
+    if prop is None:
+        raise AnalysisError("INVALID_PROPERTIES")
+    column = projection.get(field)
     if column is None:
+        return []
+    value_col = (
+        _projection(metric_mapping).get("__value__")
+        if metric_mapping is not None
+        else _derived_sql(service, metric, projection)
+    )
+    if value_col is None:
         return []
     table = require_ident(mapping.physical.get("table"), field="table")
     tenant_col = require_ident(
         mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
     )
+    params: dict[str, Any] = {"tenant": tenant}
+    where = [f"{tenant_col} = :tenant", f"{column} IS NOT NULL", f"{value_col} IS NOT NULL"]
+    where.extend(_metric_select_sql(metric, projection, params))
     sql = text(
-        f"SELECT DISTINCT {column} AS year FROM {table} WHERE {tenant_col} = :tenant "
-        f"AND {column} IS NOT NULL ORDER BY year LIMIT 12"
+        f"SELECT DISTINCT {column} AS value FROM {table} WHERE {' AND '.join(where)} "
+        "ORDER BY value LIMIT 30"
     )
     try:
-        rows = _runner(service)(mapping.source_id, tenant, sql, {"tenant": tenant})
+        rows = _runner(service)(mapping.source_id, tenant, sql, params)
     except (SQLAlchemyError, KeyError) as exc:
         raise AnalysisError("PROVIDER_UNAVAILABLE") from exc
-    return [int(row["year"]) for row in rows if row.get("year") is not None]
+    values: list[str | int | bool] = []
+    for row in rows:
+        value = row.get("value")
+        if value is None:
+            continue
+        if prop.value_type == "INTEGER":
+            values.append(int(value))
+        elif prop.value_type == "BOOLEAN":
+            values.append(bool(value))
+        else:
+            values.append(value.isoformat() if hasattr(value, "isoformat") else str(value))
+    return values
 
 
 def _run(
@@ -990,14 +1042,24 @@ def _comparison(
 def _period_over_period(
     service: _Context, compiled: _Plan, tenant: str, run: Any, reason: str | None
 ) -> dict[str, Any]:
-    year_field = compiled.metric.population.year_property if compiled.metric.population else None
-    if year_field is None:
+    scope = compiled.metric.population.scope_properties if compiled.metric.population else ()
+    if len(scope) != 1:
         raise AnalysisError("TIME_GRAIN_UNSUPPORTED")
-    current = equality_value(compiled.query.filters, year_field)
+    period_field = scope[0]
+    current = equality_value(compiled.query.filters, period_field)
     if current is None:
         raise AnalysisError("COMPARISON_PERIOD_REQUIRED")
-    current_year = int(current)
-    prior_year = current_year - 1
+    periods = _distinct_dimension_values(service, compiled.metric, period_field, tenant)
+    current_index = next(
+        (index for index, value in enumerate(periods) if str(value) == str(current)), None
+    )
+    prior_period = (
+        periods[current_index - 1] if current_index is not None and current_index > 0 else None
+    )
+    obj = _object_type(service.bundle, compiled.metric.object_type)
+    prop = next((item for item in obj.properties if item.id == period_field), None) if obj else None
+    if prop is None or "time.sequence" not in prop.semantic_roles:
+        raise AnalysisError("INVALID_PROPERTIES")
 
     def aggregate(plan: _Plan) -> tuple[Decimal | None, int]:
         if plan.aggregation == "AVG":
@@ -1025,14 +1087,33 @@ def _period_over_period(
         return value, observed
 
     current_value, current_n = aggregate(compiled)
+    payload = {
+        "operation": "periodOverPeriod",
+        "periodField": period_field,
+        "currentPeriod": current,
+        "priorPeriod": prior_period,
+        "subjectIdentity": None,
+        "formula": "(current period - prior observed period) / abs(prior observed period) * 100",
+    }
+    if reason:
+        return {**payload, "value": None, "reason": reason, "numerator": None, "denominator": None}
+    if prior_period is None:
+        return {
+            **payload,
+            "value": None,
+            "reason": "PRIOR_PERIOD_MISSING",
+            "numerator": None,
+            "denominator": None,
+            "currentValue": None if current_value is None else str(current_value),
+        }
     prior_query = compiled.query.model_copy(
         update={
             "filters": _append_filter(
-                without_field(compiled.query.filters, year_field),
+                without_field(compiled.query.filters, period_field),
                 FilterAtom(
-                    field=year_field,
+                    field=period_field,
                     op="EQ",
-                    value=TypedValue(value_type="INTEGER", value=prior_year),
+                    value=TypedValue(value_type=prop.value_type, value=prior_period),
                 ),
             ),
             "comparison": None,
@@ -1040,17 +1121,6 @@ def _period_over_period(
     )
     prior_plan = _compile(service, prior_query, tenant)
     prior_value, prior_n = aggregate(prior_plan)
-    payload = {
-        "operation": "periodOverPeriod",
-        "currentYear": current_year,
-        "priorYear": prior_year,
-        "subjectIdentity": None,
-        "formula": (
-            "(current year aggregate - prior year aggregate) / abs(prior year aggregate) * 100"
-        ),
-    }
-    if reason:
-        return {**payload, "value": None, "reason": reason, "numerator": None, "denominator": None}
     if prior_value is None or prior_n == 0:
         return {
             **payload,
@@ -1728,9 +1798,15 @@ def execute_analysis(
     )
 
 
-def analysis_years(bundle: CompiledBundle, metric_id: str, tenant: str, provider: Any) -> list[int]:
+def analysis_dimension_values(
+    bundle: CompiledBundle,
+    metric_id: str,
+    field: str,
+    tenant: str,
+    provider: Any,
+) -> list[str | int | bool]:
     context = _Context(bundle, provider)
-    return _distinct_years(context, _metric(context, metric_id), tenant)
+    return _distinct_dimension_values(context, _metric(context, metric_id), field, tenant)
 
 
 def analysis_source(

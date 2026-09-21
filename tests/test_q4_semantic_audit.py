@@ -119,7 +119,7 @@ def test_complete_warehouse_question_is_ready_matching_sql(warehouse: Any) -> No
     service, read_engine = warehouse
     intent = TurnIntent.read("2024年在库数量合计", service.bundle)
     assert intent.metric_ids == frozenset({"warehouse.onHandQty"})
-    assert intent.year == 2024
+    assert intent.role_constraints[0].values == (2024,)
     built = query_from_intent(intent, service.bundle)
     assert isinstance(built.filters, FilterAtom)
     assert built.filters.field == "stockYear"
@@ -149,7 +149,7 @@ def test_vague_and_missing_year_need_input(warehouse: Any) -> None:
     assert stock["query"]["metrics"][0]["id"] == "warehouse.onHandQty"
     missing_year = prepare_turn(service, ACTOR, "在库数量合计")
     assert missing_year["status"] == "NEEDS_INPUT"
-    assert missing_year["question"]["slot"] == "year"
+    assert missing_year["question"]["slot"] == "scope:stockYear"
 
 
 def test_row_average_differs_from_sum_and_matches_sql(warehouse: Any) -> None:
@@ -324,6 +324,11 @@ def test_two_round_keeps_metric_then_year(warehouse: Any) -> None:
     store = ChatStore(read_engine)
     row = store.create(ACTOR, service.bundle.digest)
     store.save_pending(ACTOR, row, pending["question"], {"query": pending["query"]}, "在库数量合计")
+    scope_option = next(
+        item["id"]
+        for item in pending["question"]["options"]
+        if item["choice"]["kind"] == "DIMENSION_VALUE" and item["choice"]["id"] == "2024"
+    )
     done = submit_choice(
         store,
         service,
@@ -333,7 +338,7 @@ def test_two_round_keeps_metric_then_year(warehouse: Any) -> None:
             {
                 "questionId": pending["question"]["questionId"],
                 "revision": 1,
-                "optionIds": ["opt_year_2024"],
+                "optionIds": [scope_option],
             }
         ),
     )

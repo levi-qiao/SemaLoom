@@ -31,6 +31,7 @@
   - id: taxYear
     valueType: INTEGER
     label: 年度
+    semanticRoles: [time.year, time.sequence]
   - id: periodStart
     valueType: DATE
     label: 期间起
@@ -69,7 +70,7 @@
     - 应纳所得税
   population:
     unitProperty: companyId
-    yearProperty: taxYear
+    scopeProperties: [taxYear]
     description: 当前授权年度申报样本按企业年度统计；同企业同年度多份申报拒绝汇总，不能把本地样本视为全行业。
 - apiVersion: semaloom/v0.1
   version: 1.0.0
@@ -89,6 +90,7 @@
   - id: taxYear
     valueType: INTEGER
     label: 会计年度
+    semanticRoles: [time.year, time.sequence]
   - id: returnId
     valueType: STRING
     label: 同企业年度的申报样本

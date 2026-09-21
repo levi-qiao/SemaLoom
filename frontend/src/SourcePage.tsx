@@ -4,6 +4,7 @@ import { apiHeaders, checkedJson } from "./api";
 import { sameJson } from "./doc";
 import { validationNotice } from "./labels";
 import { Window } from "./StudioDialog";
+import { useI18n, type I18nKey } from "./i18n";
 import type { Mapping, Source, SourceResource } from "./types";
 
 type Profile = {
@@ -41,6 +42,7 @@ export function SourcePage({
   onDirtyChange,
   onSaved,
 }: Props) {
+  const { t } = useI18n();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [baseline, setBaseline] = useState<Profile[]>([]);
   const [newSourceId, setNewSourceId] = useState("");
@@ -126,7 +128,7 @@ export function SourcePage({
       const message = cause instanceof Error ? cause.message : "UNKNOWN_ERROR";
       if (message.includes("409") || message.includes("REVISION_CONFLICT")) {
         setConflict(true);
-        onError("来源保存冲突。本地修改仍保留，可用当前修改重试保存。");
+        onError(t("source.conflictError"));
       } else {
         onError(message);
       }
@@ -248,10 +250,10 @@ export function SourcePage({
       <div className="content-pane">
         <div className="source-toolbar">
           <span className="source-create">
-            <input aria-label="新来源 ID" value={newSourceId} placeholder="新来源 ID" onChange={(event) => setNewSourceId(event.target.value)} />
-            <button className="secondary" disabled={busy || !newSourceId.trim()} onClick={() => void createSource()}>添加数据源</button>
+            <input aria-label={t("source.newSourceId")} value={newSourceId} placeholder={t("source.newSourceId")} onChange={(event) => setNewSourceId(event.target.value)} />
+            <button className="secondary" disabled={busy || !newSourceId.trim()} onClick={() => void createSource()}>{t("source.add")}</button>
           </span>
-          <button className="secondary" disabled={busy} onClick={() => void validateAll()}>检查全部连接</button>
+          <button className="secondary" disabled={busy} onClick={() => void validateAll()}>{t("source.validateAll")}</button>
         </div>
         <div className="source-grid">
           {cards.map((profile) => {
@@ -277,7 +279,7 @@ export function SourcePage({
                 <div className="source-card-head">
                   <span className={`provider-mark large ${profile.provider}`}>{profile.provider === "postgres" ? "PG" : "API"}</span>
                   <span className={profile.validationStatus === "VALID" ? "source-state verified" : "source-state"}>
-                    {statusLabel(profile.validationStatus)}
+                    {statusLabel(profile.validationStatus, t)}
                   </span>
                 </div>
                 <h2>{profile.label}</h2>
@@ -285,7 +287,7 @@ export function SourcePage({
                 <dl>
                   <div><dt>Mapping</dt><dd>{stats?.mappingCount ?? 0}</dd></div>
                   <div><dt>Action</dt><dd>{stats?.actionCount ?? 0}</dd></div>
-                  <div><dt>协议</dt><dd>{profile.provider === "postgres" ? "PG" : "API"}</dd></div>
+                  <div><dt>{t("source.protocol")}</dt><dd>{profile.provider === "postgres" ? "PG" : "API"}</dd></div>
                 </dl>
               </article>
             );
@@ -338,6 +340,7 @@ function SourceDetail({
   onReload: () => void;
   onValidate: () => void;
 }) {
+  const { t } = useI18n();
   const [schema, setSchema] = useState<SourceResource[]>([]);
   const [reason, setReason] = useState<string | null>(null);
 
@@ -362,42 +365,42 @@ function SourceDetail({
     <>
       <div className="inspector-kicker">
         <span>{profile.provider}</span>
-        <span className={`validation-badge ${profile.validationStatus.toLowerCase()}`}>{statusLabel(profile.validationStatus)}</span>
+        <span className={`validation-badge ${profile.validationStatus.toLowerCase()}`}>{statusLabel(profile.validationStatus, t)}</span>
       </div>
       <code className="semantic-id">{profile.sourceId}</code>
       <div className="form-grid">
-        <label className="form-field"><span>显示名称</span><input value={profile.label} onChange={(event) => onChange({ label: event.target.value })} /></label>
-        <label className="form-field"><span>协议</span>
+        <label className="form-field"><span>{t("entity.label")}</span><input value={profile.label} onChange={(event) => onChange({ label: event.target.value })} /></label>
+        <label className="form-field"><span>{t("source.protocol")}</span>
           <select value={profile.provider} onChange={(event) => onChange({ provider: event.target.value, settings: event.target.value === "openapi" ? { ...profile.settings, healthPath: profile.settings.healthPath ?? "/health" } : profile.settings })}>
             <option value="postgres">PostgreSQL</option>
             <option value="openapi">OpenAPI</option>
           </select>
         </label>
       </div>
-      <label className="form-field"><span>环境绑定引用</span><input aria-label="环境绑定引用" value={profile.bindingRef} onChange={(event) => onChange({ bindingRef: event.target.value })} /></label>
+      <label className="form-field"><span>{t("source.envBinding")}</span><input aria-label={t("source.envBinding")} value={profile.bindingRef} onChange={(event) => onChange({ bindingRef: event.target.value })} /></label>
       {profile.provider === "openapi" ? (
-        <label className="form-field"><span>健康检查路径</span>
+        <label className="form-field"><span>{t("source.healthPath")}</span>
           <input value={String(profile.settings.healthPath ?? "/health")} onChange={(event) => onChange({ settings: { ...profile.settings, healthPath: event.target.value } })} />
         </label>
       ) : null}
-      <p className="mapping-hint">连接信息只保存在来源配置中，不会写入业务对象。</p>
-      {dirty ? <p className="notice">有未保存的连接修改。检查连接使用已保存配置，不会覆盖当前输入。</p> : null}
+      <p className="mapping-hint">{t("source.connectionHint")}</p>
+      {dirty ? <p className="notice">{t("source.unsavedNotice")}</p> : null}
       <p className="mapping-hint" role="status">
         {validationNotice(profile.provider, profile.validationStatus, profile.reason ?? reason, dirty)}
       </p>
       {conflict ? (
         <div className="conflict-actions">
-          <button className="secondary" disabled={busy} onClick={onRetry}>用当前修改重试保存</button>
-          <button className="secondary" disabled={busy} onClick={onReload}>放弃本地修改并载入</button>
+          <button className="secondary" disabled={busy} onClick={onRetry}>{t("status.retryWithCurrent")}</button>
+          <button className="secondary" disabled={busy} onClick={onReload}>{t("status.discardAndReload")}</button>
         </div>
       ) : null}
       <div className="chip-row">
-        <button className="primary" disabled={busy || !dirty} onClick={onSave}>保存连接</button>
-        <button className="secondary" disabled={busy} onClick={onValidate}>检查连接</button>
+        <button className="primary" disabled={busy || !dirty} onClick={onSave}>{t("source.saveConnection")}</button>
+        <button className="secondary" disabled={busy} onClick={onValidate}>{t("source.validateConnection")}</button>
       </div>
       <section className="definition-section">
-        <div className="section-heading"><h3>结构</h3><span>{schema.length}</span></div>
-        {reason && !schema.length ? <p className="empty">{reason === "SPEC_UNAVAILABLE" ? "未读取到 OpenAPI 清单" : profile.provider === "openapi" ? "暂时无法读取接口清单" : "暂时无法读取表结构"}</p> : null}
+        <div className="section-heading"><h3>{t("source.schema")}</h3><span>{schema.length}</span></div>
+        {reason && !schema.length ? <p className="empty">{reason === "SPEC_UNAVAILABLE" ? t("source.specUnavailable") : profile.provider === "openapi" ? t("source.cannotReadApiSpec") : t("source.cannotReadTableSchema")}</p> : null}
         <ul className="schema-list">
           {schema.map((resource) => {
             const tagItems = resource.kind === "operation"
@@ -430,7 +433,7 @@ function SourceDetail({
         </ul>
       </section>
       <section className="definition-section">
-        <div className="section-heading"><h3>已绑定</h3><span>{mappings.length}</span></div>
+        <div className="section-heading"><h3>{t("source.boundMappings")}</h3><span>{mappings.length}</span></div>
         {mappings.length ? (
           <ul className="definition-list">
             {mappings.map((item) => (
@@ -441,7 +444,7 @@ function SourceDetail({
             ))}
           </ul>
         ) : (
-          <p className="empty">{catalog?.actionCount ? "仅用于受控 Action。" : "还没有 Mapping。"}</p>
+          <p className="empty">{catalog?.actionCount ? t("source.forActionOnly") : t("source.noMappingsYet")}</p>
         )}
       </section>
     </>
@@ -465,9 +468,9 @@ function upsert(items: Profile[], profile: Profile) {
   return [...items, profile];
 }
 
-function statusLabel(status: string) {
-  if (status === "VALID") return "可用";
-  if (status === "INVALID") return "配置无效";
-  if (status === "UNAVAILABLE") return "不可连接";
-  return "待验证";
+function statusLabel(status: string, t: (key: I18nKey) => string) {
+  if (status === "VALID") return t("source.statusValid");
+  if (status === "INVALID") return t("source.statusInvalid");
+  if (status === "UNAVAILABLE") return t("source.statusUnavailable");
+  return t("source.statusPending");
 }

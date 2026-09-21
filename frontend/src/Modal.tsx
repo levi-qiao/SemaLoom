@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { IconClose } from "./icons";
+import { useI18n } from "./i18n";
 
 export type ModalProps = {
   open: boolean;
@@ -34,6 +35,7 @@ export function Modal({
   className = "",
   bodyClassName = "",
 }: ModalProps) {
+  const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -87,8 +89,8 @@ export function Modal({
               type="button"
               className="modal-close-btn"
               onClick={onClose}
-              aria-label="关闭"
-              title="关闭 (Esc)"
+              aria-label={t("common.close")}
+              title={t("common.closeEsc")}
             >
               <IconClose size={14} />
             </button>

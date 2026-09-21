@@ -2,6 +2,7 @@ import { useState } from "react";
 import { apiHeaders, checkedJson } from "./api";
 import { IconAlert } from "./icons";
 import { Modal } from "./Modal";
+import { useI18n, currentLocale } from "./i18n";
 import type { ApiAuth, ApiOperation, ApiParameter, ApiService } from "./types";
 
 type Props = {
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<"url" | "text">("url");
   const [url, setUrl] = useState("http://127.0.0.1:8000/openapi.json");
   const [authType, setAuthType] = useState<ApiAuth["type"]>("none");
@@ -89,7 +91,7 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
       id,
       label: title,
       baseUrl: sourceUrl ? extractBaseUrl(sourceUrl) : "http://127.0.0.1:8000",
-      description: String(info.description || "从 Postman Collection 导入"),
+      description: String(info.description || t("api.postmanDefaultDesc")),
       auth: { type: "none" },
       operations,
     };
@@ -211,13 +213,13 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
       } else if (typeof res.raw === "string") {
         specObj = JSON.parse(res.raw) as Record<string, unknown>;
       } else {
-        throw new Error("无法识别返回的规范内容");
+        throw new Error(t("api.unrecognizedSpec"));
       }
 
       const parsed = parseSpec(specObj, url.trim());
       setPreviewService(parsed);
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : "远程拉取或解析失败");
+      setParseError(err instanceof Error ? err.message : t("api.fetchFailed"));
     } finally {
       setBusy(false);
     }
@@ -231,7 +233,7 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
       const parsed = parseSpec(parsedJson);
       setPreviewService(parsed);
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : "JSON 解析失败，请确认是否为标准的 OpenAPI 或 Postman JSON");
+      setParseError(err instanceof Error ? err.message : t("api.jsonParseFailed"));
     }
   }
 
@@ -245,9 +247,9 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
     <Modal
       open={open}
       onClose={onClose}
-      title="线上导入 API 服务"
-      subtitle="支持 OpenAPI 3.0/3.1、Swagger 2.0 及 Postman Collection 2.1 规范"
-      ariaLabel="线上导入 API"
+      title={t("api.importModalTitle")}
+      subtitle={t("api.importModalSubtitle")}
+      ariaLabel={t("api.importModalAria")}
       size="lg"
       className="api-import-modal"
     >
@@ -257,14 +259,14 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
             className={`import-tab-btn ${activeTab === "url" ? "active" : ""}`}
             onClick={() => { setActiveTab("url"); setPreviewService(null); }}
           >
-            从 URL 线上拉取
+            {t("api.fromUrlTab")}
           </button>
           <button
             type="button"
             className={`import-tab-btn ${activeTab === "text" ? "active" : ""}`}
             onClick={() => { setActiveTab("text"); setPreviewService(null); }}
           >
-            直接粘贴规范 (JSON/YAML)
+            {t("api.fromPasteTab")}
           </button>
         </div>
 
@@ -272,7 +274,7 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
           {activeTab === "url" ? (
             <div className="form-grid">
               <label className="form-field full-width">
-                <span>规范文档地址 (OpenAPI / Swagger JSON URL)</span>
+                <span>{t("api.urlLabel")}</span>
                 <input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
@@ -281,9 +283,9 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
               </label>
 
               <label className="form-field">
-                <span>拉取鉴权 (Optional)</span>
+                <span>{t("api.fetchAuth")}</span>
                 <select value={authType} onChange={(e) => setAuthType(e.target.value as ApiAuth["type"])}>
-                  <option value="none">无鉴权</option>
+                  <option value="none">{t("api.authNone")}</option>
                   <option value="bearer">Bearer Token</option>
                   <option value="apiKey">API Key</option>
                 </select>
@@ -296,7 +298,7 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
                     type="password"
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
-                    placeholder="输入 Token"
+                    placeholder={t("api.tokenPlaceholder")}
                   />
                 </label>
               ) : null}
@@ -308,7 +310,7 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="输入 Key"
+                    placeholder={t("api.keyPlaceholder")}
                   />
                 </label>
               ) : null}
@@ -320,14 +322,14 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
                   disabled={busy || !url.trim()}
                   onClick={() => void handleFetchUrl()}
                 >
-                  {busy ? "正在拉取并解析..." : "拉取并解析"}
+                  {busy ? t("api.fetching") : t("api.fetchAndParse")}
                 </button>
               </div>
             </div>
           ) : (
             <div className="text-import-group">
               <label className="form-field">
-                <span>粘贴 OpenAPI / Swagger / Postman JSON 内容</span>
+                <span>{t("api.pasteLabel")}</span>
                 <textarea
                   rows={8}
                   value={rawText}
@@ -341,7 +343,7 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
                 disabled={!rawText.trim()}
                 onClick={handleParseText}
               >
-                解析内容
+                {t("api.parseContent")}
               </button>
             </div>
           )}
@@ -363,13 +365,13 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
                   <span className="preview-url">{previewService.baseUrl}</span>
                 </div>
                 <div className="preview-auth-badge">
-                  鉴权方式: {previewService.auth.type === "none" ? "无鉴权" : previewService.auth.type}
+                  {t("api.authSchemeDisplay", { scheme: previewService.auth.type === "none" ? t("api.authNone") : previewService.auth.type })}
                 </div>
               </div>
 
               <div className="preview-operations-list">
                 <div className="preview-list-title">
-                  已成功解析出 {previewService.operations.length} 个接口端点：
+                  {t("api.parseSuccessCount", { count: previewService.operations.length })}
                 </div>
                 <ul className="preview-op-items">
                   {previewService.operations.map((op) => (
@@ -377,7 +379,7 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
                       <span className={`method-badge ${op.method.toLowerCase()}`}>{op.method}</span>
                       <code className="op-path">{op.path}</code>
                       <span className="op-summary">{op.summary}</span>
-                      <span className="op-params-count">{op.parameters?.length ?? 0} 参数</span>
+                      <span className="op-params-count">{t("api.paramCount", { count: op.parameters?.length ?? 0 })}</span>
                     </li>
                   ))}
                 </ul>
@@ -385,10 +387,10 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
 
               <div className="import-confirm-row">
                 <button type="button" className="primary" onClick={handleConfirmImport}>
-                  确认导入该 API 服务
+                  {t("api.confirmImport")}
                 </button>
                 <button type="button" className="secondary" onClick={() => setPreviewService(null)}>
-                  重新配置
+                  {t("api.reconfigure")}
                 </button>
               </div>
             </div>

@@ -7,5 +7,5 @@
   property: onHandQty
   population:
     unitProperty: skuId
-    yearProperty: stockYear
+    scopeProperties: [stockYear]
     description: 合成仓库样本按 SKU 年度统计，不代表全部库存地点。

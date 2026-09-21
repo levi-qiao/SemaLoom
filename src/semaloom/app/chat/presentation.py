@@ -529,8 +529,7 @@ def _chart_number(value: str | None) -> bool:
 
 def _is_time_query(group_items: Any) -> bool:
     return any(
-        isinstance(item, dict) and item.get("timeGrain") in {"YEAR", "MONTH"}
-        for item in (group_items or [])
+        isinstance(item, dict) and bool(item.get("timeGrain")) for item in (group_items or [])
     )
 
 

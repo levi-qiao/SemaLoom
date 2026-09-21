@@ -4,6 +4,7 @@ import {
   createJevDecisionHook,
   decisionHistory,
   orderCatalog,
+  semanticCandidates,
 } from '../jev-decision.mjs';
 
 test('Jev route is derived from live ontology, tools, question and bounded history', async () => {
@@ -15,6 +16,8 @@ test('Jev route is derived from live ontology, tools, question and bounded histo
         answers: {
           nextTool: { choice: 'find_objects', confidence: 0.93 },
           scopeComplete: { noul: 0.21 },
+          semanticCandidate: { choice: 'candidate_0', confidence: 0.91 },
+          semanticMatchQuality: { score: 2.7 },
         },
       };
     },
@@ -28,7 +31,9 @@ test('Jev route is derived from live ontology, tools, question and bounded histo
     message: 'Show annual filings',
     locale: 'en',
     history: [{ role: 'user', content: 'Earlier question' }],
-    semanticContext: { businessCatalog: [{ id: 'demo.Filing', label: 'Filing' }] },
+    semanticContext: {
+      businessCatalog: [{ id: 'demo.Filing', kind: 'ObjectType', label: 'Filing' }],
+    },
     catalog,
   });
 
@@ -41,6 +46,7 @@ test('Jev route is derived from live ontology, tools, question and bounded histo
   assert.deepEqual(decision, {
     applied: true,
     preferredTool: 'find_objects',
+    preferredSemanticId: 'demo.Filing',
     requiresClarification: true,
   });
   assert.equal('confidence' in decision, false);
@@ -61,7 +67,12 @@ test('Jev failure and low confidence fall back without blocking the Pi loop', as
   assert.deepEqual(await low.decide({ catalog: [
     { name: 'a', description: '', inputSchema: {} },
     { name: 'b', description: '', inputSchema: {} },
-  ] }), { applied: false, preferredTool: undefined, requiresClarification: false });
+  ] }), {
+    applied: false,
+    preferredTool: undefined,
+    preferredSemanticId: undefined,
+    requiresClarification: false,
+  });
 });
 
 test('decision helpers omit tool results and move only the chosen live tool', () => {
@@ -78,4 +89,21 @@ test('decision helpers omit tool results and move only the chosen live tool', ()
     { name: 'b' },
     { name: 'a' },
   ]);
+  assert.deepEqual(
+    semanticCandidates({businessCatalog: [
+      {id: 'demo.Order', kind: 'ObjectType', label: 'Order'},
+      {id: 'demo.amount', kind: 'Metric', objectType: 'demo.Order'},
+      {kind: 'Metric'},
+    ]}),
+    [
+      {key: 'candidate_0', id: 'demo.Order', description: {
+        id: 'demo.Order', kind: 'ObjectType', label: 'Order', aliases: undefined,
+        objectType: undefined, rule: undefined, dimensions: undefined,
+      }},
+      {key: 'candidate_1', id: 'demo.amount', description: {
+        id: 'demo.amount', kind: 'Metric', label: undefined, aliases: undefined,
+        objectType: 'demo.Order', rule: undefined, dimensions: undefined,
+      }},
+    ],
+  );
 });

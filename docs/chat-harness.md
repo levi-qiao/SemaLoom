@@ -16,7 +16,7 @@
 
 pi 官方 core 已提供 `beforeToolCall`、`afterToolCall`、`shouldStopAfterTurn`、工具参数校验、事件流与取消；复用这些机制，未另写 Agent loop。SemaLoom 的插件是小型组合模块 `harness/semantic-plugin.mjs`，不是另一份通用插件加载器，也不自动安装不可信扩展。agent-core 没有网页选择题插件；coding-agent 的 `ctx.ui.select` 不适配当前 headless Node，Studio 用自己的点选卡片（含「其他」输入）。[官方 core 文档](https://github.com/earendil-works/pi/tree/main/packages/agent)
 
-内置场景选择直接调用业务服务：无需 HTTP 回环凭证或 MCP 协议转换。外部 host 仍可用既有五个 HTTP 工具，未来 MCP 应复用同一业务网关。没有给模型安装 bash、读文件、SQL、任意网络或代码执行工具。
+内置场景选择直接调用业务服务：无需 HTTP 回环凭证或 MCP 协议转换。外部 host 可用既有五个 HTTP 工具，或通过 `/mcp/` 的官方 Streamable HTTP transport 使用查询、规则和解释工具；二者复用同一业务网关。没有给模型安装 bash、读文件、SQL、任意网络或代码执行工具。
 
 ## 运行分工
 
@@ -33,7 +33,7 @@ flowchart LR
     Cards --> UI
 ```
 
-聊天扩展可选，pi 子进程由 Python 启停，最多同时 4 个回合运行；没有额外监听端口。它拿到模型凭证、业务目录和已授权的语义结果，拿不到数据库连接和 Studio cookie。当前已实现 local-dev 身份；不因此声称生产 JWT 完成。
+聊天扩展可选，pi 子进程由 Python 启停，最多同时 4 个回合运行；没有额外监听端口。它拿到模型凭证、业务目录和已授权的语义结果，拿不到数据库连接和 Studio cookie。生产 JWT 校验属于应用传输边界；Chat 不另建身份实现，也不因此声称外部 IAM 撤销集成完成。
 
 每个会话绑定租户、主体和语义 digest。历史存在原 metadata PostgreSQL，刷新可继续；当前页面标签只在 sessionStorage 保存会话 ID，不保存密钥或完整业务结果。新建对话不会删除旧记录，生产保留策略仍需单独配置。
 
@@ -78,9 +78,9 @@ provider 端点来自用户配置，调用已验证 `/models` 存在的 `qwen3.7
 
 ### 可选 Jev 决策钩子
 
-设置服务端环境变量 `TYPESAFE_API_KEY` 后，harness 使用官方 `@typesafe-ai/sdk`，把用户问题、Pi 有界上下文摘要、当前本体目录投影、locale 和实时工具 Schema 交给 Jev 做 typed route/scope 判断。它不接收数据库凭证和物理映射，不产生业务事实，也不能绕过 Python 授权与 typed request 校验。未设置时完全不调用该外部服务。
+设置服务端环境变量 `TYPESAFE_API_KEY` 后，harness 使用官方 `@typesafe-ai/sdk`，把用户问题、Pi 有界上下文摘要、当前本体目录投影、locale 和实时工具 Schema 交给 Jev。一次独立 typed 判断同时覆盖工具 Choice、范围完整性 Noul、本体候选 Choice 和最佳候选匹配 Score；候选只来自当前授权 release，Score 只用于内部阈值，不作为事实准确率或页面置信率。它不接收数据库凭证和物理映射，不产生业务事实，也不能绕过 Python 授权与 typed request 校验。未设置时完全不调用该外部服务。
 
-`SEMALOOM_JEV_MODE=shadow` 是默认值：判断只影响工具排序和模型上下文。完成领域及语言评测后可设为 `enforce`，此时 Pi 的 `beforeToolCall` 只对首个高阈值路由分歧做一次可恢复拦截。`SEMALOOM_JEV_MIN_CONFIDENCE` 默认 `0.85`，只在内部使用；页面不展示概率。可用 `TYPESAFE_DEFAULT_MODEL` 固定经过评测的模型，`TYPESAFE_BASE_URL` 仅接受 HTTPS。任何 Jev 超时、限流或错误都会回到原 Pi 路径。
+明确指标、本体范围值、统计方式和已确认查询的省略式追问先走 Python 确定性路径，避免为可判定问题增加外部延迟。语言适配器只输出 role/ID 驱动的类型化约束与分组提示；通用编排没有年度专用字段。`SEMALOOM_JEV_MODE=shadow` 是默认值：其余问题的判断只影响工具排序和模型上下文。Pi worker 只依赖 `SemanticDecisionProvider`，Jev 是当前 adapter；本地或其他模型可实现同一有界候选接口而不改 worker。完成领域及语言评测后可设为 `enforce`，此时 Pi 的 `beforeToolCall` 只对首个高阈值路由分歧做一次可恢复拦截。`SEMALOOM_JEV_MIN_CONFIDENCE` 默认 `0.85`，只在内部使用；页面不展示概率。可用 `TYPESAFE_DEFAULT_MODEL` 固定经过评测的模型，`TYPESAFE_BASE_URL` 仅接受 HTTPS。任何决策 adapter 超时、限流或错误都会回到原 Pi 路径。
 
 浏览器发送用户当前选择的 locale；服务端优先按当前消息的 Unicode 文字特征选择回答语言，纯编号等无法判断语言的输入才回退到该 locale。本体业务名称仍来自发布定义。当前提供 `zh-CN` 与 `en` 的应用文案、补充卡片和确定性结果摘要；通用 system prompt 与工具说明统一使用英文。新增语言只增加资源与评测，不修改领域判断代码。
 
@@ -94,7 +94,7 @@ wheel 含可选 harness 源码和锁文件，不包含 node_modules。仅开启�
 
 已做有界百炼真实调用：问候、规则定义问答、选定样本的指标分析与多轮复核。第一次复杂问题因发现开销触发回合上限，随后加入有界业务目录索引以减少搜索；不隐藏这类可能失败的模型行为。发布前仍应按实际企业问题独立验收，不将几次冒烟等同于所有模型/业务准确率。
 
-本轮结果：pi 原生 hook 测试 3 项通过；Python 全量 167 通过、1 失败、1 跳过（既有 JWT 生产身份标记失败、原生 MCP transport 未就绪）；页面端到端 17 项通过；类型检查、lint、构建与文档/打包检查通过。这些剩余项不影响内置 Chat 的直接语义连接，但不作为全项目生产验收通过。
+该轮 Chat 验收记录只覆盖当时的 harness 与页面范围。随后 A58 JWT 校验和原生 MCP transport 已由普通强制测试闭合，不再以 xfail/skip 记录；这不扩大 Chat 本身的能力，也不代表外部 IAM 撤销、MCP Action 或全项目生产 gate 已完成。
 
 ## 可分派的独立验收提示词
 
@@ -114,6 +114,6 @@ wheel 含可选 harness 源码和锁文件，不包含 node_modules。仅开启�
 
 ## 补充信息与动态组件（2026-09-20）
 
-Chat 与引擎共用缺年度/缺统计方式的补充卡片；已移除默认年度、默认合计及置信度评分。模型可通过已有工具的 view/views 提交展示偏好，服务端投影仍拥有事实数据。当前组件支持文字、数值卡、表格、分类柱图、时间折线与已声明关系图，具体约束见 [契约](spec/semantic-contract-v0.1.md#集合统计与浏览器来源表格增补)。不新增模型循环、上下文拼接或第二套计算引擎。自由说明卡片提交后通过原 Chat 入口继续，模型不会获得新的执行权限。
+Chat 与引擎共用缺范围属性/缺统计方式的补充卡片；范围属性及类型来自本体，不存在年度专用槽。已移除默认期间、默认合计及置信度评分。模型可通过已有工具的 view/views 提交展示偏好，服务端投影仍拥有事实数据。当前组件支持文字、数值卡、表格、分类柱图、时间折线与已声明关系图，具体约束见 [契约](spec/semantic-contract-v0.1.md#集合统计与浏览器来源表格增补)。不新增模型循环、上下文拼接或第二套计算引擎。自由说明卡片提交后通过原 Chat 入口继续，模型不会获得新的执行权限。
 
 完整合成财务数据与可重复问题见 [财务 demo](../examples/financial-review/fixtures/README.md)。独立真实模型浏览器验证可显式设置 `SEMALOOM_E2E_CHAT_CONFIG`；默认测试仍为 faux provider，不消费模型服务。

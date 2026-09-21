@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -12,12 +12,21 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 from starlette.types import Scope
 
-from semaloom.app.http import router
+from semaloom.app.authentication import (
+    BearerAuthenticator,
+    DemoTokenAuthenticator,
+    JwtAuthenticator,
+)
+from semaloom.app.http import TOKENS, router
 from semaloom.identity import BuildIdentity, build_identity
 
 
 def create_app(
-    *, profile: str | None = None, load_services: bool = True, load_fixtures: bool = False
+    *,
+    profile: str | None = None,
+    load_services: bool = True,
+    load_fixtures: bool = False,
+    authenticator: BearerAuthenticator | None = None,
 ) -> FastAPI:
     """Build the single application process.
 
@@ -26,21 +35,34 @@ def create_app(
     """
 
     identity = build_identity(profile=profile)
-    if load_services and identity.profile != "local-dev":
-        raise RuntimeError(
-            "only the local-dev profile is implemented; configure trusted identity and adapters "
-            "before enabling another profile"
+    resolved_authenticator: BearerAuthenticator
+    if authenticator is None:
+        resolved_authenticator = (
+            DemoTokenAuthenticator(TOKENS)
+            if identity.profile == "local-dev"
+            else JwtAuthenticator.from_environment()
         )
+    else:
+        resolved_authenticator = authenticator
+    if identity.profile != "local-dev" and isinstance(
+        resolved_authenticator, DemoTokenAuthenticator
+    ):
+        raise RuntimeError("production profile cannot use local demonstration tokens")
+
+    mcp_server = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        yield
-        if getattr(app.state, "chat", None) is not None:
-            await app.state.chat.close()
-        if load_services:
-            app.state.services.close()
-        if sample_engine is not None:
-            sample_engine.dispose()
+        async with AsyncExitStack() as stack:
+            if mcp_server is not None:
+                await stack.enter_async_context(mcp_server.session_manager.run())
+            yield
+            if getattr(app.state, "chat", None) is not None:
+                await app.state.chat.close()
+            if load_services:
+                app.state.services.close()
+            if sample_engine is not None:
+                sample_engine.dispose()
 
     app = FastAPI(
         title="SemaLoom",
@@ -50,6 +72,7 @@ def create_app(
     )
     app.state.identity = identity
     app.state.profile = identity.profile
+    app.state.authenticator = resolved_authenticator
     sample_engine = None
 
     @app.get("/identity")
@@ -90,6 +113,10 @@ def create_app(
 
         app.state.services = build_services(load_data=load_fixtures)
         app.include_router(router)
+        from semaloom.app.mcp_server import build_mcp_server
+
+        mcp_server = build_mcp_server(app.state.services, resolved_authenticator)
+        app.mount("/mcp", mcp_server.streamable_http_app(), name="mcp")
         from semaloom.app.chat.http import router as chat_router
 
         app.state.chat = None

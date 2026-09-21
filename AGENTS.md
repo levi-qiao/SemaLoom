@@ -30,6 +30,7 @@ Architecture invariants are settled; signatures, exact fields, package names and
   2. **Authoritative, high-star, stable plugins second**: When base capabilities are insufficient or require advanced strategies, adopt authoritative, high-star community plugins or proven extensions (e.g., `pi-compact-plus` patterns for tool-output pruning).
   3. **Custom implementation strictly as last resort**: Only build custom solutions if native capabilities and authoritative plugins cannot satisfy the requirements, and implement them strictly under Pi's native contract inside the harness. Never build ad-hoc, unstable custom wheels (such as application-layer string slicing or synthetic message stitching) outside the harness.
 - **Ontology customization vs universal core stability**: The universal core (`core`, `compiler`, `runtime`, `presentation`, `summary`) is domain-agnostic and invariant. It never contains hardcoded domain branches or special casing for specific industries or entities. Domain packs (declarative YAML files) are the sole carrier of customized business logic (objects, properties, dictionaries, metric grain/additivity, links, rules, policies, actions). Any new enterprise domain (logistics, healthcare, manufacturing, HR, finance) is modeled entirely through ontology YAMLs without touching the core engine.
+- **Role-driven semantic orchestration and replaceable decisions**: Language adapters emit typed constraints and grouping hints keyed by ontology semantic role or semantic ID. Universal orchestration resolves those hints against the pinned release; adding a scope dimension or business calendar is a definition change, not a new named slot or branch in core/chat code. Pi calls one bounded semantic-decision interface in the harness; Jev, local models, and future decision adapters implement that interface and may only classify, rank, or score server-supplied candidates. Python revalidates every selected ID, type, scope, authorization, and executable plan.
 - **Understated universal design and minimal ontology schema (内敛通用设计与本体防膨胀规范)**:
   1. **Lean ontology schema**: Keep the ontology definition pure and business-focused. Never bloat ontology YAMLs with presentation flags, UI rendering templates, or custom layout knobs. The universal engine derives clean human presentation purely from foundational semantic metadata (`label`, `unit`, `values`, `identityKeys`, `properties`).
   2. **Understated presentation (内敛收拢机器内部设计)**: The universal engine must absorb and hide internal machine mechanics, debug placeholders, and security assertions from human-facing text:
@@ -39,6 +40,22 @@ Architecture invariants are settled; signatures, exact fields, package names and
   3. **Strict two-layer presentation separation**:
      - **Human perception layer (Answer prose)**: Delivers understated, dignified, clear, and natural business conclusions formatted in standard typography and Chinese business punctuation.
      - **Rigorous auditability layer (Evidence cards)**: Completely encapsulates heavy machine designs (data source IDs, table/API operations, physical field paths, execution timestamps, raw precision values, and snapshot hashes) into collapsible evidence drawers (`EvidenceCard`), ensuring 100% provenance and zero hallucination without cluttering the conversation.
+- **Internationalization (i18n) and UI Conventions (前端与运行时国际化规范及避坑指南)**:
+  1. **Single Source of Truth & Compile-Time Symmetry (单一真实来源与类型安全)**:
+     - All user-facing strings must reside exclusively in `frontend/src/i18n.tsx`. Never scatter hardcoded strings or ad-hoc bilingual ternaries (`isEn ? "..." : "..."`) across UI components, utility modules (`labels.ts`, `doc.ts`), or formatters (`ResultPresentation.tsx`).
+     - Strictly enforce bidirectional symmetry: `en: Record<keyof typeof zh, string>` guarantees that any key added to `zh` must be implemented in `en` with identical keys. Missing keys fail at `tsc --noEmit` compile time.
+  2. **Strict Decoupling of CSS Selectors from Localized Attributes (样式选择器严禁耦合本地化文本)**:
+     - **Anti-pattern**: Never use localized strings or `aria-label` in CSS selectors (e.g., `select[aria-label="输入类型"]` or `button[title="删除"]`). When the user switches language to English, such CSS rules silently fail and break layouts.
+     - **Best practice**: Always assign semantic, language-neutral CSS class names (e.g., `className="rule-input-type"`) for layout and styling, and keep `aria-label={t("...")}` purely for accessibility.
+  3. **Safe Parameter Interpolation & Unified Mapping (安全参数插值与查表模式)**:
+     - Always use named template parameters (`{param}`) rather than string slicing or naive concatenation (`每个${source}对应一个${target}` -> `labels.link.one: "每个{source}对应一个{target}"` vs `"Each {source} has one {target}"`), preserving natural grammar and word order across languages.
+     - Map dynamic machine codes (error codes, tool names, provider types) through typed dictionary tables (`errorCodeMap: Record<string, I18nKey>`, `toolNameMap: Record<string, I18nKey>`) before display.
+  4. **Natural Typography, Punctuation & Number Formatting (自然排版、标点与数字规范)**:
+     - Adhere strictly to regional punctuation conventions: Chinese uses full-width punctuation (`：`, `、`, `；`, `。`), while English uses half-width punctuation with standard spacing (`: `, `, `, `; `, `. `).
+     - Compact numerical measures conform to locale units (`1 亿` / `100M`, `1 万` / `10K`), strictly avoiding zero-spam (`1200.0000` -> `1200`).
+  5. **Component Migration Pattern (组件接入规范)**:
+     - In React components: use `const { t, locale } = useI18n();` to retrieve localized strings.
+     - In pure helper functions outside React tree: use `translate(currentLocale(), key, values)`.
 
 ## Execute and hand off
 

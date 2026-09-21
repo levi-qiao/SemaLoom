@@ -1,4 +1,4 @@
-import { choice, noul, TypeSafeClient } from '@typesafe-ai/sdk';
+import { choice, noul, score, TypeSafeClient } from '@typesafe-ai/sdk';
 
 const DEFAULT_MIN_CONFIDENCE = 0.85;
 const MAX_HISTORY_CHARS = 6000;
@@ -35,6 +35,27 @@ export function orderCatalog(catalog, preferredTool) {
     Number(right.name === preferredTool) - Number(left.name === preferredTool));
 }
 
+export function semanticCandidates(semanticContext, maxCandidates = 48) {
+  const catalog = Array.isArray(semanticContext?.businessCatalog)
+    ? semanticContext.businessCatalog : [];
+  return catalog
+    .filter(item => item && typeof item.id === 'string' && typeof item.kind === 'string')
+    .slice(0, maxCandidates)
+    .map((item, index) => ({
+      key: `candidate_${index}`,
+      id: item.id,
+      description: {
+        id: item.id,
+        kind: item.kind,
+        label: item.label,
+        aliases: item.aliases,
+        objectType: item.objectType,
+        rule: item.rule,
+        dimensions: item.dimensions,
+      },
+    }));
+}
+
 export function createJevDecisionHook({ config, client } = {}) {
   if (!config?.apiKey && !client) {
     return { enabled: false, decide: async () => ({ applied: false }) };
@@ -57,6 +78,13 @@ export function createJevDecisionHook({ config, client } = {}) {
         tool.name,
         { description: tool.description, inputSchema: tool.inputSchema },
       ]));
+      const candidates = semanticCandidates(semanticContext);
+      const semanticCriteria = Object.fromEntries([
+        ...candidates.map(item => [item.key, item.description]),
+        ['no_semantic_match', {
+          description: 'None of the supplied authorized ontology definitions matches the request.',
+        }],
+      ]);
       try {
         const response = await sdk.systemOne({
           model: config?.model ?? 'jev-latest',
@@ -85,15 +113,43 @@ export function createJevDecisionHook({ config, client } = {}) {
                 false: 'At least one material business choice must be obtained from the user.',
               },
             ),
+            ...(candidates.length ? {
+              semanticCandidate: choice(
+                {
+                  task: 'classify_request_against_authorized_ontology',
+                  rule: 'Select only one supplied candidate key, or no_semantic_match. Use labels, aliases, kinds and relationships; never invent a semantic id.',
+                },
+                semanticCriteria,
+              ),
+              semanticMatchQuality: score(
+                {
+                  task: 'score_best_authorized_semantic_match',
+                  rule: 'Score how directly the best supplied ontology candidate matches the current request. Do not score answer correctness or data availability.',
+                },
+                [
+                  'No supplied candidate is relevant.',
+                  'A candidate is only loosely related and clarification is necessary.',
+                  'A candidate plausibly matches but another candidate or context may change the meaning.',
+                  'One supplied candidate directly and unambiguously matches the request wording and context.',
+                ],
+              ),
+            } : {}),
           },
         });
         const route = response.answers?.nextTool;
         const scope = response.answers?.scopeComplete;
+        const semantic = response.answers?.semanticCandidate;
+        const match = response.answers?.semanticMatchQuality;
         const preferredTool =
           route?.confidence >= minConfidence && criteria[route.choice] ? route.choice : undefined;
+        const chosen = candidates.find(item => item.key === semantic?.choice);
+        const preferredSemanticId =
+          semantic?.confidence >= minConfidence && Number(match?.score ?? 0) >= 2 && chosen
+            ? chosen.id : undefined;
         return {
           applied: Boolean(preferredTool),
           preferredTool,
+          preferredSemanticId,
           requiresClarification: typeof scope?.noul === 'number' ? scope.noul < 0.5 : undefined,
         };
       } catch {

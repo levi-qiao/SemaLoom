@@ -31,6 +31,18 @@
     - id: taxYear
       label: 税款所属期
       valueType: INTEGER
+      semanticRoles: [time.year, time.sequence]
+    - id: perspective
+      label: 口径
+      valueType: STRING
+      aliases: [数据口径, 报告口径]
+      values:
+        - id: TAX_RETURN
+          label: 申报口径
+          aliases: [申报, 纳税申报]
+        - id: AUDIT_REPORT
+          label: 审计口径
+          aliases: [审计, 审计报告]
     - id: amount
       label: 金额
       valueType: DECIMAL
@@ -41,8 +53,8 @@
         - 纳税金额
   population:
     unitProperty: taxpayerId
-    yearProperty: taxYear
-    description: 合成税务样本按纳税人年度统计，不代表全部纳税人或已复核申报。
+    scopeProperties: [taxYear, perspective]
+    description: 合成税务样本按纳税人、年度和数据口径统计，不代表全部纳税人或已复核申报。
 
 - apiVersion: semaloom/v0.1
   kind: ObjectType
@@ -64,6 +76,7 @@
       label: 税款所属期
       valueType: INTEGER
       required: true
+      semanticRoles: [time.year, time.sequence]
     - id: perspective
       label: 口径
       valueType: STRING

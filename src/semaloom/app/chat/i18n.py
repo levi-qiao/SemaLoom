@@ -79,10 +79,6 @@ def localize_question(question: dict[str, object] | None, locale: str) -> dict[s
     slot = str(result.get("slot") or "")
     prompts = {
         "metric": ("Which metric definition do you mean?", "The metric changes the result."),
-        "year": (
-            "Which business year should be used?",
-            "A year is required to determine the population.",
-        ),
         "aggregation": (
             "How should this metric be calculated?",
             "Totals, averages, and other operations have different meanings.",
@@ -132,10 +128,6 @@ def localize_question(question: dict[str, object] | None, locale: str) -> dict[s
             option.update(label="Stop", explanation="Stop this request")
         elif kind == "OTHER":
             option.update(label="Other", explanation="Provide another business condition")
-        elif kind == "YEAR":
-            option.update(
-                label=identity, explanation="Business year available in the published source"
-            )
         elif kind == "AGGREGATION":
             label = operation_labels.get(identity, identity)
             option.update(label=label, explanation=f"{label} over the selected scope")
@@ -146,6 +138,10 @@ def localize_question(question: dict[str, object] | None, locale: str) -> dict[s
             option["label"] = semantic_label(locale, str(option.get("label") or ""), identity)
             if _HAN.search(str(option.get("explanation") or "")):
                 option["explanation"] = "Definition declared by the current ontology"
+        elif slot.startswith("scope:"):
+            result["prompt"] = "Choose the business scope"
+            result["reason"] = "The scope property and values come from the current ontology."
+            option["explanation"] = "Observed value for this metric and authorized scope"
         elif slot in {"subject", "claimSubject"}:
             option["explanation"] = "Candidate in the current authorized scope"
         elif slot == "filter":

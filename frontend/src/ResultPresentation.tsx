@@ -14,7 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { z } from "zod";
-import { useI18n } from "./i18n";
+import { useI18n, translate, type Locale } from "./i18n";
 type Tone = "neutral" | "positive" | "warning" | "danger";
 type Column = { key: string; label: string };
 type Series = { key: string; label: string; unit?: string };
@@ -36,17 +36,17 @@ export function formatExactNumber(raw: unknown): string {
   return decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt;
 }
 
-function formatYAxisTick(value: number, locale: "zh-CN" | "en" = "zh-CN"): string {
+function formatYAxisTick(value: number, locale: Locale = "zh-CN"): string {
   if (!Number.isFinite(value) || value === 0) return "0";
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
   if (abs >= 1e8) {
     const v = (abs / 1e8).toFixed(2).replace(/\.?0+$/, "");
-    return locale === "en" ? `${sign}${Number(v) * 100}M` : `${sign}${v} 亿`;
+    return translate(locale, "result.formatYi", { sign, value: locale === "en" ? Number(v) * 100 : v });
   }
   if (abs >= 1e4) {
     const v = (abs / 1e4).toFixed(2).replace(/\.?0+$/, "");
-    return locale === "en" ? `${sign}${Number(v) * 10}K` : `${sign}${v} 万`;
+    return translate(locale, "result.formatWan", { sign, value: locale === "en" ? Number(v) * 10 : v });
   }
   return `${sign}${abs.toLocaleString()}`;
 }
@@ -247,7 +247,7 @@ function ReportExplorer({ props }: { props: { title: string; description: string
     return converted;
   }), [props.rows, props.series]);
   const categoryLabel = props.columns.find(column => column.key === props.categoryKey)?.label ?? t("result.category");
-  const chartLabel = locale === "en" ? `${props.title}. X axis: ${categoryLabel}; ${props.rows.length} items.` : `${props.title}。横轴为${categoryLabel}，包含 ${props.rows.length} 项。`;
+  const chartLabel = t("result.chartLabel", { title: props.title, axis: categoryLabel, count: props.rows.length });
 
   return <section className="result-explorer">
     <div className="result-explorer-head">

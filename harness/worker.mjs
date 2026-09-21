@@ -3,7 +3,7 @@ import { Agent } from '@earendil-works/pi-agent-core';
 import { createProvider } from './provider.mjs';
 import { createSemanticPlugin } from './semantic-plugin.mjs';
 import { transformContext } from './context-transform.mjs';
-import { createJevDecisionHook, orderCatalog } from './jev-decision.mjs';
+import { createSemanticDecisionProvider, orderCatalog } from './semantic-decision-provider.mjs';
 
 const send = data => process.stdout.write(JSON.stringify(data) + '\n');
 const lines = createInterface({ input: process.stdin });
@@ -25,8 +25,8 @@ lines.on('close', () => { agent?.abort(); for (const w of pending.values()) w.re
 async function run(input) {
   try {
     const provider = createProvider(input.provider);
-    const decisionHook = createJevDecisionHook({ config: input.decision });
-    const decision = await decisionHook.decide({
+    const decisionProvider = createSemanticDecisionProvider({ config: input.decision });
+    const decision = await decisionProvider.decide({
       message: input.message,
       history: input.history,
       semanticContext: input.semanticContext,
@@ -47,6 +47,7 @@ async function run(input) {
         + `\nRespond in the requested locale: ${input.locale ?? 'zh-CN'}.`
         + '\nMachine decision hook (advisory; server validation remains authoritative):\n'
         + JSON.stringify({preferredTool: decision.preferredTool,
+          preferredSemanticId: decision.preferredSemanticId,
           requiresClarification: decision.requiresClarification}),
         tools: plugin.tools, messages: input.history, thinkingLevel: 'off' },
       streamFn: provider.streamFn, toolExecution: 'sequential',

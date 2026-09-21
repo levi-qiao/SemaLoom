@@ -1,4 +1,5 @@
 import type { DraftDocument } from "./types";
+import { currentLocale, translate } from "./i18n";
 
 export const LOCAL_ID = /^[A-Za-z][A-Za-z0-9_]*$/;
 
@@ -34,7 +35,7 @@ export function makeObjectType(namespace: string, local: string, label: string):
     version: "1.0.0",
     label: label.trim() || local,
     identityKeys: [key],
-    properties: [{ id: key, label: "业务编号", valueType: "STRING", required: true }],
+    properties: [{ id: key, label: translate(currentLocale(), "doc.businessId"), valueType: "STRING", required: true }],
   };
 }
 
@@ -78,7 +79,7 @@ export function makeRuleForObject(objectType: DraftDocument, documents: DraftDoc
     kind: "Rule",
     id,
     version: "1.0.0",
-    label: "新判断",
+    label: translate(currentLocale(), "doc.newRule"),
     claim: id,
     inputs,
     expression,
@@ -93,9 +94,9 @@ export function makeActionForObject(objectType: DraftDocument, documents: DraftD
     kind: "Action",
     id,
     version: "1.0.0",
-    label: "新操作",
+    label: translate(currentLocale(), "doc.newAction"),
     targetObject: objectType.id,
-    effect: "描述此操作会改动什么",
+    effect: translate(currentLocale(), "doc.actionEffectPlaceholder"),
     preconditions: [],
     parameters: [],
   };
@@ -297,12 +298,12 @@ export function detachMapping(documents: DraftDocument[], mappingId: string): Dr
 export function mappingResourceLabel(mapping: DraftDocument): string {
   const physical = object(mapping.physical);
   if (isOpenApi(mapping.provider)) {
-    return text(physical.path) || text(physical.operationId) || "未选接口";
+    return text(physical.path) || text(physical.operationId) || translate(currentLocale(), "doc.noApiSelected");
   }
   const schema = text(physical.schema);
   const table = text(physical.table);
   if (schema && schema !== "public" && table) return `${schema}.${table}`;
-  return table || "未选表";
+  return table || translate(currentLocale(), "doc.noTableSelected");
 }
 
 export function replaceDocument(documents: DraftDocument[], next: DraftDocument): DraftDocument[] {

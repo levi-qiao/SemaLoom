@@ -37,3 +37,55 @@
     - 额度
     - 授权额度
     - 组织审批额度
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: procurement.contractValue
+  version: "1.0.0"
+  objectType: procurement.Contract
+  property: contractValue
+  label: 合同总额
+  aliases: [合同金额, 合同价值, 采购合同总额]
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: procurement.committedSpend
+  version: "1.0.0"
+  objectType: procurement.Contract
+  property: committedSpend
+  label: 合同已承诺金额
+  aliases: [已承诺金额, 承诺金额, 合同占用金额]
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: procurement.remainingCommitment
+  version: "1.0.0"
+  objectType: procurement.Contract
+  valueType: DECIMAL
+  unit: CNY
+  additivity: FULL
+  grain: [contractId, accountingPeriod]
+  population:
+    unitProperty: contractId
+    scopeProperties: [accountingPeriod]
+    description: 当前授权合成合同台账中合同总额减已承诺金额；缺失承诺额时结果保持缺失。
+  label: 合同可用余额
+  aliases: [合同剩余额度, 未承诺金额, 合同余额]
+  derivedFrom: [procurement.contractValue, procurement.committedSpend]
+
+- apiVersion: semaloom/v0.1
+  kind: Metric
+  id: procurement.contractUtilization
+  version: "1.0.0"
+  objectType: procurement.Contract
+  valueType: DECIMAL
+  unit: "1"
+  additivity: NONE
+  grain: [contractId, accountingPeriod]
+  population:
+    unitProperty: contractId
+    scopeProperties: [accountingPeriod]
+    description: 当前授权合成合同台账的已承诺金额除以合同总额；比率不可直接求和或平均。
+  label: 合同使用率
+  aliases: [合同利用率, 合同执行率, 金额使用率]
+  derivedFrom: [procurement.committedSpend, procurement.contractValue]

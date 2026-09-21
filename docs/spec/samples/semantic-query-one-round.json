@@ -2,22 +2,32 @@
   "apiVersion": "semaloom/v0.1",
   "kind": "SemanticQueryContractSample",
   "id": "one-round-choice",
-  "description": "Year missing, metric known: one NEEDS_INPUT then READY.",
+  "description": "Required scope missing, metric known: one NEEDS_INPUT then READY.",
   "prepare": {
     "status": "NEEDS_INPUT",
     "question": {
-      "questionId": "q-year-1",
+      "questionId": "q-scope-1",
       "revision": 1,
-      "slot": "year",
-      "prompt": "要计算哪一年？",
-      "reason": "该指标按年度统计，缺少年份无法确定集合。",
+      "slot": "scope:taxYear",
+      "prompt": "请选择年度。",
+      "reason": "缺少确定统计范围所需的业务维度。",
       "multiSelect": false,
       "options": [
         {
           "id": "opt_year_2024",
           "label": "2024 年",
           "explanation": "已发布样本中的 2024 申报年度",
-          "choice": {"kind": "YEAR", "id": "2024", "field": "taxYear"}
+          "choice": {
+            "kind": "DIMENSION_VALUE",
+            "id": "2024",
+            "field": "taxYear",
+            "predicate": {
+              "kind": "PRED",
+              "field": "taxYear",
+              "op": "EQ",
+              "value": {"valueType": "INTEGER", "value": 2024}
+            }
+          }
         },
         {
           "id": "opt_other_input",

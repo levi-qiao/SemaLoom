@@ -66,3 +66,72 @@
     - evaluateClaim
     - planAction
   resourceTypes: [procurement.Order, procurement.Supplier]
+
+- apiVersion: semaloom/v0.1
+  kind: Rule
+  id: procurement.remainingCommitment.rule
+  version: "1.0.0"
+  label: 合同可用余额计算
+  outputMetric: procurement.remainingCommitment
+  inputs:
+    - name: contractValue
+      metric: procurement.contractValue
+      required: true
+    - name: committedSpend
+      metric: procurement.committedSpend
+      required: true
+  expression:
+    op: sub
+    args:
+      - {op: ref, name: contractValue}
+      - {op: ref, name: committedSpend}
+
+- apiVersion: semaloom/v0.1
+  kind: Rule
+  id: procurement.contractUtilization.rule
+  version: "1.0.0"
+  label: 合同使用率计算
+  outputMetric: procurement.contractUtilization
+  inputs:
+    - name: committedSpend
+      metric: procurement.committedSpend
+      required: true
+    - name: contractValue
+      metric: procurement.contractValue
+      required: true
+  expression:
+    op: div
+    args:
+      - {op: ref, name: committedSpend}
+      - {op: ref, name: contractValue}
+
+- apiVersion: semaloom/v0.1
+  kind: Rule
+  id: procurement.commitmentWithinContract
+  version: "1.0.0"
+  label: 已承诺金额是否未超过合同总额
+  description: 对选定合成合同的金额做确定性核对；成立不代表合同审批或履约合规，缺失金额时无法判断。
+  claim: procurement.commitmentWithinContract
+  aliases: [合同是否超额, 承诺金额是否超合同, 合同额度核验]
+  inputs:
+    - name: committedSpend
+      metric: procurement.committedSpend
+      required: true
+    - name: contractValue
+      metric: procurement.contractValue
+      required: true
+  expression:
+    op: le
+    args:
+      - {op: ref, name: committedSpend}
+      - {op: ref, name: contractValue}
+
+- apiVersion: semaloom/v0.1
+  kind: Policy
+  id: procurement.commitmentWithinContract.policy
+  version: "1.0.0"
+  rule: procurement.commitmentWithinContract
+  dimensions: {}
+  interval:
+    effectiveFrom: "2024-01-01"
+    effectiveTo: null

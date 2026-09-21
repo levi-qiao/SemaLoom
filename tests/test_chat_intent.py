@@ -163,7 +163,7 @@ def test_share_phrasing_allows_year_and_metric_between_zhan_and_total(
     intent = TurnIntent.read("样本企业 05 占2025年选定申报利润总额多少", gateway.query.bundle)
     assert intent.comparison == "shareOfTotal"
     assert intent.metric_ids == frozenset({"finance.review.declared_profit"})
-    assert intent.year == 2025
+    assert intent.role_constraints[0].values == (2025,)
 
 
 def test_claim_aliases_are_read_from_ontology(gateway: SemanticTools) -> None:

@@ -104,7 +104,7 @@ export default function App() {
 
   async function loadInitialState(force = false) {
     if ((dirty || sourceDirty) && !force) {
-      setError("有未保存修改，重新载入会丢弃它们。请先保存，或选择放弃本地修改并载入。");
+      setError(t("status.saveConflictPrompt"));
       return;
     }
     try {
@@ -197,12 +197,12 @@ export default function App() {
       setSavedDocuments(payload.documents ?? toSave);
       if (editGen.current !== gen) {
         setConflict(false);
-        setStatus("较早版本已保存，当前修改仍未保存");
+        setStatus(t("status.earlierSaved"));
       } else {
         setDocuments(payload.documents ?? toSave);
         setDirty(false);
         setConflict(false);
-        setStatus("已保存");
+        setStatus(t("status.saved"));
       }
       const graph = await fetch("/v0.1/studio/graph?draftId=default").then(checkedJson);
       setMeta(graph.meta);
@@ -215,7 +215,7 @@ export default function App() {
       const statusCode = cause instanceof ApiError ? cause.status : undefined;
       if (message.includes("409") || message.includes("REVISION_CONFLICT") || statusCode === 409) {
         setConflict(true);
-        setStatus("保存冲突");
+        setStatus(t("status.conflict"));
         setError(gateErrorMessage("REVISION_CONFLICT", 409));
       } else {
         setError(gateErrorMessage(message, statusCode));
@@ -239,7 +239,7 @@ export default function App() {
     editGen.current += 1;
     setDocuments(next);
     setDirty(true);
-    setStatus("有未保存修改");
+    setStatus(t("status.unsaved"));
   }
 
   const query = search.trim().toLowerCase();
@@ -271,7 +271,7 @@ export default function App() {
           const summary = linkIdentitySummary(item.identity);
           return {
             id: item.id,
-            label: String(item.label || "关联"),
+            label: String(item.label || t("relation.defaultLabel")),
             source: String(item.source ?? ""),
             target: String(item.target ?? ""),
             cardinality: String(item.cardinality || "ONE"),
@@ -279,7 +279,7 @@ export default function App() {
             targetKey: summary.targetKey,
           };
         }),
-    [documents],
+    [documents, t],
   );
   const namespaces = [...new Set(liveNodes.map((node) => node.namespace))].sort();
   const relationOptions = liveEdges.map((edge) => ({ id: edge.id, label: edge.label }));
@@ -336,13 +336,13 @@ export default function App() {
             )}
             {status || (sourceDirty && view === "sources") ? (
               <span className={conflict ? "save-status conflict" : "save-status"}>
-                {status}{sourceDirty && view === "sources" ? (status ? " · 来源未保存" : "来源未保存") : ""}
+                {status}{sourceDirty && view === "sources" ? (status ? ` · ${t("status.sourceUnsaved")}` : t("status.sourceUnsaved")) : ""}
               </span>
             ) : null}
             {conflict ? (
               <span className="conflict-actions">
-                <button className="secondary" onClick={() => void retrySave()}>用当前修改重试保存</button>
-                <button className="secondary" onClick={() => void loadInitialState(true)}>放弃本地修改并载入</button>
+                <button className="secondary" onClick={() => void retrySave()}>{t("status.retryWithCurrent")}</button>
+                <button className="secondary" onClick={() => void loadInitialState(true)}>{t("status.discardAndReload")}</button>
               </span>
             ) : null}
             {view === "sources" || view === "chat" || view === "apis" || !canModel ? null : (
@@ -352,7 +352,7 @@ export default function App() {
         </header>
         {error ? (
           <div className="error" role="alert">
-            <span>操作未完成：{error}</span>
+            <span>{t("common.operationIncomplete")}{error}</span>
             {unsaved ? (
               <button onClick={() => setError(null)}>{t("common.close")}</button>
             ) : (
@@ -398,7 +398,7 @@ export default function App() {
                       kind: "Link",
                       id,
                       version: "1.0.0",
-                      label: "关联",
+                      label: t("relation.defaultLabel"),
                       source,
                       target,
                       cardinality: "ONE",

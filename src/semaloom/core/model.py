@@ -48,6 +48,7 @@ class EmbeddedProperty(BaseModel):
     aggregation: Aggregation | None = None
     additivity: Additivity | None = None
     aliases: tuple[str, ...] = ()
+    semantic_roles: tuple[str, ...] = Field(default=(), max_length=12)
     values: tuple[PropertyValue, ...] = Field(default=(), max_length=30)
 
 
@@ -58,11 +59,11 @@ class ObjectPeriod(BaseModel):
 
 
 class PopulationSpec(BaseModel):
-    """Approved population grain: one object per statistical unit and year."""
+    """Approved population grain and the semantic properties required to scope it."""
 
     model_config = wire_config()
     unit_property: str
-    year_property: str
+    scope_properties: tuple[str, ...] = ()
     description: str = Field(min_length=1)
 
 

@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from semaloom.app.bootstrap import compile_examples
 from semaloom.app.chat.choices import (
     prepare_turn,
     query_from_intent,
@@ -28,6 +29,7 @@ from semaloom.core.semantic_query import (
     MetricRef,
     SemanticQuery,
     TypedValue,
+    equality_value,
 )
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.query import QueryService
@@ -44,10 +46,24 @@ def population_query(financial_query: Any) -> Any:  # noqa: F811
 
 def test_intent_allows_multi_year_and_metric_for_generic_query(population_query: Any) -> None:
     intent = TurnIntent.read("2024年和2025年申报营业收入与应纳税所得额", population_query.bundle)
-    assert intent.multiple_years is True
+    assert intent.role_constraints[0].role == "time.year"
+    assert intent.role_constraints[0].operator == "IN"
+    assert intent.role_constraints[0].values == (2024, 2025)
+    assert intent.grouping_role == "time.year"
     query = query_from_intent(intent, population_query.bundle)
     assert isinstance(query, SemanticQuery)
-    assert query.group_by == (GroupByItem(id="taxYear", time_grain="YEAR"),)
+    assert query.group_by == (GroupByItem(id="taxYear"),)
+
+
+def test_year_language_only_targets_a_declared_year_role() -> None:
+    bundle = compile_examples()
+    intent = TurnIntent.read("2026年合同总额合计", bundle)
+    query = query_from_intent(intent, bundle)
+    assert query.metrics[0].id == "procurement.contractValue"
+    assert query.filters is None
+
+    trend = query_from_intent(TurnIntent.read("合同总额趋势", bundle), bundle)
+    assert trend.group_by == (GroupByItem(id="accountingPeriod"),)
 
 
 def test_recent_year_trend_uses_available_periods_and_preserves_year_grain(
@@ -74,7 +90,7 @@ def test_recent_year_trend_uses_available_periods_and_preserves_year_grain(
         )
     result = prepare_turn(population_query, ACTOR, "近三年申报营业收入合计趋势")
     assert result["status"] == "READY"
-    assert result["query"]["groupBy"] == [{"id": "taxYear", "timeGrain": "YEAR"}]
+    assert result["query"]["groupBy"] == [{"id": "taxYear", "timeGrain": None}]
     assert {row["grain"]["taxYear"] for row in result["result"]["values"]} == {
         2023,
         2024,
@@ -168,7 +184,10 @@ def _load_declaration(engine: Any) -> None:
 def _confirm_scope(
     store: ChatStore, service: Any, conversation_id: str, result: dict[str, Any]
 ) -> dict[str, Any]:
-    for slot, kind, value in (("year", "YEAR", "2024"), ("aggregation", "AGGREGATION", "SUM")):
+    for slot, kind, value in (
+        ("scope:taxYear", "DIMENSION_VALUE", "2024"),
+        ("aggregation", "AGGREGATION", "SUM"),
+    ):
         assert result["status"] == "NEEDS_INPUT"
         assert result["question"]["slot"] == slot
         restored = store.load(ACTOR, conversation_id)
@@ -342,7 +361,7 @@ def test_http_choice_restore_roundtrip(population_query: Any) -> None:
     assert chosen.status_code == 200
     body = chosen.json()
     assert body["status"] == "NEEDS_INPUT"
-    assert body["question"]["slot"] == "year"
+    assert body["question"]["slot"] == "scope:taxYear"
 
 
 def test_direct_turn_skips_model_for_named_metric(population_query: Any) -> None:
@@ -360,11 +379,87 @@ def test_named_metric_asks_for_missing_context_without_scoring(population_query:
     _load_declaration(population_query.provider._engines["sample_pg"])
     result = prepare_turn(population_query, ACTOR, "申报营业收入")
     assert result["status"] == "NEEDS_INPUT"
-    assert result["question"]["slot"] in {"year", "aggregation"}
+    assert result["question"]["slot"] in {"scope:taxYear", "aggregation"}
     assert not result.get("answerReady")
     assert "confidence" not in result
     assert not result.get("assumptions")
     assert not result["query"].get("groupBy")
+
+
+def test_year_choices_only_advertise_non_null_observations_for_selected_metric(
+    population_query: Any,
+) -> None:
+    engine = population_query.provider._engines["sample_pg"]
+    _load_declaration(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO sample_declaration VALUES
+                ('tenant-a','D4','C4',2025,'2025-01-01','2026-01-01',NULL,81,91.00,21)
+                """
+            )
+        )
+
+    revenue = prepare_turn(population_query, ACTOR, "申报营业收入")
+    taxable = prepare_turn(population_query, ACTOR, "申报应纳税所得额")
+
+    assert revenue["question"]["slot"] == "scope:taxYear"
+    assert [
+        option["choice"]["id"]
+        for option in revenue["question"]["options"]
+        if option["choice"]["kind"] == "DIMENSION_VALUE"
+    ] == ["2024"]
+    assert [
+        option["choice"]["id"]
+        for option in taxable["question"]["options"]
+        if option["choice"]["kind"] == "DIMENSION_VALUE"
+    ] == ["2024", "2025"]
+
+
+def test_named_metric_revalidates_an_unconfirmed_inherited_scope(
+    population_query: Any,
+) -> None:
+    _load_declaration(population_query.provider._engines["sample_pg"])
+    stale = SemanticQuery(
+        api_version="semaloom/v0.1",
+        metrics=(MetricRef(id="finance.declaredRevenue", aggregation="SUM"),),
+        filters=FilterAtom(
+            field="taxYear",
+            op="EQ",
+            value=TypedValue(value_type="INTEGER", value=2025),
+        ),
+    )
+
+    result = prepare_turn(population_query, ACTOR, "我要看申报营业收入", stale)
+
+    assert result["status"] == "NEEDS_INPUT"
+    assert result["question"]["slot"] == "scope:taxYear"
+    assert [
+        option["choice"]["id"]
+        for option in result["question"]["options"]
+        if option["choice"]["kind"] == "DIMENSION_VALUE"
+    ] == ["2024"]
+
+
+def test_follow_up_can_replace_year_on_confirmed_query(population_query: Any) -> None:
+    _load_declaration(population_query.provider._engines["sample_pg"])
+    first = try_direct_turn(population_query, ACTOR, "2024年申报营业收入合计")
+    assert first is not None and first["answerReady"]
+
+    follow_up = try_direct_turn(
+        population_query,
+        ACTOR,
+        "那查一下2026年",
+        confirmed_query=first["query"],
+    )
+
+    assert follow_up is not None and follow_up["answerReady"]
+    continued_query = SemanticQuery.model_validate(follow_up["query"])
+    assert equality_value(continued_query.filters, "taxYear") == 2026
+    assert follow_up["result"]["scope"]["reason"] == "EMPTY_POPULATION"
+    assert "EMPTY_POPULATION" not in follow_up["text"]
+    assert "没有匹配记录" in follow_up["text"]
 
 
 def test_model_defaults_require_user_confirmation_but_confirmed_context_survives(
@@ -375,11 +470,11 @@ def test_model_defaults_require_user_confirmation_but_confirmed_context_survives
         TurnIntent.read("2024年申报营业收入合计", population_query.bundle), population_query.bundle
     ).model_dump(mode="json", by_alias=True)
     gateway = SemanticTools(population_query, ACTOR, "申报营业收入")
-    with pytest.raises(ValueError, match="UNCONFIRMED_YEAR"):
+    with pytest.raises(ValueError, match="UNCONFIRMED_SCOPE"):
         gateway.call("prepare_semantic_query", {"query": query})
     without_year = {**query, "filters": None}
     waiting = gateway.call("prepare_semantic_query", {"query": without_year, "view": "table"})
-    assert waiting["question"]["slot"] == "year"
+    assert waiting["question"]["slot"] == "scope:taxYear"
     assert waiting["query"]["metrics"][0]["aggregation"] is None
     assert waiting["query_state"]["view"] == "table"
     resumed = SemanticTools(population_query, ACTOR, "那用表格看", confirmed_query=query)

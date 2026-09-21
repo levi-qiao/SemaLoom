@@ -31,17 +31,17 @@ def _bare(field: str) -> str:
     return field.rsplit(".", 1)[-1]
 
 
-def time_dimension_held(
+def scope_dimensions_held(
     query: SemanticQuery,
-    year_property: str | None,
+    scope_properties: tuple[str, ...],
 ) -> bool:
-    """SEMI facts may SUM only at one snapshot, or grouped so each row is one."""
-    if not year_property:
+    """SEMI facts may SUM only when every declared non-additive scope is held."""
+    if not scope_properties:
         return False
-    if equality_value(query.filters, year_property) is not None:
-        return True
-    return any(
-        _bare(item.id) == year_property or item.id == year_property for item in query.group_by
+    grouped = {_bare(item.id) for item in query.group_by}
+    return all(
+        equality_value(query.filters, prop) is not None or prop in grouped
+        for prop in scope_properties
     )
 
 
@@ -49,10 +49,10 @@ def aggregation_legal(
     additivity: Additivity,
     op: AggregationOp,
     query: SemanticQuery,
-    year_property: str | None,
+    scope_properties: tuple[str, ...],
 ) -> bool:
     if op not in aggregations_for(additivity):
         return False
     if additivity == "SEMI" and op == "SUM":
-        return time_dimension_held(query, year_property)
+        return scope_dimensions_held(query, scope_properties)
     return True

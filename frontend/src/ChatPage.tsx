@@ -5,7 +5,7 @@ import { apiHeaders, checkedJson, errorDetail, type StudioSession } from "./api"
 
 import { EvidenceCard, type Evidence } from "./EvidenceCard";
 import { IconHistory, IconSend, IconSparkle } from "./icons";
-import { useI18n, type Locale } from "./i18n";
+import { useI18n, type Locale, type I18nKey, translate } from "./i18n";
 const ResultPresentation = lazy(() => import("./ResultPresentation").then(module => ({ default: module.ResultPresentation })));
 type FollowUp = { label: string; message: string };
 type Answer = {
@@ -25,7 +25,7 @@ function formatHistoryTime(iso: string, locale: Locale): string {
     const day = d.getDate();
     const h = String(d.getHours()).padStart(2, "0");
     const min = String(d.getMinutes()).padStart(2, "0");
-    return locale === "en" ? `${m}/${day} ${h}:${min}` : `${m}月${day}日 ${h}:${min}`;
+    return translate(locale, "chat.timeFormat", { m, day, h, min });
   } catch {
     return iso.slice(0, 16);
   }
@@ -34,51 +34,44 @@ function formatHistoryTime(iso: string, locale: Locale): string {
 function choiceControl(question: ChoiceQuestion): "CARDS" | "SELECT" {
   if (question.control) return question.control;
   const kinds = new Set(question.options.map(item => item.choice?.kind).filter(kind => kind && kind !== "ABORT" && kind !== "OTHER"));
-  return kinds.size > 0 && [...kinds].every(kind => ["YEAR", "DIMENSION_VALUE", "CLAIM", "SUBJECT"].includes(kind ?? "")) ? "SELECT" : "CARDS";
+  return kinds.size > 0 && [...kinds].every(kind => ["DIMENSION_VALUE", "CLAIM", "SUBJECT"].includes(kind ?? "")) ? "SELECT" : "CARDS";
 }
-const messagesZh: Record<string, string> = {
-  CHAT_NOT_CONFIGURED: "尚未配置模型连接。请在服务端配置 provider 后重新启动。",
-  HARNESS_NOT_INSTALLED: "pi 模块依赖尚未安装，请完成 harness 安装后重试。",
-  CHAT_HISTORY_SAVE_FAILED: "分析结果未能保存，本次未交付成功。请重试。",
-  CHAT_BUSY: "当前对话正在处理，或服务正忙，请稍后再试。",
-  CHAT_TIMEOUT: "本次分析超时，已停止。请缩小问题范围再试。",
-  MODEL_REQUEST_FAILED: "模型调用未完成，请检查百炼连接或稍后重试。",
-  ANSWER_NOT_VALIDATED: "模型没有提交可核验的回答，请换一种问法重试。",
-  RELEASE_CHANGED_START_NEW_CHAT: "业务模型版本已变化，请新建对话，避免混用两个版本。",
-  CONTEXT_LIMIT_START_NEW_CHAT: "已达到本次对话的上下文上限，请新建对话继续。",
-  FORBIDDEN: "当前身份不能读取业务数据，请切换到有分析权限的身份。",
-  SESSION_EXPIRED: "会话已失效，请重新登录。",
+
+const errorCodeMap: Record<string, I18nKey> = {
+  CHAT_NOT_CONFIGURED: "chat.error.notConfigured",
+  HARNESS_NOT_INSTALLED: "chat.error.harnessNotInstalled",
+  CHAT_HISTORY_SAVE_FAILED: "chat.error.historySaveFailed",
+  CHAT_BUSY: "chat.error.busy",
+  CHAT_TIMEOUT: "chat.error.timeout",
+  MODEL_REQUEST_FAILED: "chat.error.modelFailed",
+  ANSWER_NOT_VALIDATED: "chat.error.answerNotValidated",
+  RELEASE_CHANGED_START_NEW_CHAT: "chat.error.releaseChanged",
+  CONTEXT_LIMIT_START_NEW_CHAT: "chat.error.contextLimit",
+  FORBIDDEN: "chat.error.forbidden",
+  SESSION_EXPIRED: "chat.error.sessionExpired",
 };
-const messagesEn: Record<string, string> = {
-  CHAT_NOT_CONFIGURED: "No model provider is configured. Configure it on the server and restart.",
-  HARNESS_NOT_INSTALLED: "The Pi harness is not installed.",
-  CHAT_HISTORY_SAVE_FAILED: "The result could not be saved. Please retry.",
-  CHAT_BUSY: "This conversation is already running, or the service is busy.",
-  CHAT_TIMEOUT: "The analysis timed out. Narrow the question and retry.",
-  MODEL_REQUEST_FAILED: "The model request failed. Check the provider or retry later.",
-  ANSWER_NOT_VALIDATED: "The model did not submit a verifiable answer. Rephrase and retry.",
-  RELEASE_CHANGED_START_NEW_CHAT: "The semantic release changed. Start a new conversation.",
-  CONTEXT_LIMIT_START_NEW_CHAT: "This conversation reached its context limit. Start a new one.",
-  FORBIDDEN: "This identity cannot read the requested business data.",
-  SESSION_EXPIRED: "The session expired. Sign in again.",
-};
-const toolNamesZh: Record<string, string> = {
-  list_semantics: "浏览当前业务模型", search_semantics: "查找业务定义", describe_semantic: "确认业务口径",
-  find_objects: "定位业务对象", semantic_query: "读取指标与事实",
-  prepare_semantic_query: "准备语义分析",
-  evaluate_claim: "执行确定性规则", present_answer: "核对回答证据",
-};
-const toolNamesEn: Record<string, string> = {
-  list_semantics: "Browsing ontology", search_semantics: "Searching business definitions",
-  describe_semantic: "Confirming semantic definition", find_objects: "Locating business objects",
-  semantic_query: "Reading metrics and facts", prepare_semantic_query: "Preparing semantic analysis",
-  evaluate_claim: "Evaluating deterministic rule", present_answer: "Validating evidence",
+
+const toolNameMap: Record<string, I18nKey> = {
+  list_semantics: "chat.tool.list_semantics",
+  search_semantics: "chat.tool.search_semantics",
+  describe_semantic: "chat.tool.describe_semantic",
+  find_objects: "chat.tool.find_objects",
+  semantic_query: "chat.tool.semantic_query",
+  prepare_semantic_query: "chat.tool.prepare_semantic_query",
+  evaluate_claim: "chat.tool.evaluate_claim",
+  present_answer: "chat.tool.present_answer",
 };
 
 export function ChatPage({ session }: { session: StudioSession }) {
   const { locale, t } = useI18n();
-  const messages = locale === "en" ? messagesEn : messagesZh;
-  const toolNames = locale === "en" ? toolNamesEn : toolNamesZh;
+  const getErrorMessage = (code: string) => {
+    const key = errorCodeMap[code];
+    return key ? t(key) : code;
+  };
+  const getToolName = (name: string) => {
+    const key = toolNameMap[name];
+    return key ? t(key) : name;
+  };
   const storageKey = `semaloom.chat.${session.tenant}.${session.subject}`;
   const [conversation, setConversation] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -101,7 +94,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
     let active = true;
     fetch("/v0.1/chat/status", { signal: controller.signal }).then(checkedJson).then(value => {
       if (active) setConfig(value);
-    }).catch(cause => { if (active) setError(messages[errorDetail(cause)] ?? errorDetail(cause)); });
+    }).catch(cause => { if (active) setError(getErrorMessage(errorDetail(cause))); });
     const saved = sessionStorage.getItem(storageKey);
     if (saved) fetch(`/v0.1/chat/conversations/${saved}`, { signal: controller.signal }).then(checkedJson).then(value => {
       if (active) {
@@ -143,7 +136,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
       const data = await res.json();
       setHistoryList(data.conversations ?? []);
     } catch (cause) {
-      setError(messages[errorDetail(cause)] ?? errorDetail(cause));
+      setError(getErrorMessage(errorDetail(cause)));
     } finally {
       setHistoryLoading(false);
     }
@@ -180,14 +173,14 @@ export function ChatPage({ session }: { session: StudioSession }) {
         setTurns(restored);
       }
     } catch (cause) {
-      setError(messages[errorDetail(cause)] ?? errorDetail(cause));
+      setError(getErrorMessage(errorDetail(cause)));
     }
   }
   async function send(preset?: string, continuePending = false) {
     const question = (preset ?? text).trim();
     if (!question || (busy && !continuePending) || !config?.ready) return;
     const controller = new AbortController(); abort.current = controller;
-    setText(""); setError(""); setBusy(true); setPhase(locale === "en" ? "Understanding the question" : "正在理解问题");
+    setText(""); setError(""); setBusy(true); setPhase(t("chat.understandingQuestion"));
     setTurns(previous => [...(continuePending && !previous.at(-1)?.answer ? previous.slice(0, -1) : previous), { question }]);
     let answered = false;
     try {
@@ -200,7 +193,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
         }),
       });
       if (!response.ok) await checkedJson(response);
-      if (!response.body) throw new Error(locale === "en" ? "The response body is unavailable" : "无法读取响应");
+      if (!response.body) throw new Error(t("chat.responseUnavailable"));
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
@@ -214,7 +207,13 @@ export function ChatPage({ session }: { session: StudioSession }) {
           if (item.type === "start") {
             setConversation(item.conversationId); sessionStorage.setItem(storageKey, item.conversationId);
           } else if (item.type === "progress") {
-            setPhase(item.stage === "tool" ? toolNames[item.name] ?? (locale === "en" ? "Reading business information" : "读取业务信息") : item.outcome === "error" ? (locale === "en" ? `Correcting tool request (${item.code})` : `正在修正工具请求（${item.code}）`) : (locale === "en" ? "Preparing analysis" : "正在组织分析"));
+            setPhase(
+              item.stage === "tool"
+                ? (getToolName(item.name) || t("chat.readingBusinessInfo"))
+                : item.outcome === "error"
+                ? t("chat.correctingTool", { code: item.code })
+                : t("chat.preparingAnalysis")
+            );
           } else if (item.type === "choice") {
             answered = true;
             setPending({ question: item.question, originalQuestion: item.originalQuestion ?? question });
@@ -222,12 +221,12 @@ export function ChatPage({ session }: { session: StudioSession }) {
           } else if (item.type === "answer") {
             answered = true;
             setTurns(previous => previous.map((t, index) => index === previous.length - 1 ? { ...t, answer: item.answer } : t));
-          } else if (item.type === "error") throw new Error(messages[item.code] ?? item.code);
+          } else if (item.type === "error") throw new Error(getErrorMessage(item.code));
         }
       }
-      if (!answered) throw new Error(locale === "en" ? "The connection ended without a complete answer." : "连接已结束，但未收到完整回答，请重试。");
+      if (!answered) throw new Error(t("chat.connectionEndedWithoutAnswer"));
     } catch (cause) {
-      setError(controller.signal.aborted ? (locale === "en" ? "Analysis stopped." : "已停止本次分析。") : messages[errorDetail(cause)] ?? errorDetail(cause));
+      setError(controller.signal.aborted ? t("chat.analysisStopped") : getErrorMessage(errorDetail(cause)));
       setText(question);
       if (!answered) setTurns(previous => previous.slice(0, -1));
     } finally { setBusy(false); setPhase(""); abort.current = null; }
@@ -263,7 +262,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
         const answer = {
           kind: result.status === "UNSUPPORTED" ? "unsupported" : (result.kind ?? "answer"),
           textOrigin: result.textOrigin ?? "ENGINE",
-          text: result.text ?? (locale === "en" ? "Calculated from the published semantic definition." : "已按发布口径完成计算。"),
+          text: result.text ?? t("chat.calculatedByRelease"),
           releaseDigest: result.plan?.releaseDigest ?? result.releaseDigest ?? "",
           evidence: result.evidence ?? [{ id: "e1", tool: "prepare_semantic_query", result: result.population ?? result.result ?? result }],
           followUps: result.followUps ?? [], presentation: result.presentation,
@@ -279,10 +278,10 @@ export function ChatPage({ session }: { session: StudioSession }) {
         return;
       }
       if (result.status === "SOURCE_ERROR" || result.status === "UNSUPPORTED") {
-        setError(result.errorMessage ?? result.errorCode ?? (locale === "en" ? "The result cannot be determined. Check the scope or retry later." : "当前无法确定结果，请核对条件或稍后重试。"));
+        setError(result.errorMessage ?? (result.errorCode ? getErrorMessage(result.errorCode) : t("chat.cannotDetermine")));
       }
     } catch (cause) {
-      setError(messages[errorDetail(cause)] ?? errorDetail(cause));
+      setError(getErrorMessage(errorDetail(cause)));
     } finally { setBusy(false); }
   }
 
@@ -349,7 +348,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
           <small className="chat-version">{t("chat.version", { digest: turn.answer.releaseDigest.slice(0, 12) })}</small>
         </div>}
       </article>)}
-      {pending && <form className="chat-choice" aria-label="业务选择" onSubmit={event => { event.preventDefault(); void submitChoice(); }}>
+      {pending && <form className="chat-choice" aria-label={t("chat.choiceAria")} onSubmit={event => { event.preventDefault(); void submitChoice(); }}>
         <div className="chat-choice-header">
           <span className="chat-choice-badge">{t("chat.choice.badge")}</span>
           <strong>{pending.question.prompt}</strong>
@@ -417,7 +416,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
       <div ref={bottom} />
     </div>
     {error && <p className="chat-error" role="alert">{error}</p>}
-    {config && !config.ready && <p className="chat-error">{config.enabled ? messages.HARNESS_NOT_INSTALLED : messages.CHAT_NOT_CONFIGURED}</p>}
+    {config && !config.ready && <p className="chat-error">{config.enabled ? t("chat.error.harnessNotInstalled") : t("chat.error.notConfigured")}</p>}
     <form className="chat-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
       <textarea aria-label={t("chat.question")} placeholder={t("chat.placeholder")} value={text} maxLength={4000} disabled={busy || !config?.ready}
         onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />

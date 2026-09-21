@@ -28,7 +28,7 @@ SemaLoom 已按业务本体方式建模：ObjectType/Property/Identity/Link 表�
 | 某企业超过多少同行 | 越大越好还是越小越好 | `outperforms`：严格胜出同行 / 全部有效同行；排除自身，并列只进入分母 |
 | 占优百分之多少 | 上述三者无法区分 | 应先澄清，不能猜分母 |
 
-Metric 必须显式声明 `population`，包括统计单位属性、年度属性和范围说明。示例 financial-review 的 ReviewCase 指标声明按 companyId/taxYear 统计；重复企业年度直接失败，不随便取第一条，也不按报告份数平均。示例与测试使用合成数据；接入方应独立复核实际来源数据；即使读取完整，也不代表全国/全行业/全部正式申报。
+Metric 必须显式声明 `population`，包括统计单位属性、一个或多个范围属性和范围说明。示例 financial-review 的 ReviewCase 指标声明按 `companyId + taxYear` 统计；采购合同则按 `contractId + accountingPeriod`（STRING）统计。重复统计单位与范围组合直接失败，不随便取第一条，也不按报告份数平均。示例与测试使用合成数据；接入方应独立复核实际来源数据；即使读取完整，也不代表全国/全行业/全部正式申报。
 
 当前限制（以 [能力边界](capabilities.md) 为准）：同源同事实表上的类型化过滤与聚合、已声明 ONE 同源 Link 的关联属性分组/筛选、分组预算（单请求最多 8 指标 / 8 分组键 / 1000 结果分组）、证据明细每指标最多 50 行分页。一对多展开、跨库 SQL JOIN、窗口函数、任意用户 SQL、集合分析复合 Link、多指标联合排序/比较未支持并返回明确能力错误。点查与声明式 Link 遍历保留完整结构化身份。来源单次超时仍由 adapter 控制。多次取数明确标记为非全局快照（同请求同源分析共用只读快照除外）。来源错误/重复 grain/单位错误不作为可排除的缺失；NULL/MISSING 只有显式 `missingPolicy=exclude` 才排除，并公布数量。
 

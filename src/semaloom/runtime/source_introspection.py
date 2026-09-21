@@ -8,7 +8,8 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from semaloom.adapters.postgres import engine_from_url, require_ident
+from semaloom.adapters.identifiers import require_ident
+from semaloom.adapters.postgres import engine_from_url
 
 MAX_TABLES = 80
 MAX_COLUMNS_PER_TABLE = 48

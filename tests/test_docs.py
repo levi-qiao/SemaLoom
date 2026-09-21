@@ -77,8 +77,9 @@ def test_public_docs_do_not_overclaim_unshipped_gates() -> None:
 def test_capabilities_state_current_limits() -> None:
     text = (ROOT / "docs" / "capabilities.md").read_text(encoding="utf-8")
     lowered = text.lower()
-    assert "static name list" in lowered
-    assert "mcp sdk transport" in lowered
+    assert "compatibility catalog" in lowered
+    assert "streamable http" in lowered
+    assert "jwt" in lowered
     assert "single link identity pair" in lowered or "composite links" in lowered
     assert "boolean" in lowered
     assert "draftstore" in lowered

@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, model_validator
 
+from semaloom.app.authentication import AuthenticationError, bearer_token
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.provider import IdentityScalar
 from semaloom.core.results import (
@@ -119,19 +120,18 @@ class ActionIdBody(StrictModel):
     parameters: dict[str, str] | None = None
 
 
-def actor_from_header(authorization: str | None) -> RequestActor:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
-    token = authorization.removeprefix("Bearer ").strip()
-    actor = TOKENS.get(token)
-    if actor is None:
-        raise HTTPException(status_code=401, detail="UNAUTHENTICATED")
+def actor_from_header(request: Request, authorization: str | None) -> RequestActor:
+    try:
+        token = bearer_token(authorization)
+        actor = cast(RequestActor, request.app.state.authenticator.authenticate(token))
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=401, detail="UNAUTHENTICATED") from exc
     return actor
 
 
 def actor_from_studio_request(request: Request, authorization: str | None) -> RequestActor:
     if authorization and request.method in {"GET", "HEAD", "OPTIONS"}:
-        return actor_from_header(authorization)
+        return actor_from_header(request, authorization)
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         detail = "SESSION_REQUIRED" if authorization else "UNAUTHENTICATED"
@@ -156,7 +156,7 @@ def actor_from_studio_request(request: Request, authorization: str | None) -> Re
 def actor_from_read_request(request: Request, authorization: str | None) -> RequestActor:
     """Use explicit bearer credentials or the same guarded Studio session."""
     if authorization is not None:
-        return actor_from_header(authorization)
+        return actor_from_header(request, authorization)
     return actor_from_studio_request(request, None)
 
 
@@ -320,7 +320,7 @@ def plan_action(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    actor = actor_from_header(authorization)
+    actor = actor_from_header(request, authorization)
     services = request.app.state.services
     try:
         plan = services.actions.plan(
@@ -340,7 +340,7 @@ def approve_action(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, str]:
-    actor = actor_from_header(authorization)
+    actor = actor_from_header(request, authorization)
     services = request.app.state.services
     try:
         services.actions.approve(actor, body.plan_id)
@@ -357,7 +357,7 @@ def execute_action(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    actor = actor_from_header(authorization)
+    actor = actor_from_header(request, authorization)
     services = request.app.state.services
     try:
         execution = services.actions.execute(actor, body.plan_id, parameters=body.parameters)
@@ -375,7 +375,7 @@ def action_status(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    actor = actor_from_header(authorization)
+    actor = actor_from_header(request, authorization)
     services = request.app.state.services
     try:
         execution = services.actions.status(actor, plan_id)
@@ -880,8 +880,8 @@ def agent_tools(
 
 
 @router.get("/mcp/tools")
-def mcp_tools(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    actor = actor_from_header(authorization)
+def mcp_tools(request: Request, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    actor = actor_from_header(request, authorization)
     if not authorize_query(actor, "discover").allowed:
         raise HTTPException(status_code=403, detail="FORBIDDEN")
     return {

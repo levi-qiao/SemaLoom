@@ -35,8 +35,16 @@ versioning for published releases. During `0.x`, incompatible changes are docume
   It does not expose confidence scores, raw business identities, or automatically expanded
   provenance in the human answer.
 - Optional TypeSafe Jev routing uses the live ontology catalog, bounded conversation context,
-  locale, and generic tool schemas. It fails open to the normal Pi loop and cannot authorize or
-  execute a query.
+  locale, and generic tool schemas. Typed decisions now cover tool routing, bounded ontology
+  candidate classification, scope completeness and internal match quality. It fails open to the
+  normal Pi loop and cannot authorize or execute a query.
+- The procurement pack now demonstrates contracts scoped by string accounting periods, ontology dictionaries, derived amount
+  and non-additive ratio metrics, deterministic claims, same-/cross-source links, and two years of
+  tenant-isolated synthetic contract rows.
+- REST and official MCP Streamable HTTP at `/mcp/` share one bearer authenticator. Non-local
+  profiles require signed JWT issuer, audience, and public-key/JWKS configuration and reject
+  demo-token fallback. The MCP transport currently exposes semantic query, claim evaluation, and
+  semantic explain.
 - Chinese and English Chat/UI resources are available. The current message determines answer
   language, with browser locale used only as a fallback for language-neutral input.
 - Property dictionaries (`values`) drive dimension/claim choice cards. Year-over-year
@@ -72,15 +80,19 @@ versioning for published releases. During `0.x`, incompatible changes are docume
   identity pair; same-source collection JOIN and cross-source bind-join both reject composite Links
   with `LINK_ANALYSIS_UNSUPPORTED`. Metric discovery also projects `additivity` and the aggregations
   that additivity allows.
-- Capability and README wording matches current evidence: local-dev demo tokens only, static
-  `/mcp/tools` list rather than MCP transport, exact-decimal rules, in-process Action drafts, and a
-  joint Studio gate. Composite-key cross-source collection analysis remains outside the current
-  boundary.
+- Capability and README wording matches current evidence: local-dev demo tokens, official MCP
+  Streamable HTTP at `/mcp/` with `/v0.1/mcp/tools` as a compatibility catalog, exact-decimal rules,
+  in-process Action drafts, and a joint Studio gate. Composite-key cross-source collection analysis
+  remains outside the current boundary.
 - Public sdist omits private-sample instructions and the remote importer; contributors still use
   git for those files.
 
 ### Fixed
 
+- Metric year choices now require a non-null observation for that exact metric and selector;
+  another metric's row no longer advertises an unusable year. Explicit absent-year queries still
+  return the engine's empty-population outcome. Confirmed Chat queries can be refined by concise
+  follow-ups such as changing only the year, including when Jev is configured.
 - Studio entity pages can add, edit and delete judgments and actions the same way they already
   add relations and mappings. The structured input/operator form is on the entity sheet; there
   is still no expression executor in the browser.

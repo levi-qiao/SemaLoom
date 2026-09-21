@@ -48,6 +48,26 @@ def test_real_packs_compile_with_stable_digest() -> None:
     }
 
 
+def test_procurement_contract_demo_is_entirely_declarative() -> None:
+    result = compile_paths([PROCUREMENT])
+    assert result.ok and result.bundle is not None
+    bundle = result.bundle
+    assert any(item.id == "procurement.Contract" for item in bundle.object_types)
+    assert {
+        "procurement.contractValue",
+        "procurement.committedSpend",
+        "procurement.remainingCommitment",
+        "procurement.contractUtilization",
+    } <= {item.id for item in bundle.metrics}
+    assert {"procurement.contractSupplier", "procurement.contractOrganization"} <= {
+        item.id for item in bundle.links
+    }
+    utilization = next(
+        item for item in bundle.metrics if item.id == "procurement.contractUtilization"
+    )
+    assert utilization.additivity == "NONE"
+
+
 def test_integration_binding_ownership_is_validated() -> None:
     original = _load(TAX)
     changed = _load(TAX)
@@ -432,5 +452,25 @@ def test_api_metric_selector_requires_a_bound_parameter() -> None:
     assert not result.ok
     assert any(
         item.code == "INVALID_MAPPING" and "parameter" in item.message
+        for item in result.diagnostics
+    )
+
+
+def test_postgres_mapping_rejects_sql_fragments_and_non_string_bindings() -> None:
+    docs = _load(TAX)
+    mapping = next(doc for doc in docs if doc.get("id") == "tax.Taxpayer.facts.pg")
+    mapping["physical"]["propertyColumns"]["amount"] = "SUM(amount)"
+    result = compile_documents(docs)
+    assert not result.ok
+    assert any(
+        item.code == "INVALID_MAPPING" and "illegal identifier" in item.message
+        for item in result.diagnostics
+    )
+
+    mapping["physical"]["propertyColumns"]["amount"] = {"sql": "amount"}
+    result = compile_documents(docs)
+    assert not result.ok
+    assert any(
+        item.code == "INVALID_MAPPING" and "must be a non-empty string" in item.message
         for item in result.diagnostics
     )

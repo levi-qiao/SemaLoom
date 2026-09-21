@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
+from semaloom.adapters.identifiers import require_ident
 from semaloom.core.diagnostics import Diagnostic
 from semaloom.core.model import MappingDef, MetricDef, ObjectTypeDef
 
@@ -165,8 +166,20 @@ def _provider_contract(
     if mapping.provider == "postgres":
         grain = _string_map(mapping.physical, "grainColumns")
         properties = _string_map(mapping.physical, "propertyColumns")
-        if not isinstance(mapping.physical.get("table"), str):
-            raise ValueError("postgres mapping requires table")
+        require_ident(mapping.physical.get("table"), field="table")
+        require_ident(mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn")
+        for semantic, column in {**grain, **properties}.items():
+            require_ident(semantic, field="semantic field")
+            require_ident(column, field=f"binding {semantic}")
+        value_column = mapping.physical.get("valueColumn")
+        if value_column is not None:
+            require_ident(value_column, field="valueColumn")
+        filters = mapping.physical.get("filters")
+        if filters is not None:
+            if not isinstance(filters, dict):
+                raise ValueError("filters must be an object")
+            for column in filters:
+                require_ident(column, field="filter")
         return grain, properties, ("POINT_READ", "COLLECTION_READ", "EQUI_JOIN")
     if mapping.provider == "openapi":
         grain = _string_map(mapping.physical, "grainPointers")
@@ -195,7 +208,11 @@ def _string_map(value: dict[str, Any], key: str) -> dict[str, str]:
         return {}
     if not isinstance(raw, dict):
         raise ValueError(f"{key} must be an object")
-    result = {str(name): str(target) for name, target in raw.items() if str(target)}
-    if len(result) != len(raw):
-        raise ValueError(f"{key} contains an empty binding")
+    result: dict[str, str] = {}
+    for name, target in raw.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"{key} contains an invalid semantic field")
+        if not isinstance(target, str) or not target:
+            raise ValueError(f"{key}.{name} must be a non-empty string")
+        result[name] = target
     return result

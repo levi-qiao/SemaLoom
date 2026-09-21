@@ -19,11 +19,10 @@ PrepareStatus = Literal["READY", "NEEDS_INPUT", "UNSUPPORTED", "SOURCE_ERROR"]
 FilterOp = Literal["EQ", "NE", "LT", "LE", "GT", "GE", "IN", "BETWEEN"]
 BoolOp = Literal["AND", "OR", "NOT"]
 AggregationOp = Literal["SUM", "MIN", "MAX", "COUNT", "AVG"]
-TimeGrain = Literal["YEAR", "MONTH"]
+TimeGrain = str
 ComparisonOp = Literal["SHARE_OF_TOTAL", "RELATIVE_TO_MEAN", "STRICT_PEER", "PERIOD_OVER_PERIOD"]
 ChoiceKind = Literal[
     "METRIC",
-    "YEAR",
     "AGGREGATION",
     "COMPARISON",
     "MISSING_POLICY",
@@ -239,7 +238,7 @@ class ChoiceQuestion(_Frozen):
             kind = choice.kind if isinstance(choice, SemanticChoice) else choice.get("kind")
             if kind not in {None, "ABORT", "OTHER"}:
                 live_kinds.add(str(kind))
-        if live_kinds and live_kinds <= {"YEAR", "DIMENSION_VALUE", "CLAIM", "SUBJECT"}:
+        if live_kinds and live_kinds <= {"DIMENSION_VALUE", "CLAIM", "SUBJECT"}:
             return {**value, "control": "SELECT"}
         return value
 
@@ -436,18 +435,6 @@ def merge_decision(
                 raise ChoiceError("INVALID_CHOICE")
             filters = _append_filter(
                 without_field(filters, choice.predicate.field), choice.predicate
-            )
-        elif choice.kind == "YEAR":
-            field = choice.field
-            if field is None:
-                raise ChoiceError("YEAR_FIELD_REQUIRED")
-            filters = _append_filter(
-                filters,
-                FilterAtom(
-                    field=field,
-                    op="EQ",
-                    value=TypedValue(value_type="INTEGER", value=int(choice.id)),
-                ),
             )
         elif choice.kind == "MISSING_POLICY":
             if choice.id not in {"reject", "exclude"}:

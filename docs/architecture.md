@@ -38,7 +38,7 @@ SemaLoom 是通用企业业务语义层，采用 Python 与 Apache-2.0。通过�
 | 依赖 DAG | 标准库 graphlib + 有界邻接表搜索 | 用于拓扑排序、环检测与有限路径规划 |
 | 规则 | 小型类型化表达式树、Decimal | 仅字面量、输入引用和允许列表运算；无 Python 代码、任意函数或循环 |
 | 权限 | 自有小型 AccessDecision/Scope 契约和固定策略 profile | 首版仅默认拒绝、角色能力和租户/对象范围；不自研通用 ABAC 语言 |
-| 监控 / MCP | OpenTelemetry、官方 MCP Python SDK | 按 T06 引入统一协议实现 |
+| 监控 / MCP | OpenTelemetry、官方 MCP Python SDK | MCP Streamable HTTP 已接入；遥测随 T06 后续切片补齐 |
 
 异步 I/O 适合数据库/API 等待，但不能让 CPU 密集的规则/规划无限占用事件循环。在单应用进程内使用有界计算和受控连接池，按实测负载确定预算；async 不等于 CPU 并行。
 
@@ -88,7 +88,7 @@ flowchart TD
 | 新增来源协议或厂商能力 | 接入 adapter、profile 校验和 app 注册 | 公共 Compiler 与 core |
 | 通用语义能力扩展 | 独立契约变更、ADR 与兼容性验证 | 禁止以行业特判替代通用设计 |
 
-Core 选择语义合法路径、执行预算和授权约束；接入 adapter 编译物理查询，执行协议并返回规范化观测/操作结果。物理字段和 operation 只存在于受审核接入产物；core 持有其标识与摘要，不解释协议专属结构。当前 `Mapping.physical` 仍为按 provider 约定的字典（成熟度项：后续按 provider 分型校验）；依赖关系与验证见 [ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0007](adr/0007-in-process-source-composition.md)、[ADR-0008](adr/0008-studio-and-metadata.md)。
+Core 选择语义合法路径、执行预算和授权约束；接入 adapter 编译物理查询，执行协议并返回规范化观测/操作结果。物理字段和 operation 只存在于受审核接入产物；core 持有其标识与摘要，不解释协议专属结构。当前 `Mapping.physical` 仍为按 provider 约定的字典，但内置 MappingCompiler 已对各 provider 的字段形状和 PostgreSQL 标识符做编译期校验；后续迁移为 typed CompiledMapping。领域派生公式保持闭集 typed Expr，由 adapter 构造私有 SQL AST，不接受 SQL/模板字符串。见 [ADR-0006](adr/0006-independent-integration-layer.md)、[ADR-0016](adr/0016-semantic-relational-lowering.md)。
 
 ## 实体建模工作台
 
@@ -171,7 +171,7 @@ tests/                      # 契约、行为、集成及 import 依赖检查
 
 ## 能力范围与扩展
 
-当前 pre-alpha 提供 PostgreSQL 精确粒度查询、进程内跨来源组合、有限声明式 Link、受限规则与政策选择、合成授权 profile、发布注册表、一份可编辑模型（保存即激活）和受限只读 OpenAPI Provider。REST API 与内置实体工作台可运行；MCP transport、生产身份及更完整的 OpenAPI profile 仍是后续 gate。
+当前 pre-alpha 提供 PostgreSQL 精确粒度查询、进程内跨来源组合、有限声明式 Link、受限规则与政策选择、发布注册表、一份可编辑模型（保存即激活）和受限只读 OpenAPI Provider。REST API、内置实体工作台与官方 SDK 的 MCP Streamable HTTP 可运行；REST/MCP 共用 bearer 验证边界，local-dev 使用显式 demo token，非 local-dev 必须配置并校验 JWT 签名、issuer、audience 与有效期。权限撤销目录集成及更完整的 OpenAPI profile 仍是后续 gate。
 
 第二领域最小案例从 T01–T03 开始：不同业务身份与适用范围必须使用相同编译器、查询和规则接口。领域包以本地声明及精确依赖组合，不承担动态代码执行；冲突拒绝，不按文件加载顺序覆盖。包组合与兼容要求见 [契约第 1 节](spec/semantic-contract-v0.1.md#1-标识类型与发布)。
 
@@ -181,13 +181,13 @@ PoC、开源准备与真实 pilot 分别由 [PLAN](PLAN.md) 的 gate 验收；�
 
 ## 有界集合分析
 
-集合分析由 `SemanticQuery` prepare/execute 拥有。Chat 使用 `prepare_semantic_query`；HTTP 为 `POST /v0.1/semantic/prepare` 与 `/execute`。没有第二条统计引擎或 `analyze_population` 兼容入口。测量槽声明 Kimball 可加性，查询算子仍在 SemanticQuery 上，见 [ADR-0013](adr/0013-measure-additivity.md)。Metric 是查询面一级公民、作者面为测量槽 + 可选词条，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。Metric.population 由领域包声明，不在 core 编写财税分支。50 只限明细分页，不截断总体聚合。声明 Link 用于点查；集合分析可沿 ONE、单键 PostgreSQL Link 做关联属性分组/筛选：同源 SQL JOIN，跨源有界 bind-join；一对多与复合 Link 未开放。详细能力和限制见 [分析质量](analysis-quality.md) 与 [能力边界](capabilities.md)。
+集合分析由 `SemanticQuery` prepare/execute 拥有。Chat 使用 `prepare_semantic_query`；HTTP 为 `POST /v0.1/semantic/prepare` 与 `/execute`。没有第二条统计引擎或 `analyze_population` 兼容入口。测量槽声明 Kimball 可加性，查询算子仍在 SemanticQuery 上，见 [ADR-0013](adr/0013-measure-additivity.md)。Metric 是查询面一级公民、作者面为测量槽 + 可选词条，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。Metric.population 由领域包以 `unitProperty + scopeProperties` 声明；属性用开放的 `semanticRoles` 标注年份、可排序期间等用途，消费方按角色和类型选择，core 不按字段名或范围位置猜业务。见 [ADR-0015](adr/0015-configured-scope-and-time.md)。50 只限明细分页，不截断总体聚合。声明 Link 用于点查；集合分析可沿 ONE、单键 PostgreSQL Link 做关联属性分组/筛选：同源 SQL JOIN，跨源有界 bind-join；一对多与复合 Link 未开放。详细能力和限制见 [分析质量](analysis-quality.md) 与 [能力边界](capabilities.md)。
 
 ### 企业配置与 Chat 边界
 
 事实在表：integration 一张事实表一条 Mapping。业务层补充对象、关系、判断和少量指标词条（别名、口径、科目筛选），不穷举来源科目或公式；grain/单位从对象与 Mapping 继承，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。连接凭据仍由环境绑定管理。新增同协议企业模型不修改 core/runtime/harness。新协议需要 adapter，不能承诺仅画本体即可自动理解任何来源。
 
-Chat 的 intent 模块只处理通用且明确的年份、统计操作、比较与缺失授权；词汇来自当前 release。schema 模块把 canonical JSON Schema 的本地引用展开为模型可理解的嵌套对象，不接受字符串冒充对象，不削弱 Python 校验。集合结果说明由 Python 引擎值生成，pi 原生 afterToolCall 在 answerReady 后结束；其他问答仍走 present_answer。准确性边界及审计证据见 [分析验证](analysis-quality.md)。
+Chat 的确定性 intent adapter 只处理少量明确语言，并输出 role/ID 驱动的类型化约束与分组提示；通用编排不包含年度、月份或行业命名槽。开放业务维度由当前 release 提供候选，Agent/Jev 只能在候选中选择，Python 再验证。Pi worker 通过单一 `SemanticDecisionProvider` seam 使用 Jev；本地或其他模型 adapter 只能替换候选分类/排序实现，不能获得新的执行权限。schema 模块把 canonical JSON Schema 的本地引用展开为模型可理解的嵌套对象，不接受字符串冒充对象，不削弱 Python 校验。集合结果说明由 Python 引擎值生成，pi 原生 afterToolCall 在 answerReady 后结束；其他问答仍走 present_answer。准确性边界及审计证据见 [分析验证](analysis-quality.md)。
 
 交互与结果呈现各有一个服务器拥有的深模块：`ChoiceQuestion` 从稳定 ChoiceKind 推导下拉或卡片，`project_browser_answer` 从 QueryResult 的标量/聚合 grain 与 timeGrain 推导 KPI、趋势、分布或表格。Pi 不选择组件、不提供字典值、不重算金额；本体也不保存组件和布局。逐条 EvidenceTable 只进入审计层，不能代替聚合结果绘图。
 

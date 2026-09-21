@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -13,19 +12,12 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from semaloom.adapters.identifiers import require_ident
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.model import MappingDef
 from semaloom.core.provider import IdentityScalar, IdentityValue, ObjectRead, ObjectSearch
 from semaloom.core.results import Observation
 from semaloom.core.semantic_query import AnalysisError, PlanRef, QueryResult, SemanticQuery
-
-IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def require_ident(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or IDENT_RE.fullmatch(value) is None:
-        raise ValueError(f"illegal identifier for {field}")
-    return value
 
 
 class PostgresReadProvider:
@@ -275,10 +267,12 @@ class PostgresReadProvider:
 
         return prepare_analysis(bundle, query, tenant, self)
 
-    def analysis_years(self, bundle: CompiledBundle, metric_id: str, tenant: str) -> list[int]:
-        from semaloom.adapters.analysis import analysis_years
+    def analysis_dimension_values(
+        self, bundle: CompiledBundle, metric_id: str, field: str, tenant: str
+    ) -> list[str | int | bool]:
+        from semaloom.adapters.analysis import analysis_dimension_values
 
-        return analysis_years(bundle, metric_id, tenant, self)
+        return analysis_dimension_values(bundle, metric_id, field, tenant, self)
 
     def analysis_subjects(
         self, bundle: CompiledBundle, query: SemanticQuery, tenant: str

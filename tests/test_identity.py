@@ -50,5 +50,5 @@ def test_identity_http_endpoint_matches_build_identity() -> None:
 
 
 def test_non_demo_http_profile_fails_closed() -> None:
-    with pytest.raises(RuntimeError, match="only the local-dev profile is implemented"):
+    with pytest.raises(RuntimeError, match="production identity requires"):
         create_app(profile="production", load_services=True)

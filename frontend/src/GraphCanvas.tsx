@@ -29,6 +29,7 @@ import "@xyflow/react/dist/style.css";
 
 import { IconEntity } from "./icons";
 import { namespaceLabel, type PackLabel } from "./labels";
+import { useI18n } from "./i18n";
 import type { Edge, Node } from "./types";
 
 type Props = {
@@ -96,6 +97,7 @@ function FlowBoard({
   onNamespaceFilter,
   onRelationFilter,
 }: Props) {
+  const { t } = useI18n();
   const { screenToFlowPosition, fitView } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
   const initialized = useNodesInitialized();
@@ -208,42 +210,42 @@ function FlowBoard({
   );
 
   return (<>
-      <div role="toolbar" className="canvas-tools" aria-label="图谱建模工具栏">
+      <div role="toolbar" className="canvas-tools" aria-label={t("graph.toolbarAria")}>
         <div className="canvas-tools-left">
           <label className="graph-filter">
-            <span className="sr-only">领域</span>
-            <select aria-label="领域" value={namespaceFilter} onChange={(event) => onNamespaceFilter(event.target.value)}>
-              <option value="">全部领域</option>
+            <span className="sr-only">{t("entity.namespace")}</span>
+            <select aria-label={t("entity.namespace")} value={namespaceFilter} onChange={(event) => onNamespaceFilter(event.target.value)}>
+              <option value="">{t("graph.allDomains")}</option>
               {namespaces.map((item) => <option key={item} value={item}>{namespaceLabel(item, packs)}</option>)}
             </select>
           </label>
           <label className="graph-filter">
-            <span className="sr-only">关系</span>
-            <select aria-label="关系" value={relationFilter} onChange={(event) => onRelationFilter(event.target.value)}>
-              <option value="">全部关系</option>
+            <span className="sr-only">{t("relation.title")}</span>
+            <select aria-label={t("relation.title")} value={relationFilter} onChange={(event) => onRelationFilter(event.target.value)}>
+              <option value="">{t("graph.allRelations")}</option>
               {relations.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
           </label>
           <span className="toolbar-v-divider" aria-hidden="true" />
-          <button onClick={onCreate} disabled={!canEdit}>＋ 新建实体</button>
-          <button aria-pressed={linkMode} disabled={!canEdit || nodes.length < 2} onClick={() => { setLinkMode(!linkMode); setLinkSource(null); }}>连接实体</button>
-          <button disabled={layingOut} onClick={() => setLayoutVersion(value => value + 1)}>自动整理</button>
-          <button onClick={() => void fitView({padding:.25})}>适应画布</button>
+          <button onClick={onCreate} disabled={!canEdit}>{t("graph.newEntity")}</button>
+          <button aria-pressed={linkMode} disabled={!canEdit || nodes.length < 2} onClick={() => { setLinkMode(!linkMode); setLinkSource(null); }}>{t("graph.connectEntity")}</button>
+          <button disabled={layingOut} onClick={() => setLayoutVersion(value => value + 1)}>{t("graph.autoOrganize")}</button>
+          <button onClick={() => void fitView({padding:.25})}>{t("graph.fitView")}</button>
           {linkMode && (
             <span role="status" className="link-status-badge">
-              <span>{linkSource ? "请选择终点实体" : "请选择起点实体"}</span>
-              <button onClick={() => { setLinkMode(false); setLinkSource(null); }}>取消</button>
+              <span>{linkSource ? t("graph.selectTargetPrompt") : t("graph.selectSourcePrompt")}</span>
+              <button onClick={() => { setLinkMode(false); setLinkSource(null); }}>{t("common.cancel")}</button>
             </span>
           )}
         </div>
         <div className="canvas-tools-right">
-          <span className="graph-meta-badge">{nodes.length} 个实体 · {edges.length} 条关系</span>
-          <span className="graph-meta-tip">从连接点拖到另一实体连线</span>
+          <span className="graph-meta-badge">{t("graph.metaCount", { nodes: nodes.length, edges: edges.length })}</span>
+          <span className="graph-meta-tip">{t("graph.dragTip")}</span>
         </div>
       </div>
-    {layingOut && <p role="status" className="graph-layout-status">正在整理图谱…</p>}
-    {layoutError && <p role="alert">图谱布局失败，请点击“自动整理”重试。</p>}
-    {manuallyMoved && <p role="status" className="graph-layout-status">位置已手动调整；可用“自动整理”重新避让连线与标签。</p>}
+    {layingOut && <p role="status" className="graph-layout-status">{t("graph.organizing")}</p>}
+    {layoutError && <p role="alert">{t("graph.layoutFailed")}</p>}
+    {manuallyMoved && <p role="status" className="graph-layout-status">{t("graph.movedTip")}</p>}
     <ReactFlow
       ref={canvasRef}
       style={{ flex: 1, height: "auto" }}
@@ -293,8 +295,9 @@ function FlowBoard({
 }
 
 function EntityNode({ data, selected }: NodeProps<Placed>) {
+  const { t } = useI18n();
   return (
-    <div className={selected ? "flow-node selected" : "flow-node"} role="button" aria-pressed={selected} aria-label={`选择实体 ${data.label}`}>
+    <div className={selected ? "flow-node selected" : "flow-node"} role="button" aria-pressed={selected} aria-label={t("graph.selectNodeAria", { label: data.label })}>
       <Handle id="top" className="nodrag" type="source" position={Position.Top} />
       <Handle id="right" className="nodrag" type="source" position={Position.Right} />
       <Handle id="bottom" className="nodrag" type="source" position={Position.Bottom} />
@@ -308,7 +311,7 @@ function EntityNode({ data, selected }: NodeProps<Placed>) {
         <div className="flow-node-sub">
           <code>{data.id || data.label}</code>
           {data.propertyCount !== undefined && data.propertyCount > 0 ? (
-            <span className="flow-node-count">{data.propertyCount} 属性</span>
+            <span className="flow-node-count">{t("graph.nodePropertiesCount", { count: data.propertyCount })}</span>
           ) : null}
         </div>
       </div>

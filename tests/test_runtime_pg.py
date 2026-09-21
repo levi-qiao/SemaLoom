@@ -9,10 +9,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from semaloom.app.bootstrap import AppServices, build_services, compile_examples
+from semaloom.app.chat.choices import prepare_turn
 from semaloom.app.factory import create_app
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.digest import sha256_digest
 from semaloom.core.results import MetricSelect, ObjectSelect, QueryContext, QueryRequest
+from semaloom.core.semantic_query import (
+    FilterAtom,
+    FilterGroup,
+    GroupByItem,
+    MetricRef,
+    SemanticQuery,
+    TypedValue,
+)
 from semaloom.runtime.action import ActionService, DraftStore
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.eval import evaluate_named_claim
@@ -99,6 +108,162 @@ def test_two_database_link_composition() -> None:
     assert envelope.observations[0].value == "Supplier One"
     assert envelope.extras["sourceSourceId"] == "orders_pg"
     assert envelope.extras["targetSourceId"] == "suppliers_pg"
+
+
+def test_procurement_contract_demo_supports_configured_string_scope_and_missingness() -> None:
+    services = build_services(load_data=True)
+    try:
+        scope = FilterAtom(
+            field="accountingPeriod",
+            op="EQ",
+            value=TypedValue(value_type="STRING", value="2025-01"),
+        )
+        total = prepare_turn(
+            services.query,
+            ANALYST,
+            "所选会计期间合同总额合计",
+            SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(MetricRef(id="procurement.contractValue", aggregation="SUM"),),
+                filters=scope,
+            ),
+        )
+        assert total["answerReady"] is True
+        assert Decimal(total["result"]["values"][0]["value"]) == Decimal("6500")
+
+        grouped = prepare_turn(
+            services.query,
+            ANALYST,
+            "所选会计期间按合同类别看合同总额合计",
+            SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(MetricRef(id="procurement.contractValue", aggregation="SUM"),),
+                filters=scope,
+                group_by=(GroupByItem(id="category"),),
+            ),
+        )
+        assert grouped["answerReady"] is True
+        assert {row["grain"]["category"] for row in grouped["result"]["values"]} == {
+            "GOODS",
+            "SERVICE",
+            "LOGISTICS",
+        }
+
+        incomplete = prepare_turn(
+            services.query,
+            ANALYST,
+            "所选会计期间合同已承诺金额合计",
+            SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(MetricRef(id="procurement.committedSpend", aggregation="SUM"),),
+                filters=scope,
+            ),
+        )
+        assert incomplete["answerReady"] is True
+        assert incomplete["result"]["values"] == []
+        assert incomplete["result"]["scope"]["reason"] == (
+            "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION"
+        )
+        assert incomplete["result"]["scope"]["missingCount"] == 1
+    finally:
+        services.close()
+
+
+def test_scope_value_discovery_respects_metric_selector_type_and_non_null_value() -> None:
+    services = build_services(load_data=True)
+    try:
+        provider = services.query.provider
+        bundle = services.query.bundle
+        assert provider.analysis_dimension_values(
+            bundle, "tax.operatingRevenue", "taxYear", "tenant-a"
+        ) == [2024]
+        assert provider.analysis_dimension_values(
+            bundle, "tax.auditIncome", "taxYear", "tenant-a"
+        ) == [2024]
+        assert provider.analysis_dimension_values(
+            bundle, "tax.reportedIncome", "taxYear", "tenant-a"
+        ) == [2024, 2025]
+        assert provider.analysis_dimension_values(
+            bundle, "procurement.contractValue", "accountingPeriod", "tenant-a"
+        ) == ["2024-01", "2025-01"]
+    finally:
+        services.close()
+
+
+def test_unfixed_grain_dimension_is_a_configured_scope_choice() -> None:
+    services = build_services(load_data=True)
+    try:
+        operating = next(
+            metric for metric in services.bundle.metrics if metric.id == "tax.operatingRevenue"
+        )
+        reported = next(
+            metric for metric in services.bundle.metrics if metric.id == "tax.reportedIncome"
+        )
+        assert operating.population is not None
+        assert operating.population.scope_properties == ("taxYear", "perspective")
+        assert reported.population is not None
+        assert reported.population.scope_properties == ("taxYear",)
+
+        pending = prepare_turn(services.query, ANALYST, "2024年营业收入合计")
+        assert pending["status"] == "NEEDS_INPUT"
+        assert pending["question"]["slot"] == "scope:perspective"
+        assert [
+            option["choice"]["id"]
+            for option in pending["question"]["options"]
+            if option["choice"]["kind"] == "DIMENSION_VALUE"
+        ] == ["AUDIT_REPORT", "TAX_RETURN"]
+
+        result = prepare_turn(
+            services.query,
+            ANALYST,
+            "2024年申报口径营业收入合计",
+            SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(MetricRef(id="tax.operatingRevenue", aggregation="SUM"),),
+                filters=FilterGroup(
+                    kind="AND",
+                    args=(
+                        FilterAtom(
+                            field="taxYear",
+                            op="EQ",
+                            value=TypedValue(value_type="INTEGER", value=2024),
+                        ),
+                        FilterAtom(
+                            field="perspective",
+                            op="EQ",
+                            value=TypedValue(value_type="STRING", value="TAX_RETURN"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assert result["status"] == "READY"
+        assert Decimal(result["result"]["values"][0]["value"]) == Decimal("100.1")
+    finally:
+        services.close()
+
+
+def test_eav_derived_metric_refuses_an_implicit_same_row_formula() -> None:
+    services = build_services(load_data=True)
+    try:
+        result = prepare_turn(
+            services.query,
+            ANALYST,
+            "2024 年审计调整额合计",
+            SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(MetricRef(id="tax.adjustmentAmount", aggregation="SUM"),),
+                filters=FilterAtom(
+                    field="taxYear",
+                    op="EQ",
+                    value=TypedValue(value_type="INTEGER", value=2024),
+                ),
+            ),
+        )
+        assert result["status"] == "UNSUPPORTED"
+        assert result["errorCode"] == "LINK_ANALYSIS_UNSUPPORTED"
+    finally:
+        services.close()
 
 
 def _claim(

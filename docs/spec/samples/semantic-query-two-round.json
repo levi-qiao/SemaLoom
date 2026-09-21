@@ -2,7 +2,7 @@
   "apiVersion": "semaloom/v0.1",
   "kind": "SemanticQueryContractSample",
   "id": "two-round-choice-then-compute",
-  "description": "Vague metric then missing year: two NEEDS_INPUT rounds, option-id submits, then READY. Abort and error shapes are included for the parser, not as a successful path.",
+  "description": "Vague metric then missing required scope: two NEEDS_INPUT rounds, option-id submits, then READY. Abort and error shapes are included for the parser, not as a successful path.",
   "initialQuery": {
     "apiVersion": "semaloom/v0.1",
     "metrics": [],
@@ -60,11 +60,11 @@
     "prepare": {
       "status": "NEEDS_INPUT",
       "question": {
-        "questionId": "q-year-1",
+        "questionId": "q-scope-1",
         "revision": 1,
-        "slot": "year",
-        "prompt": "要计算哪一年？",
-        "reason": "该指标按年度统计，缺少年份无法确定集合。",
+        "slot": "scope:taxYear",
+        "prompt": "请选择年度。",
+        "reason": "缺少确定统计范围所需的业务维度。",
         "multiSelect": false,
         "options": [
           {
@@ -72,9 +72,15 @@
             "label": "2024 年",
             "explanation": "已发布样本中的 2024 申报年度",
             "choice": {
-              "kind": "YEAR",
+              "kind": "DIMENSION_VALUE",
               "id": "2024",
-              "field": "finance.TaxReturn.taxYear"
+              "field": "finance.TaxReturn.taxYear",
+              "predicate": {
+                "kind": "PRED",
+                "field": "finance.TaxReturn.taxYear",
+                "op": "EQ",
+                "value": {"valueType": "INTEGER", "value": 2024}
+              }
             }
           },
           {
@@ -82,9 +88,15 @@
             "label": "2025 年",
             "explanation": "已发布样本中的 2025 申报年度",
             "choice": {
-              "kind": "YEAR",
+              "kind": "DIMENSION_VALUE",
               "id": "2025",
-              "field": "finance.TaxReturn.taxYear"
+              "field": "finance.TaxReturn.taxYear",
+              "predicate": {
+                "kind": "PRED",
+                "field": "finance.TaxReturn.taxYear",
+                "op": "EQ",
+                "value": {"valueType": "INTEGER", "value": 2025}
+              }
             }
           },
           {
@@ -103,7 +115,7 @@
       }
     },
     "submit": {
-      "questionId": "q-year-1",
+      "questionId": "q-scope-1",
       "revision": 1,
       "optionIds": ["opt_year_2024"]
     }
@@ -139,14 +151,20 @@
             "revision": 1
           },
           {
-            "slot": "year",
+            "slot": "scope:taxYear",
             "optionId": "opt_year_2024",
             "choice": {
-              "kind": "YEAR",
+              "kind": "DIMENSION_VALUE",
               "id": "2024",
-              "field": "finance.TaxReturn.taxYear"
+              "field": "finance.TaxReturn.taxYear",
+              "predicate": {
+                "kind": "PRED",
+                "field": "finance.TaxReturn.taxYear",
+                "op": "EQ",
+                "value": {"valueType": "INTEGER", "value": 2024}
+              }
             },
-            "questionId": "q-year-1",
+            "questionId": "q-scope-1",
             "revision": 1
           }
         ]
@@ -183,14 +201,20 @@
           "revision": 1
         },
         {
-          "slot": "year",
+          "slot": "scope:taxYear",
           "optionId": "opt_year_2024",
           "choice": {
-            "kind": "YEAR",
+            "kind": "DIMENSION_VALUE",
             "id": "2024",
-            "field": "finance.TaxReturn.taxYear"
+            "field": "finance.TaxReturn.taxYear",
+            "predicate": {
+              "kind": "PRED",
+              "field": "finance.TaxReturn.taxYear",
+              "op": "EQ",
+              "value": {"valueType": "INTEGER", "value": 2024}
+            }
           },
-          "questionId": "q-year-1",
+          "questionId": "q-scope-1",
           "revision": 1
         }
       ]

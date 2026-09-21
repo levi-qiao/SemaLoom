@@ -184,8 +184,9 @@ def test_period_over_period_compares_two_years(financial_query: Any) -> None:  #
     result = execute(financial_query, prepared.plan, ACTOR)
     comparison = result.scope.get("comparison") or {}
     assert comparison.get("operation") == "periodOverPeriod"
-    assert comparison.get("currentYear") == 2025
-    assert comparison.get("priorYear") == 2024
+    assert comparison.get("periodField") == "taxYear"
+    assert comparison.get("currentPeriod") == 2025
+    assert comparison.get("priorPeriod") == 2024
     assert Decimal(comparison["value"]) > 0
     chat = prepare_turn(financial_query, ACTOR, "2025年选定申报利润总额合计环比")
     assert chat.get("status") == "READY"

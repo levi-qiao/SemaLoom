@@ -23,6 +23,7 @@
   property: amount
   select:
     measureCode: otherRevenue
+    perspective: TAX_RETURN
   perspective: TAX_RETURN
   aliases:
     - 其他收入
@@ -38,6 +39,7 @@
   property: amount
   select:
     measureCode: reportedIncome
+    perspective: TAX_RETURN
   perspective: TAX_RETURN
   aliases:
     - 申报收入
@@ -54,6 +56,7 @@
   property: amount
   select:
     measureCode: auditIncome
+    perspective: AUDIT_REPORT
   perspective: AUDIT_REPORT
   aliases:
     - 审计收入
@@ -69,6 +72,7 @@
   property: amount
   select:
     measureCode: vatPayable
+    perspective: TAX_RETURN
   perspective: TAX_RETURN
   label: 应交增值税（演示）
   aliases:

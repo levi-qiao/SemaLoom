@@ -2,7 +2,7 @@
 
 当前只读入口补充：`GET /v0.1/describe?semanticId=...` 返回业务定义与 releaseDigest，Mapping/接入/授权配置不属于发现资源；未知 ID 返回 404。`GET /v0.1/search?q=...&limit=...` 按 ID/标签/描述匹配，返回 candidates、requiresSelection、hasMore 和 releaseDigest，limit 为 1–50、默认 20，q 为非空且最多 200 字符。Link 与 Metric 的发现投影含 `analysisCapabilities`：`collectionJoin` 为 true 仅当已声明 FORWARD ONE、单字段 `Link.identity`，且两端 Mapping 均具备 `EQUI_JOIN` 能力；复合 Link 不广告集合 JOIN。Link 另有 `pointLookup` / `keyedFind`；Metric 的 `sameTableCollection` 仅在已声明 `population` 时为 true，并投影 `additivity` 与当前可加性允许的 `aggregations`。多候选不得擅自选口径。当前仅粗粒度角色授权，细粒度与历史版本仍待关闭。
 
-Query/Claim/上述发现入口接受显式 Bearer，或复用 Studio 服务端会话；cookie POST 复用 Origin/CSRF 校验，错误 Bearer 不回退 cookie，会话撤销和业务角色仍生效。Metric Observation 的 unit/valueType 来自所固定 release 的 Metric 定义。本项不改变 Action 的认证与批准绑定，也不构成生产 JWT/MCP 实现。
+Query/Claim/上述发现入口接受显式 Bearer，或复用 Studio 服务端会话；cookie POST 复用 Origin/CSRF 校验，错误 Bearer 不回退 cookie，会话撤销和业务角色仍生效。Metric Observation 的 unit/valueType 来自所固定 release 的 Metric 定义。本项不改变 Action 的认证与批准绑定。local-dev 的显式 demo token 与非 local-dev 的 JWT 路径隔离；后者必须验证签名、issuer、audience、expiry，并从已验证 claims 构造租户、主体与角色，不得回退 demo。
 
 当前 HTTP 查询兼容性：`POST /v0.1/query` 接受规范 `QueryRequest`（对象/指标 select 与 context），同时保留原单指标 metric/bindings/periodFrom/periodTo 简写。Query、Claim 与 Studio 视图在请求开始选择 authenticated tenant 的激活 release（保存即激活），单次调用固定该 bundle；CLI 查询遵循同一路径。显式 draftId 仅用于建模者编辑投影。local-dev 无租户激活版本时保留启动模型 fallback，不构成生产 release 保证；Action 的版本绑定不因本项修复而宣称已闭合。
 
@@ -31,7 +31,7 @@ ObjectIdentity = trusted tenant + ObjectType ID + 声明顺序/规范化后的 i
 **Metric 双层含义（必须同时成立）**：
 
 1. **查询面一级公民**：编译后的 Metric 有稳定 ID，是 Query、Rule 输入、SemanticQuery、发现与 Chat 的入口；MUST 具备 valueType、维度、grain、unit 和聚合行为。
-2. **作者面非物理种类**：不为每个科目/金额列新建本体类或 Mapping。Compiler 从带单位属性与 Object Mapping 生成查询 IR（默认 ID `{objectType}.{property}`）；可选词条只补业务别名、口径或 EAV `select`。作者不必重复 grain/unit/表列。合计、平均是 Query 算子，由 adapter 编译为参数化 SQL，请求不得携带 SQL。测量槽声明可加性 `FULL` / `SEMI` / `NONE`（默认 `FULL`）：SEMI 的 SUM 仅在单一年度或按年度分组时合法；NONE 禁止 SUM/AVG。派生用 Rule/`outputMetric`，不在本体穷举公式。Studio 不为指标提供独立配置页；词条与可加性在实体「属性与来源」语境维护。见 [ADR-0012](../adr/0012-facts-and-business-vocabulary.md)、[ADR-0013](../adr/0013-measure-additivity.md)。
+2. **作者面非物理种类**：不为每个科目/金额列新建本体类或 Mapping。Compiler 从带单位属性与 Object Mapping 生成查询 IR（默认 ID `{objectType}.{property}`）；可选词条只补业务别名、口径或 EAV `select`。作者不必重复 grain/unit/表列。合计、平均是 Query 算子，由 adapter 编译为参数化 SQL，请求不得携带 SQL。测量槽声明可加性 `FULL` / `SEMI` / `NONE`（默认 `FULL`）：SEMI 的 SUM 仅在全部已声明范围属性被单值约束或进入分组时合法；NONE 禁止 SUM/AVG。派生用 Rule/`outputMetric`，不在本体穷举公式。Studio 不为指标提供独立配置页；词条与可加性在实体「属性与来源」语境维护。见 [ADR-0012](../adr/0012-facts-and-business-vocabulary.md)、[ADR-0013](../adr/0013-measure-additivity.md)、[ADR-0015](../adr/0015-configured-scope-and-time.md)。
 
 V0.1 指标查询先支持精确 grain 点查，所有必需维度必须绑定。聚合默认 `NONE`，明确声明支持的维度聚合以后才开放；收入可能按月份求和，资产余额通常不能沿时间求和，比率不能直接求平均。表达式、分组和任意 ad-hoc JOIN 不进入 v0.1 Query。
 
@@ -149,7 +149,7 @@ AND/OR 交换成立；NOT UNKNOWN = UNKNOWN。V0.1 无需开放任意 Claim 组�
 
 Rule 声明输入、输出类型、确定性表达式和资源预算。执行环境无网络、文件、随机数、隐式当前时间和动态代码装载。输入先归一化为精确类型；表达式发布时解析及类型检查，运行时复用编译产物。
 
-首版采用我们拥有的受限 typed expression IR：字面量、命名输入引用、算术、比较与必要布尔组合；精确算术使用 Decimal。表达式没有循环、递归函数、任意属性访问、import、Python `eval/exec` 或任意 callable 注册。按案例只增加必要操作，T01/T03 定稿具体序列化格式及运算表，不另写通用文本语言 parser。
+首版采用我们拥有的受限 typed expression IR：字面量、命名输入引用、算术、比较与必要布尔组合；精确算术使用 Decimal。表达式没有循环、递归函数、任意属性访问、import、Python `eval/exec`、SQL/模板占位符或任意 callable 注册。Compiler 校验引用与类型，adapter 只能从闭集 AST lower 到自己的物理 AST；无法保持语义的来源布局必须明确拒绝。见 [ADR-0016](../adr/0016-semantic-relational-lowering.md)。
 
 T03 必须证明精度、舍入、静态错误检测、除零、超额数值位数和节点/深度预算。计量单位与 required inputs 在编译/执行前检验。
 
@@ -303,9 +303,10 @@ Studio 维护一份可编辑模型文档。保存时 Compiler 校验通过后写
 - Rule 输入按声明的 INTEGER/DECIMAL/BOOLEAN/STRING/DATE/DATETIME 解析。STRING/DATE/DATETIME 使用同名小写 literal op，BOOLEAN 使用 `bool`；DATE 必须 ISO 日期，DATETIME 必须有时区。数字拒绝 NaN/Infinity。表达式最多 256 节点、32 层，round places 为 0–28；数值采用既有 Decimal 运算上下文。
 - Compiler 拒绝不存在的属性、重复输入、类型不匹配、非 BOOLEAN Claim、重复输出和依赖环；`outputMetric` 经相同解释器计算派生指标，返回 unit/valueType/ruleId 及源活动。缺必需输入为 UNKNOWN/无派生值，不当零。可选输入的 and/or 遵循三值逻辑；运行失败保留诊断。
 - ObjectType 可声明 `period: {fromProperty: periodStart, toProperty: periodTo}`，两属性必须为 DATE。其 Metric 请求 businessPeriod 必须与对象实际半开期间完全一致；不一致为 PERIOD_MISMATCH，无有效值。对象资料读取不以期间过滤，因此 AI 可先定位实例并读取实际期间。未声明 period 的对象不承诺从 context 自动过滤数据。
-- Metric 必须给出完整 grain（固定 perspective 可由定义提供），未知额外 binding 拒绝。省略歧义口径为 AMBIGUOUS_MAPPING，缺年度等粒度为 INVALID_BINDINGS，不等到数据碰巧多行才报错。对象仅选择身份时仍读取来源验证存在。`ObjectType.identityKeys` 可为多键：点查、实例搜索、Studio 预览、AI 工具、Link 遍历与 Action 目标 MUST 传递完整结构化身份，禁止截取第一键；集合分析沿 Link 做同源 SQL JOIN 或跨源 bind-join 时仍仅支持单字段 `Link.identity`，复合 Link 返回明确 `LINK_ANALYSIS_UNSUPPORTED`（不得截断或静默降级）。禁止在 Mapping 中声明 `identityColumn(s)` / `identityPointer(s)` / `identityParameter(s)` 等遗留字段。
+- Metric 必须给出完整 grain（固定 perspective 可由定义提供），未知额外 binding 拒绝。省略歧义口径为 AMBIGUOUS_MAPPING，缺本体声明的必需范围属性为 INVALID_BINDINGS，不等到数据碰巧多行才报错。对象仅选择身份时仍读取来源验证存在。`ObjectType.identityKeys` 可为多键：点查、实例搜索、Studio 预览、AI 工具、Link 遍历与 Action 目标 MUST 传递完整结构化身份，禁止截取第一键；集合分析沿 Link 做同源 SQL JOIN 或跨源 bind-join 时仍仅支持单字段 `Link.identity`，复合 Link 返回明确 `LINK_ANALYSIS_UNSUPPORTED`（不得截断或静默降级）。禁止在 Mapping 中声明 `identityColumn(s)` / `identityPointer(s)` / `identityParameter(s)` 等遗留字段。
 - `POST /v0.1/objects/search` 接受 objectType、精确 filters、properties 和 limit（1–50）。仅针对单一明确 Mapping，强制租户、固定过滤和显式投影；返回 identity、properties、hasMore、requiresSelection、releaseDigest、sourceActivities。hasMore 不可用来推断全量或不存在；当前无翻页/模糊检索。固定 GET API 不支持列表时返回 SEARCH_NOT_SUPPORTED。
 - `GET /v0.1/agent/tools` 返回五个 HTTP 工具及完整输入 Schema：search_semantics、describe_semantic、find_objects、semantic_query、evaluate_claim。它不是 MCP transport。Claim 响应包含 evidenceRefs 对应的 sourceActivities。每个请求固定租户当前版本；跨请求工具链需要核对 digest，不声称数据库快照一致。
+- `/mcp/` 是官方 MCP SDK 提供的 stateless Streamable HTTP transport，当前暴露 `semantic_query`、`evaluate_claim`、`explain_semantic`。它与 REST 复用同一个 bearer authenticator；匿名、错误 token 与无权限 actor 在进入业务执行前拒绝。兼容入口 `GET /v0.1/mcp/tools` 只保留旧客户端目录用途，不是 transport。
 
 本增补修复 v0.1 先前错误接受的类型和不完整绑定；这些请求现在明确失败。旧数字-only Claim 定义不能作为合法模型继续发布。新 period/literal 需要当前编译器，旧安装需升级并重新验证领域包，不能把新 bundle 投给不支持的 runtime。
 
@@ -319,7 +320,9 @@ Chat metadata 与业务来源分开；运行进程、时间、工具数量及输
 
 ## 集合统计与浏览器来源表格增补
 
-`Metric.population` 可选声明 unitProperty、yearProperty、description；Compiler 验证统计单位存在、年度为 INTEGER、单对象身份及支持的 grain。集合分析的唯一入口是 SemanticQuery（Chat：`prepare_semantic_query`；HTTP：`POST /v0.1/semantic/prepare` 与 execute）。不提供第二条统计引擎或 `analyze_population` 兼容入口。测量槽可加性与算子合法性见 [ADR-0013](../adr/0013-measure-additivity.md)。按年的统计单位检查与缺年选择题依赖 `population`；未声明时仍允许有界过滤与分组聚合，SEMI 合计必须能钉住年度。重复统计单位、超限、来源故障和期间不符拒绝；缺失默认不计算，不自动当零。**50 是每个指标证据明细的分页上限，不是总体聚合的对象数上限**；达到结果分组预算须明确要求缩小范围，不能截断后判断不存在。接口不接受 SQL、URL 或 caller 权限。
+范围属性可用开放 `semanticRoles` 声明 `time.year`、`time.sequence` 等用途；它不是 core 的时间枚举，也不改变属性类型。语言适配器只有在角色和类型兼容且候选唯一时才能把“年份/趋势”等表述绑定到属性，禁止取第一个 scope、猜字段名或把年份写入任意 INTEGER/STRING 范围。
+
+`Metric.population` 可选声明 `unitProperty`、有序且非空的 `scopeProperties`、`description`；Compiler 验证统计单位和每个范围属性存在、无重复、单对象身份及支持的 grain，不限制范围属性必须是 INTEGER 或时间。范围属性可以表达账期、营业日、班次、版本、场景等任意领域维度。集合分析的唯一入口是 SemanticQuery（Chat：`prepare_semantic_query`；HTTP：`POST /v0.1/semantic/prepare` 与 execute）。不提供第二条统计引擎或 `analyze_population` 兼容入口。测量槽可加性与算子合法性见 [ADR-0013](../adr/0013-measure-additivity.md)。统计单位检查和缺范围选择题依赖 `population`；Runtime 对每个未约束范围属性读取该指标在当前授权租户中确有非空观测的类型化值，生成 `DIMENSION_VALUE`，不提供 `YEAR` 专用协议。未声明 population 时仍允许有界过滤与分组聚合；SEMI 合计必须钉住全部范围属性。重复统计单位、超限、来源故障和期间不符拒绝；缺失默认不计算，不自动当零。**50 是每个指标证据明细的分页上限，不是总体聚合的对象数上限**；达到结果分组预算须明确要求缩小范围，不能截断后判断不存在。接口不接受 SQL、URL 或 caller 权限。见 [ADR-0015](../adr/0015-configured-scope-and-time.md)。
 
 Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实际 Mapping 引用的资源与字段投影，无凭证/连接字符串；不进入模型消息。访问仍需当前 Studio 模型查看/来源权限，历史同样过滤，字段列表明确是映射定义，不代表每列都被读取。原先五个只读工具扩展为六个，原有路由保持兼容。
 
@@ -345,9 +348,11 @@ Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实�
 
 ### 主责复验增补：组合结果与澄清
 
-当前实现与未闭合目标以 [能力边界](../capabilities.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺年度/缺聚合仍返回选择题。Chat 同样等待缺失的年份、统计方式和歧义口径经补充信息卡片确认，不再默认最新年度或合计，不计算或展示置信度。显式近 N 年可按可用期间解析；明确占总体总额等比较使用该算子的定义。来源故障与缺失数据不通过用户补值伪装为事实。规则返回原有确定性结论，不参与评分。模型提交的未确认年度会被拒绝，未说明的统计方式留给补充卡片。未要求明细时不默认按对象分组。多年度以类型化筛选表达，统计单位按声明年度组合检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
+当前实现与未闭合目标以 [能力边界](../capabilities.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺范围属性/缺聚合返回选择题。Chat 同样等待缺失的范围、统计方式和歧义口径经补充信息卡片确认，不默认最新期间或合计，不计算或展示置信度。显式近 N 年是当前确定性语言适配器能力之一，不是 core 契约；开放业务说法由 Agent 在本体候选中选择。明确占总体总额等比较使用该算子的定义。来源故障与缺失数据不通过用户补值伪装为事实。规则返回原有确定性结论，不参与评分。模型提交的未确认范围会被拒绝，未说明的统计方式留给补充卡片。未要求明细时不默认按对象分组。多值范围以类型化筛选表达，统计单位按 `unitProperty + scopeProperties` 检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
 
 ChoiceKind 增加 AGGREGATION、COMPARISON、FILTER、OTHER、CLAIM；FILTER 的 predicate 由服务器保留。DIMENSION_VALUE 由 Property.values 发射。选择题必须同时提供 OTHER 与 ABORT。`ChoiceQuestion.control` 由服务器按 live option 的 ChoiceKind 输出 `SELECT` 或 `CARDS`；前端不得按 slot 名或领域 ID 再决定控件，也不得同时重复渲染两套控件。前端只提交 option id。OTHER 就地提交 `otherText`，服务端并入原问题再解释。歧义指标、比较口径、比较主体、维值和同字段冲突 EQ 仍用选择式澄清。模型不能提交 decisions，不能改写用于校验的原始问题。明确缺失拒绝不能被模型排除策略覆盖。失败保留 pending，保存答案/清除 pending 原子完成。判断题命中 Rule 别名时直接 `evaluate_claim`，不送模型。其他无法定位业务范围的问题也通过补充说明卡片继续；自由文本仅追加原问题重新解释，不成为授权、事实值或直接执行参数。所有选项（包括 OTHER/ABORT）先校验题目、版本及选项身份。
+
+年度卡片只列出当前租户、选定指标及其固定 selector 下至少有一条非空观测的年度；同表其他指标、只有 NULL 的指标行或其他租户不能让年度变成可选项。用户仍可显式输入未列出的年度，此时引擎按该年度执行并返回空集合/缺失语义，不能伪造为零。连续追问可继承上一轮已确认的指标和统计方式，但只替换用户本轮明确修改的年份或其他 slot；配置可选决策模型不得关闭这条确定性路径。
 
 计划校验包含值、租户和固定 release，旧 SQL 形状摘要不能兼容新计划引用，需重新 prepare。数据库统计、比较与证据来自单来源只读重复读快照；同源快照不证明来源真实/复核。物理字段由 adapter 处理，模型和无建模权限的分析身份不接收 mappingFields。
 

@@ -64,6 +64,7 @@ class ChatService:
         if base_url is not None and not base_url.startswith("https://"):
             raise ValueError("TypeSafe provider requires HTTPS")
         return {
+            "kind": "jev",
             "apiKey": api_key,
             "baseURL": base_url,
             "model": os.getenv("TYPESAFE_DEFAULT_MODEL", "jev-latest").strip() or "jev-latest",
@@ -115,10 +116,14 @@ class ChatService:
         process = None
         try:
             guard()
-            direct = (
-                None
-                if self.decision
-                else await asyncio.to_thread(try_direct_turn, query, actor, message, locale)
+            previous_query = (row.get("query_state") or {}).get("query")
+            direct = await asyncio.to_thread(
+                try_direct_turn,
+                query,
+                actor,
+                message,
+                locale,
+                previous_query,
             )
             if direct and (direct.get("answerReady") or direct.get("waiting")):
                 direct["question"] = localize_question(direct.get("question"), locale)
@@ -220,7 +225,6 @@ class ChatService:
                 yield event("answer", answer=visible_answer(answer, current_actor))
                 yield event("done")
                 return
-            previous_query = (row.get("query_state") or {}).get("query")
             gateway = SemanticTools(
                 query,
                 actor,

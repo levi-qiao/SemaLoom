@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 
+from semaloom.runtime.query import QueryService
 from tests.analysis_support import analysis_query, run_analysis
 from tests.test_business_analysis import ACTOR, financial_query  # noqa: F401
 
@@ -131,6 +132,38 @@ def test_derived_profit_difference_matches_hand_decimal(gold_query: Any) -> None
     assert Decimal(result.values[0]["value"]) == expected
     assert result.values[0]["unit"] == "CNY"
     assert result.scope["observedCount"] == 2 and result.scope["missingCount"] == 1
+
+
+def test_configured_round_expression_is_lowered_for_collection_analysis(
+    gold_query: Any,
+) -> None:
+    rules = []
+    for rule in gold_query.bundle.rules:
+        if rule.output_metric != "finance.review.profitDifference":
+            rules.append(rule)
+            continue
+        rules.append(
+            rule.model_copy(
+                update={
+                    "expression": {
+                        "op": "round",
+                        "value": rule.expression,
+                        "places": 2,
+                        "mode": "ROUND_HALF_UP",
+                    }
+                }
+            )
+        )
+    service = QueryService(
+        gold_query.bundle.model_copy(update={"rules": tuple(rules)}), gold_query.provider
+    )
+    result = run_analysis(
+        service,
+        ACTOR,
+        metric="finance.review.profitDifference",
+        missing_policy="exclude",
+    )
+    assert Decimal(result.values[0]["value"]) == Decimal("0.015")
 
 
 def test_fifty_members_succeed_fifty_one_refuses_truncated_total(gold_query: Any) -> None:

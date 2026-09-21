@@ -40,12 +40,13 @@ protocol and invalid selectors. Artifact checks install the wheel in a clean env
 the SDK outside the checkout, and inspect harness dependencies and reproducible source inputs.
 All four shipped domain bundle digests also match the saved baseline commit `163b44f`, verifying
 that the physical compiler move preserves valid existing releases. Exact run results are recorded
-in the task handoff. The full suite passed 380 tests, with one MCP-related skip and one expected
-production JWT failure; Ruff, mypy and frontend type checking passed. The harness passed 12 tests,
-and a frontend rebuild exactly matched the committed assets. These checks do not close all
+in the task handoff. That review's full suite passed 380 tests; its MCP skip and expected production
+JWT failure were subsequently replaced by mandatory transport and cryptographic identity tests.
+Ruff, mypy and frontend type checking passed. The harness passed 12 tests, and a frontend rebuild
+exactly matched the committed assets. These checks do not close all
 production acceptance gates; no new live-model evaluation or browser interaction run was performed.
 
-The remaining material limits are coarse tenant/role authorization, no production identity adapter,
+The remaining material limits are coarse tenant/role authorization, no external IAM revocation integration,
 incomplete durable Action recovery, limited collection joins/operators, no universal language
 accuracy guarantee, and no proof that upstream business values are correct. The repository remains
 pre-alpha. Publishing the repository is distinct from certifying a production enterprise system.

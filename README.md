@@ -67,13 +67,16 @@ embedding industry-specific branches in the universal core.
 
 The optional TypeSafe Jev integration receives the current question, locale, a bounded redacted
 conversation summary, the authorized ontology catalog, and live generic tool schemas. It may suggest
-the next tool and arguments. The server still validates typed inputs, authorization, query execution,
-and evidence, so Jev is never treated as a source of business facts or permissions. Shadow mode is
-the default and deterministic routing remains available when the provider is absent or fails.
+the next tool, classify the request against bounded ontology candidates, and score the internal match
+quality used to accept that candidate. The score is never shown as answer confidence. The server still
+validates typed inputs, authorization, query execution, and evidence, so Jev is never treated as a
+source of business facts or permissions. Deterministic ontology handling runs first for explicit
+questions and follow-ups; shadow mode is the default, and provider failure keeps the normal Pi path.
 
-Not in this tree: production identity (local demo tokens only; other profiles refuse to start),
-MCP SDK transport (`GET /v0.1/mcp/tools` is a static name list), composite-key cross-source collection
-analysis, enterprise Action recovery, a finished structured
+The application now shares one bearer-authentication boundary across REST and the official MCP
+Streamable HTTP endpoint at `/mcp/`. `local-dev` uses explicit demo tokens; other profiles require
+signed JWT issuer/audience/key configuration and never fall back to those tokens. Still not in this
+tree: composite-key cross-source collection analysis, enterprise Action recovery, a finished structured
 Rule editor, and the joint Studio gate. See [capabilities and limits](docs/capabilities.md).
 
 For the implemented read-only business-analysis flow, HTTP tool schemas and AI host instructions,
@@ -104,7 +107,9 @@ uv run semaloom serve --host 127.0.0.1 --port 8000
 Open `http://127.0.0.1:8000/studio/?view=objects&entity=tax.Taxpayer`. Expected query value is the
 synthetic decimal `110.1000`. Demo bearer `tenant-a-analyst` is local-dev only. Five example
 classes (Query, Evidence, policy period switch, missing/UNKNOWN, draft Action) are in the
-[quickstart](docs/quickstart.md).
+[quickstart](docs/quickstart.md). The [procurement example](examples/procurement/README.md) adds
+orders, organizations, suppliers, contracts scoped by string accounting periods, dictionaries, derived measures, rules and
+same-/cross-source links using only domain and integration declarations.
 
 ## Architecture and contribution
 

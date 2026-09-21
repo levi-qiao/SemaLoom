@@ -91,7 +91,7 @@ def test_ambiguous_alias_cannot_be_overridden_by_model(population_query: Any) ->
     "message, changes, code",
     [
         ("2024年选定申报利润总额平均值", {}, "AGGREGATION_DOES_NOT_MATCH_USER"),
-        ("2025年选定申报利润总额合计", {}, "REQUEST_YEAR_DOES_NOT_MATCH_USER"),
+        ("2025年选定申报利润总额合计", {}, "REQUEST_SCOPE_DOES_NOT_MATCH_USER"),
         (
             "2024年选定申报利润总额合计,缺失不要排除",
             {"missingPolicy": "exclude"},
@@ -307,7 +307,9 @@ def test_renamed_business_year_needs_no_core_special_case(population_query: Any)
     metrics = tuple(
         metric.model_copy(
             update={
-                "population": metric.population.model_copy(update={"year_property": "fiscalCycle"})
+                "population": metric.population.model_copy(
+                    update={"scope_properties": ("fiscalCycle",)}
+                )
             }
         )
         if metric.population

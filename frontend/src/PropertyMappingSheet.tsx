@@ -17,6 +17,7 @@ import {
 import { additivityOptions, draftPreviewHint, previewOutcomeText } from "./labels";
 import { bindObjectColumn, makeMappingDocument, previewFailureFromHttp } from "./MappingEditor";
 import { useRowKeys } from "./rowKeys";
+import { useI18n } from "./i18n";
 import type { DraftDocument, SourceProfileSummary, SourceResource } from "./types";
 
 type Props = {
@@ -43,6 +44,7 @@ export function PropertyMappingSheet({
   onChange,
   onError,
 }: Props) {
+  const { t } = useI18n();
   const properties = array(objectType.properties) as Record<string, unknown>[];
   const identityKeys = array(objectType.identityKeys).map(String);
   const rowKeys = useRowKeys(properties.length, objectType.id);
@@ -279,8 +281,8 @@ export function PropertyMappingSheet({
   return (
     <div className="entity-sheet mapping-card">
       <div className="entity-sheet-main">
-        <p className="mapping-hint">一行属性对应一个表字段或接口字段。一个实体可以接多张表和多个接口。先点来源卡片，再在右侧点列名绑到当前属性。合计、平均在提问时选择；金额与数量只需标明可否沿时间合计。</p>
-        <div className="source-tabs" aria-label="实体来源">
+        <p className="mapping-hint">{t("mapping.sheetHint")}</p>
+        <div className="source-tabs" aria-label={t("mapping.sourceTabsAria")}>
           {mappings.map((mapping) => (
             <button
               key={mapping.id}
@@ -289,21 +291,21 @@ export function PropertyMappingSheet({
               aria-selected={mapping.id === focused?.id}
               onClick={() => setFocusMapping(mapping.id)}
             >
-              <small>{isOpenApi(mapping.provider) ? "接口" : "数据表"}</small>
+              <small>{isOpenApi(mapping.provider) ? t("mapping.resourceTypeApi") : t("mapping.resourceTypeTable")}</small>
               <strong>{resourceName(mapping) || mappingResourceLabel(mapping)}</strong>
-              <small>{boundCount(mapping)} 个属性</small>
+              <small>{t("mapping.boundPropertiesCount", { count: boundCount(mapping) })}</small>
             </button>
           ))}
-          <button className="secondary sheet-action" onClick={addMapping}>添加表 / 接口</button>
-          <button className="secondary sheet-action" onClick={addProperty}>添加属性</button>
+          <button className="secondary sheet-action" onClick={addMapping}>{t("mapping.addSourceShort")}</button>
+          <button className="secondary sheet-action" onClick={addProperty}>{t("mapping.addProperty")}</button>
           {focused && mappings.length > 1 ? (
-            <button className="text-button" onClick={removeFocusedMapping}>移除此来源</button>
+            <button className="text-button" onClick={removeFocusedMapping}>{t("mapping.removeThisSource")}</button>
           ) : null}
         </div>
         {focused ? (
           <div className="form-grid">
-            <label className="form-field"><span>数据源</span>
-              <select aria-label="数据源" value={text(focused.sourceId)} onChange={(event) => retargetSource(event.target.value)}>
+            <label className="form-field"><span>{t("mapping.dataSource")}</span>
+              <select aria-label={t("mapping.dataSource")} value={text(focused.sourceId)} onChange={(event) => retargetSource(event.target.value)}>
                 {text(focused.sourceId) && !profiles.some((item) => item.sourceId === text(focused.sourceId)) ? (
                   <option value={text(focused.sourceId)}>{text(focused.sourceId)}</option>
                 ) : null}
@@ -311,15 +313,15 @@ export function PropertyMappingSheet({
               </select>
             </label>
             {focusedApi ? (
-              <label className="form-field"><span>接口</span>
-                <select aria-label="接口" value={focusedPath} onChange={(event) => {
+              <label className="form-field"><span>{t("mapping.apiOperation")}</span>
+                <select aria-label={t("mapping.apiOperation")} value={focusedPath} onChange={(event) => {
                   const resource = focusedResources.find((item) => item.name === event.target.value);
                   patchFocused({
                     ...focused,
                     physical: { ...focusedPhysical, path: event.target.value, operationId: resource?.operationId || resource?.id || "" },
                   });
                 }}>
-                  <option value="">选择已授权 GET 操作</option>
+                  <option value="">{t("mapping.selectGetOp")}</option>
                   {focusedPath && !focusedResources.some((item) => item.name === focusedPath) ? (
                     <option value={focusedPath}>{focusedPath}</option>
                   ) : null}
@@ -329,8 +331,8 @@ export function PropertyMappingSheet({
                 </select>
               </label>
             ) : (
-              <label className="form-field"><span>表</span>
-                <select aria-label="数据表" value={focusedTable} onChange={(event) => {
+              <label className="form-field"><span>{t("mapping.table")}</span>
+                <select aria-label={t("mapping.resourceTypeTable")} value={focusedTable} onChange={(event) => {
                   const resource = focusedResources.find((item) => item.name === event.target.value);
                   const schema = resource?.schema && resource.schema !== "public" ? resource.schema : undefined;
                   const physical: Record<string, unknown> = { ...focusedPhysical, table: event.target.value };
@@ -338,7 +340,7 @@ export function PropertyMappingSheet({
                   else delete physical.schema;
                   patchFocused({ ...focused, physical });
                 }}>
-                  <option value="">选择表</option>
+                  <option value="">{t("mapping.selectTable")}</option>
                   {focusedTable && !focusedResources.some((item) => item.name === focusedTable) ? (
                     <option value={focusedTable}>{focusedTable}</option>
                   ) : null}
@@ -355,22 +357,22 @@ export function PropertyMappingSheet({
               const cols = focused ? columnsFor(focused, schemas) : [];
               return (
                 <label key={key} className={current ? "form-field" : "form-field is-warn"}>
-                  <span>对上业务键 {key}</span>
+                  <span>{t("mapping.bindIdentityKey", { key })}</span>
                   <select
-                    aria-label={`${resourceName(focused)} ${key} 关联键`}
+                    aria-label={`${resourceName(focused)} ${key} ${t("mapping.joinKey")}`}
                     value={current}
                     onChange={(event) => focused && setPropertyBinding(key, focused.id, event.target.value)}
                   >
-                    <option value="">选择关联列</option>
+                    <option value="">{t("mapping.selectJoinColumn")}</option>
                     {fieldOptions(cols, current).map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
                   </select>
                 </label>
               );
             })}
             {focusedApi ? identityKeys.map((key) => (
-              <label className="form-field" key={key}><span>身份参数 {key}</span>
+              <label className="form-field" key={key}><span>{t("mapping.identityParam", { key })}</span>
                 <select
-                  aria-label={`身份参数 ${key}`}
+                  aria-label={t("mapping.identityParam", { key })}
                   value={text(object(focusedPhysical.parameterBindings)[key])}
                   onChange={(event) => patchFocused({
                     ...focused,
@@ -387,13 +389,13 @@ export function PropertyMappingSheet({
               </label>
             )) : null}
           </div>
-        ) : <p className="empty">还没有接到任何表或接口。点上面按钮添加。</p>}
+        ) : <p className="empty">{t("mapping.noSourcesYet")}</p>}
         {multiTable ? (
           <div className="join-banner" role="status">
             <p>
               {missingJoin
-                ? `属性来自 ${uniqueTables.length} 张表/接口。请把每张表的业务键对上，之后才能按键拼接查询。`
-                : `属性来自 ${uniqueTables.length} 张表/接口。已配置关联键，查询时可按这些键拼接。`}
+                ? t("mapping.multiSourceNotice", { count: uniqueTables.length })
+                : t("mapping.multiSourceConfigured", { count: uniqueTables.length })}
             </p>
             <div className="join-grid">
               {mappings.map((mapping) => (
@@ -405,13 +407,13 @@ export function PropertyMappingSheet({
                     const missing = !current;
                     return (
                       <label key={key} className={missing ? "form-field is-warn" : "form-field"}>
-                        <span>{key}{missing ? "（未绑定，无法 JOIN）" : ""}</span>
+                        <span>{key}{missing ? t("mapping.unboundCannotJoin") : ""}</span>
                         <select
-                          aria-label={`${resourceName(mapping)} ${key} 关联键`}
+                          aria-label={`${resourceName(mapping)} ${key} ${t("mapping.joinKey")}`}
                           value={current}
                           onChange={(event) => setPropertyBinding(key, mapping.id, event.target.value)}
                         >
-                          <option value="">选择关联列</option>
+                          <option value="">{t("mapping.selectJoinColumn")}</option>
                           {fieldOptions(cols, current).map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
                         </select>
                       </label>
@@ -425,9 +427,9 @@ export function PropertyMappingSheet({
         <div className="field-array">
           <div className={multiTable ? "source-record-list is-multi" : "source-record-list"}>
             <div className="source-record-head">
-              <span>ID</span><span>名称</span><span>类型</span><span>业务键</span>
-              {multiTable ? <span>来源</span> : null}
-              <span>字段</span><span />
+              <span>{t("mapping.headerId")}</span><span>{t("mapping.headerName")}</span><span>{t("mapping.headerType")}</span><span>{t("mapping.headerKey")}</span>
+              {multiTable ? <span>{t("mapping.headerSource")}</span> : null}
+              <span>{t("mapping.headerField")}</span><span />
             </div>
             {properties.map((property, index) => {
               const semantic = text(property.id);
@@ -444,10 +446,10 @@ export function PropertyMappingSheet({
                     if (bound?.mappingId) setFocusMapping(bound.mappingId);
                   }}
                 >
-                  <input aria-label="属性 ID" value={semantic} onChange={(event) => updateProperty(index, { id: event.target.value })} />
-                  <input aria-label="属性名称" value={text(property.label)} placeholder="显示名称" onChange={(event) => updateProperty(index, { label: event.target.value })} />
+                  <input aria-label={t("mapping.propId")} value={semantic} onChange={(event) => updateProperty(index, { id: event.target.value })} />
+                  <input aria-label={t("mapping.propName")} value={text(property.label)} placeholder={t("entity.label")} onChange={(event) => updateProperty(index, { label: event.target.value })} />
                   <span className={numeric ? "type-unit has-unit" : "type-unit"}>
-                    <select aria-label="属性类型" value={text(property.valueType)} onChange={(event) => {
+                    <select aria-label={t("mapping.propType")} value={text(property.valueType)} onChange={(event) => {
                       const valueType = event.target.value;
                       const measure = valueType === "DECIMAL" || valueType === "INTEGER";
                       updateProperty(index, measure ? { valueType } : { valueType, unit: undefined, additivity: undefined });
@@ -456,8 +458,8 @@ export function PropertyMappingSheet({
                     </select>
                     {numeric ? (
                       <>
-                        <input aria-label="属性单位" value={text(property.unit)} placeholder="CNY" onChange={(event) => updateProperty(index, { unit: event.target.value || undefined })} />
-                        <select aria-label="可加性" value={text(property.additivity) || "FULL"} onChange={(event) => updateProperty(index, { additivity: event.target.value })}>
+                        <input aria-label={t("mapping.propUnit")} value={text(property.unit)} placeholder="CNY" onChange={(event) => updateProperty(index, { unit: event.target.value || undefined })} />
+                        <select aria-label={t("mapping.additivity")} value={text(property.additivity) || "FULL"} onChange={(event) => updateProperty(index, { additivity: event.target.value })}>
                           {additivityOptions().map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                         </select>
                       </>
@@ -467,32 +469,32 @@ export function PropertyMappingSheet({
                     <input type="checkbox" checked={identityKeys.includes(semantic)} onChange={(event) => {
                       const next = event.target.checked ? [...new Set([...identityKeys, semantic])] : identityKeys.filter((item) => item !== semantic);
                       replaceObject({ ...objectType, identityKeys: next.length ? next : [semantic] });
-                    }} />业务键
+                    }} />{t("mapping.headerKey")}
                   </label>
                   {multiTable ? (
                     <select
-                      aria-label={`${semantic} 来源`}
-                      title={mapping ? `${isOpenApi(mapping.provider) ? "接口" : "表"} ${resourceName(mapping)}` : ""}
+                      aria-label={t("mapping.propSource", { name: semantic })}
+                      title={mapping ? `${isOpenApi(mapping.provider) ? t("mapping.resourceTypeApi") : t("mapping.table")} ${resourceName(mapping)}` : ""}
                       value={bound?.mappingId ?? mapping?.id ?? ""}
                       onChange={(event) => setPropertyBinding(semantic, event.target.value, identityKeys.includes(semantic) ? (bound?.column ?? "") : "")}
                     >
                       {mappings.map((item) => (
                         <option key={item.id} value={item.id}>
-                          {isOpenApi(item.provider) ? "接口" : "表"} {resourceName(item) || item.id}
+                          {isOpenApi(item.provider) ? t("mapping.resourceTypeApi") : t("mapping.table")} {resourceName(item) || item.id}
                         </option>
                       ))}
                     </select>
                   ) : null}
                   <select
-                    aria-label={`${semantic} 列`}
+                    aria-label={t("mapping.propColumn", { name: semantic })}
                     title={bound?.column || ""}
                     value={bound?.column ?? ""}
                     onChange={(event) => mapping && setPropertyBinding(semantic, mapping.id, event.target.value)}
                   >
-                    <option value="">选择字段</option>
+                    <option value="">{t("mapping.selectField")}</option>
                     {fieldOptions(cols, bound?.column ?? "").map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}
                   </select>
-                  <button className="icon-button" aria-label={`删除属性 ${semantic}`} onClick={() => replaceObject({
+                  <button className="icon-button" aria-label={t("mapping.deleteProp", { name: semantic })} onClick={() => replaceObject({
                     ...objectType,
                     properties: properties.filter((_, position) => position !== index),
                     identityKeys: identityKeys.filter((item) => item !== semantic).length ? identityKeys.filter((item) => item !== semantic) : identityKeys,
@@ -511,27 +513,27 @@ export function PropertyMappingSheet({
             <div className="field-array property-dictionary">
               <div className="field-array-head">
                 <div>
-                  <h3>取值字典</h3>
-                  <p className="chat-choice-reason">问答缺选项时用这些取值出卡片或下拉，不猜测未配置的词。</p>
+                  <h3>{t("mapping.dictValues")}</h3>
+                  <p className="chat-choice-reason">{t("mapping.dictValuesHint")}</p>
                 </div>
-                <button type="button" className="secondary" onClick={() => updateProperty(properties.findIndex((item) => text(item.id) === activeProperty), { values: [...values, { id: "", label: "" }] })}>添加取值</button>
+                <button type="button" className="secondary" onClick={() => updateProperty(properties.findIndex((item) => text(item.id) === activeProperty), { values: [...values, { id: "", label: "" }] })}>{t("mapping.addDictValue")}</button>
               </div>
               {values.map((item, index) => (
                 <div className="property-row" key={`${text(item.id)}-${index}`}>
-                  <input aria-label="字典取值 ID" placeholder="存储值" value={text(item.id)} onChange={(event) => {
+                  <input aria-label={t("mapping.dictStoredValue")} placeholder={t("mapping.dictStoredValue")} value={text(item.id)} onChange={(event) => {
                     const next = values.map((row, position) => position === index ? { ...row, id: event.target.value } : row);
                     updateProperty(properties.findIndex((row) => text(row.id) === activeProperty), { values: next });
                   }} />
-                  <input aria-label="字典显示名" placeholder="显示名" value={text(item.label)} onChange={(event) => {
+                  <input aria-label={t("mapping.dictDisplayName")} placeholder={t("mapping.dictDisplayName")} value={text(item.label)} onChange={(event) => {
                     const next = values.map((row, position) => position === index ? { ...row, label: event.target.value } : row);
                     updateProperty(properties.findIndex((row) => text(row.id) === activeProperty), { values: next });
                   }} />
-                  <input aria-label="字典别名" placeholder="别名，逗号分隔" value={array(item.aliases).map(String).join("，")} onChange={(event) => {
+                  <input aria-label={t("mapping.dictAliases")} placeholder={t("mapping.dictAliases")} value={array(item.aliases).map(String).join(", ")} onChange={(event) => {
                     const aliases = event.target.value.split(/[,，]/).map((part) => part.trim()).filter(Boolean);
                     const next = values.map((row, position) => position === index ? { ...row, aliases } : row);
                     updateProperty(properties.findIndex((row) => text(row.id) === activeProperty), { values: next });
                   }} />
-                  <button type="button" className="icon-button" aria-label={`删除字典取值 ${text(item.id)}`} onClick={() => {
+                  <button type="button" className="icon-button" aria-label={t("mapping.deleteDictValue", { name: text(item.id) })} onClick={() => {
                     const next = values.filter((_, position) => position !== index);
                     updateProperty(properties.findIndex((row) => text(row.id) === activeProperty), { values: next.length ? next : undefined });
                   }}>×</button>
@@ -544,11 +546,13 @@ export function PropertyMappingSheet({
       <div className="entity-sheet-side">
         <div className="mapping-preview">
           <div className="mapping-preview-head">
-            <strong>{focusedApi ? (focusedPath || "接口字段") : (focusedTable || "表预览")}</strong>
+            <strong>{focusedApi ? (focusedPath || t("mapping.interfaceField")) : (focusedTable || t("mapping.tablePreview"))}</strong>
             <small>
               {activeProperty
-                ? `点列名绑定到「${text(properties.find((item) => text(item.id) === activeProperty)?.label) || activeProperty}」${focusedApi ? "" : "；点行填入试读键"}`
-                : "先点左侧属性，再点列名"}
+                ? (focusedApi
+                  ? t("mapping.pickColumnToBindApi", { name: text(properties.find((item) => text(item.id) === activeProperty)?.label) || activeProperty })
+                  : t("mapping.pickColumnToBind", { name: text(properties.find((item) => text(item.id) === activeProperty)?.label) || activeProperty }))
+                : t("mapping.pickPropertyFirstShort")}
             </small>
           </div>
           {focusedColumns.length ? (
@@ -558,7 +562,7 @@ export function PropertyMappingSheet({
                   <tr>
                     {focusedColumns.map((column) => (
                       <th key={column.name}>
-                        <button type="button" className="mapping-col" aria-label={`绑定 ${column.name}`} onClick={() => pickColumn(column.name)}>
+                        <button type="button" className="mapping-col" aria-label={t("mapping.bindCol", { name: column.name })} onClick={() => pickColumn(column.name)}>
                           {column.name}<small>{column.type}</small>
                         </button>
                       </th>
@@ -567,7 +571,7 @@ export function PropertyMappingSheet({
                 </thead>
                 <tbody>
                   {focusedApi ? (
-                    <tr><td colSpan={Math.max(focusedColumns.length, 1)}>接口不预览行数据。点列名绑定响应字段。</td></tr>
+                    <tr><td colSpan={Math.max(focusedColumns.length, 1)}>{t("mapping.apiNoRowPreview")}</td></tr>
                   ) : tableRows.length ? tableRows.map((row, index) => (
                     <tr key={index} className={pickedRow === index ? "is-picked" : undefined} onClick={() => pickRow(index, row)}>
                       {focusedColumns.map((column) => <td key={column.name}>{row[column.name] ?? "—"}</td>)}
@@ -576,10 +580,10 @@ export function PropertyMappingSheet({
                     <tr>
                       <td colSpan={Math.max(focusedColumns.length, 1)}>
                         {rowsReason === "SAMPLE_UNAVAILABLE" || rowsReason === "SOURCE_UNAVAILABLE"
-                          ? "样本行暂时读不到，仍可点列名绑定。"
+                          ? t("mapping.noSampleRows")
                           : rowsReason === "TABLE_NOT_IN_CATALOG"
-                            ? "当前数据源清单里没有这张表。"
-                            : "还没有样本行。点列名即可绑定字段。"}
+                            ? t("mapping.tableNotInCatalog")
+                            : t("mapping.emptySampleRows")}
                       </td>
                     </tr>
                   )}
@@ -587,13 +591,13 @@ export function PropertyMappingSheet({
               </table>
             </div>
           ) : (
-            <p className="mapping-hint">{focused ? "选择表或接口后，这里列出字段和前几行样本。" : "添加表或接口后，可在右侧预览并点选。"}</p>
+            <p className="mapping-hint">{focused ? t("mapping.selectSourceHint") : t("mapping.addSourceHint")}</p>
           )}
           {focused ? (
             <div className="try-read">
               {identityKeys.map((key) => (
                 <label className="form-field" key={key}>
-                  <span>试读业务键 {key}</span>
+                  <span>{t("mapping.sampleIdentityKey", { key })}</span>
                   <input
                     value={text(identity[key])}
                     placeholder={key}
@@ -601,7 +605,7 @@ export function PropertyMappingSheet({
                   />
                 </label>
               ))}
-              <button className="secondary" disabled={busy || !canPreview} onClick={() => void runPreview()}>试读</button>
+              <button className="secondary" disabled={busy || !canPreview} onClick={() => void runPreview()}>{t("mapping.testRead")}</button>
               {saved ? (
                 <p className="mapping-hint">{draftPreviewHint(true, savedRevision)}</p>
               ) : (
@@ -610,10 +614,10 @@ export function PropertyMappingSheet({
               {previewError ? <p className="field-error" role="alert">{previewError}</p> : null}
               {preview ? (
                 <p className="mapping-hint">
-                  试读 · {previewOutcomeText(text(focused.provider), preview.kind, preview.reason)}
+                  {t("mapping.testReadOutcome", { outcome: previewOutcomeText(text(focused.provider), preview.kind, preview.reason) })}
                   {preview.reason ? ` · ${preview.reason}` : ""}
                   {preview.fields.filter((item) => item.value).length
-                    ? ` · ${preview.fields.filter((item) => item.value).map((item) => `${item.semanticField}=${item.value}`).join("，")}`
+                    ? ` · ${preview.fields.filter((item) => item.value).map((item) => `${item.semanticField}=${item.value}`).join(", ")}`
                     : ""}
                 </p>
               ) : null}

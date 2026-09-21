@@ -24,6 +24,7 @@
     - id: stockYear
       label: 年度
       valueType: INTEGER
+      semanticRoles: [time.year, time.sequence]
     - id: onHandQty
       label: 在库数量
       valueType: DECIMAL

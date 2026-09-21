@@ -193,6 +193,7 @@ def _load_tax(engine: Engine) -> None:
 
 def _load_orders(engine: Engine) -> None:
     with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS proc_contract"))
         conn.execute(text("DROP TABLE IF EXISTS proc_order"))
         conn.execute(text("DROP TABLE IF EXISTS proc_organization"))
         conn.execute(
@@ -204,6 +205,24 @@ def _load_orders(engine: Engine) -> None:
                     name TEXT,
                     approval_limit NUMERIC(20, 4),
                     PRIMARY KEY (tenant_id, organization_id)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE proc_contract (
+                    tenant_id TEXT NOT NULL,
+                    contract_id TEXT NOT NULL,
+                    organization_id TEXT NOT NULL,
+                    supplier_id TEXT NOT NULL,
+                    accounting_period TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    contract_value NUMERIC(20, 4),
+                    committed_spend NUMERIC(20, 4),
+                    PRIMARY KEY (tenant_id, contract_id)
                 )
                 """
             )
@@ -232,6 +251,31 @@ def _load_orders(engine: Engine) -> None:
                 VALUES
                     ('tenant-a', 'ORG-A', 'Org A', 5000.00),
                     ('tenant-a', 'ORG-B', 'Org B', 8000.00)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO proc_contract(
+                    tenant_id, contract_id, organization_id, supplier_id,
+                    accounting_period, category, status, contract_value, committed_spend
+                )
+                VALUES
+                    ('tenant-a', 'CT-2024-001', 'ORG-A', 'SUP-1', '2024-01',
+                     'GOODS', 'ACTIVE', 2500.00, 1800.00),
+                    ('tenant-a', 'CT-2024-002', 'ORG-A', 'SUP-2', '2024-01',
+                     'SERVICE', 'ACTIVE', 1800.00, 1750.00),
+                    ('tenant-a', 'CT-2024-003', 'ORG-B', 'SUP-3', '2024-01',
+                     'LOGISTICS', 'CLOSED', 900.00, 900.00),
+                    ('tenant-a', 'CT-2025-001', 'ORG-B', 'SUP-2', '2025-01',
+                     'GOODS', 'ACTIVE', 3200.00, 1600.00),
+                    ('tenant-a', 'CT-2025-002', 'ORG-A', 'SUP-3', '2025-01',
+                     'SERVICE', 'EXPIRING', 1200.00, 1100.00),
+                    ('tenant-a', 'CT-2025-003', 'ORG-B', 'SUP-1', '2025-01',
+                     'LOGISTICS', 'ACTIVE', 2100.00, NULL),
+                    ('tenant-b', 'CT-2025-001', 'ORG-X', 'SUP-X', '2025-01',
+                     'GOODS', 'ACTIVE', 99999.00, 99999.00)
                 """
             )
         )

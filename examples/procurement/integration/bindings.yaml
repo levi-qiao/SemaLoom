@@ -7,6 +7,7 @@
   mappings:
     - procurement.Order.orders
     - procurement.Organization.orders
+    - procurement.Contract.orders
 
 - apiVersion: semaloom/v0.1
   kind: IntegrationBinding
@@ -87,6 +88,29 @@
     propertyColumns:
       name: name
       approvalLimit: approval_limit
+
+- apiVersion: semaloom/v0.1
+  kind: Mapping
+  id: procurement.Contract.orders
+  version: "1.0.0"
+  target: procurement.Contract
+  sourceId: orders_pg
+  provider: postgres
+  objectType: procurement.Contract
+  expectedCardinality: ONE
+  completeness: AUTHORITATIVE
+  physical:
+    table: proc_contract
+    grainColumns:
+      contractId: contract_id
+    propertyColumns:
+      organizationId: organization_id
+      supplierId: supplier_id
+      accountingPeriod: accounting_period
+      category: category
+      status: status
+      contractValue: contract_value
+      committedSpend: committed_spend
 
 - apiVersion: semaloom/v0.1
   kind: Mapping

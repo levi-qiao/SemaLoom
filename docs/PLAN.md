@@ -258,7 +258,7 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 | T03 | 合成切片 | Decimal Claim 与 TRUE/FALSE/UNKNOWN；容量和组合规则仍待验收 |
 | T04 | 合成切片 | `semaloom_meta` release 指针与摘要校验；发布身份和迁移仍待验收 |
 | T05 | 原型 | plan/approve/execute 基本绑定；真实 executor、恢复、原子前提未完成 |
-| T06 | 原型 | REST `/v0.1/*`；可信生产身份与真实 MCP transport 未完成 |
+| T06 | 部分闭合 | REST 与官方 MCP Streamable HTTP 共用 bearer 边界；JWT 核验与禁止 demo fallback 已验，Action MCP、权限撤销目录及历史 explain 仍开放 |
 | T07 | 合成切片 | 采购金路径 + core/compiler 无行业分支检查 |
 | T08A | 进行中 | [quickstart](quickstart.md)、[capabilities](capabilities.md)、CI 与社区文件 |
 | T08B | 未关闭 | [pilot-plan](pilot-plan.md)；A47–A48 未通过 |
@@ -274,8 +274,16 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 
 当前 T08A 清理公开仓库：移除已替代入口、重复声明、过时执行报告和私有数据导入脚本；保持语义契约、领域包、验收失败门槛与 SDK 行为不变。验证包含静态检查、Python/数据库回归、前端构建、浏览器路径及发行物检查。任务证据保存在忽略的 `.agents/repository-cleanup/`。
 
-下一步仍为生产身份、原生 MCP、Action 持久恢复及 Studio 联合验收；本次仓库整理不关闭这些 gate，也不声称模型具备普适准确率。
+下一步仍为生产身份的权限撤销目录集成、MCP Action/历史解释、Action 持久恢复及 Studio 联合验收；本次仓库整理不关闭这些完整 gate，也不声称模型具备普适准确率。
 
 ### 当前维护：引导补全与动态展示（2026-09-20）
 
 范围属于已交付 Chat、T07 合成示例及 T09 问答维护：移除置信度与未确认默认条件，复用持久化补充卡片；在服务端证据约束下开放模型/用户展示偏好；补齐财务 demo 来源 fixture、状态词典及失真别名。核心执行语义和 Pi 生命周期不变。验收归属 A41/A70/A72 与既有 Studio 回归；结果记录在 `.agents/guided-answers/handoff.md`，不关闭生产身份/MCP/Action 恢复 gate。
+
+### 当前维护：问答连续性、本体样例与 Jev 候选决策（2026-09-21）
+
+范围属于已交付 Chat、T07 采购示例和 T09 问答维护：候选绑定具体指标的非空观测；Population 从 `yearProperty` 迁移为本体声明的 `scopeProperties`，INTEGER 年度与 STRING 会计期间走同一深模块；语言适配器只输出 role/ID 驱动的类型化约束与分组提示，通用编排不含年度、月份或口径命名槽；切换指标会重新验证继承范围，未固定 grain 属性由配置生成选择；已确认查询支持只改范围等省略式追问。Pi worker 只依赖统一 decision-provider seam，Jev 是当前有界候选 Choice/Score adapter，本地或其他 adapter 不改变 Python 校验与执行。采购领域包增加合同、字典、派生指标、规则、关系与隔离合成数据，通用 core/compiler 不增加采购或年度分支。语义公式使用 typed Expr，Mapping 编译期拒绝 SQL 片段，PostgreSQL 从闭集 AST 下推；验收归属 A41/A44–A46/A70/A72；结果记录在 `.agents/chat-chain-ontology-jev/handoff.md`，不关闭既有生产 gate。设计决策见 ADR-0015、ADR-0016。
+
+### 当前维护：可信传输验收（2026-09-21）
+
+A58 不再以 xfail 记录：非 local-dev profile 使用 PyJWT 校验签名、issuer、audience、expiry 与必需身份 claims，缺配置或 demo authenticator 均启动失败。官方 MCP Python SDK 的 stateless Streamable HTTP 挂载在 `/mcp/`，与 REST 复用同一个 bearer authenticator，当前提供 semantic query、claim evaluation 与 semantic explain。真实 SDK client、匿名拒绝和生产 JWT 反例均为普通强制测试；T06 的 Action MCP、撤销目录及历史解释仍保持开放。

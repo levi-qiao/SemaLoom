@@ -14,6 +14,7 @@ import {
   text,
 } from "./doc";
 import { draftPreviewHint, previewOutcomeText } from "./labels";
+import { useI18n } from "./i18n";
 import type { DraftDocument, SourceProfileSummary, SourceResource } from "./types";
 
 type Preview = {
@@ -45,6 +46,7 @@ export function MappingEditor({
   onChange,
   onError,
 }: Props) {
+  const { t, locale } = useI18n();
   const physical = object(mapping.physical);
   const api = isOpenApi(mapping.provider);
   const sourceId = text(mapping.sourceId);
@@ -299,11 +301,11 @@ export function MappingEditor({
   const previewPane = compact || api ? null : (
     <div className="mapping-preview">
       <div className="mapping-preview-head">
-        <strong>{table || "表预览"}</strong>
+        <strong>{table || t("mapping.tablePreview")}</strong>
         <small>
           {activeField
-            ? `点列名绑定到「${text(properties.find((item) => text(item.id) === activeField)?.label) || activeField}」；点行填入试读键`
-            : "先点左侧属性，再点列名绑定"}
+            ? t("mapping.pickColumnToBind", { name: text(properties.find((item) => text(item.id) === activeField)?.label) || activeField })
+            : t("mapping.pickPropertyFirst")}
         </small>
       </div>
       {columns.length ? (
@@ -316,7 +318,7 @@ export function MappingEditor({
                     <button
                       type="button"
                       className={"mapping-col" + (boundColumns.has(column.name) ? " is-bound" : "")}
-                      aria-label={`绑定 ${column.name}`}
+                      aria-label={t("mapping.bindCol", { name: column.name })}
                       onClick={() => pickColumn(column.name)}
                     >
                       {column.name}
@@ -341,8 +343,8 @@ export function MappingEditor({
                 <tr>
                   <td colSpan={Math.max(columns.length, 1)}>
                     {rowsReason === "SAMPLE_UNAVAILABLE" || rowsReason === "SOURCE_UNAVAILABLE"
-                      ? "样本行暂时读不到，仍可点列名绑定。"
-                      : "还没有样本行。点列名即可绑定字段。"}
+                      ? t("mapping.noSampleRows")
+                      : t("mapping.emptySampleRows")}
                   </td>
                 </tr>
               )}
@@ -350,7 +352,7 @@ export function MappingEditor({
           </table>
         </div>
       ) : (
-        <p className="mapping-hint">{table ? "此表还没有列清单。" : "选择表后，这里列出字段和样本，点选即可绑定。"}</p>
+        <p className="mapping-hint">{table ? t("mapping.noColumnsInTable") : t("mapping.selectTableHint")}</p>
       )}
     </div>
   );
@@ -366,10 +368,10 @@ export function MappingEditor({
             <span className={`provider-badge ${api ? "openapi" : "postgres"}`}>
               {api ? "API" : "PG"}
             </span>
-            <strong className="compact-mapping-title">{currentProfile?.label || sourceId || "未选数据源"}</strong>
+            <strong className="compact-mapping-title">{currentProfile?.label || sourceId || t("mapping.unselectedSource")}</strong>
           </div>
           <div className="compact-mapping-sub">
-            <span className="compact-resource-type">{api ? "接口" : "数据表"}</span>
+            <span className="compact-resource-type">{api ? t("mapping.resourceTypeApi") : t("mapping.resourceTypeTable")}</span>
             <code className="compact-resource-name">{resourceLabel}</code>
           </div>
         </div>
@@ -385,18 +387,18 @@ export function MappingEditor({
         <div className="compact-mapping-summary">
           <span className="compact-bound-count">
             {Object.keys(propertyBindings).length + Object.keys(grain).length > 0
-              ? `已对齐 ${Object.keys(propertyBindings).length + Object.keys(grain).length} 个属性字段`
-              : "待配置字段"}
+              ? t("mapping.configuredFieldsCount", { count: Object.keys(propertyBindings).length + Object.keys(grain).length })
+              : t("mapping.pendingFields")}
           </span>
           {Object.keys(grain).length > 0 ? (
-            <span className="compact-grain-tag">业务键: {Object.keys(grain).join(", ")}</span>
+            <span className="compact-grain-tag">{t("mapping.grainKeys", { keys: Object.keys(grain).join(", ") })}</span>
           ) : null}
         </div>
       ) : (
         <div className="form-grid">
           <label className="form-field">
-            <span>数据源</span>
-            <select aria-label="数据源" value={sourceId} onChange={(event) => setSource(event.target.value)}>
+            <span>{t("mapping.dataSource")}</span>
+            <select aria-label={t("mapping.dataSource")} value={sourceId} onChange={(event) => setSource(event.target.value)}>
               {profiles.map((item) => (
                 <option key={item.sourceId} value={item.sourceId}>{item.label}</option>
               ))}
@@ -404,9 +406,9 @@ export function MappingEditor({
           </label>
           {api ? (
             <label className="form-field">
-              <span>接口</span>
-              <select aria-label="接口" value={path} onChange={(event) => selectOperation(event.target.value)}>
-                <option value="">选择已授权 GET 操作</option>
+              <span>{t("mapping.apiOperation")}</span>
+              <select aria-label={t("mapping.apiOperation")} value={path} onChange={(event) => selectOperation(event.target.value)}>
+                <option value="">{t("mapping.selectGetOp")}</option>
                 {path && !operations.some((item) => item.name === path || item.id === path) ? (
                   <option value={path}>{path}</option>
                 ) : null}
@@ -419,9 +421,9 @@ export function MappingEditor({
             </label>
           ) : (
             <label className="form-field">
-              <span>表</span>
-              <select aria-label="数据表" value={table} onChange={(event) => selectTable(event.target.value)}>
-                <option value="">选择表</option>
+              <span>{t("mapping.table")}</span>
+              <select aria-label={t("mapping.table")} value={table} onChange={(event) => selectTable(event.target.value)}>
+                <option value="">{t("mapping.selectTable")}</option>
                 {tables.map((item) => (
                   <option key={item.id} value={item.name}>
                     {item.schema && item.schema !== "public" ? `${item.schema}.${item.name}` : item.name}
@@ -432,9 +434,9 @@ export function MappingEditor({
           )}
           {!compact && api ? identityKeys.map((key) => (
             <label className="form-field" key={key}>
-              <span>请求参数 {key}</span>
+              <span>{t("mapping.param", { key })}</span>
               <select
-                aria-label={`请求参数 ${key}`}
+                aria-label={t("mapping.param", { key })}
                 value={text(object(physical.parameterBindings)[key])}
                 onChange={(event) => {
                   const parameterBindings = {
@@ -456,13 +458,13 @@ export function MappingEditor({
         <>
           {api ? (
             <label className="form-field">
-              <span>取值指针</span>
+              <span>{t("mapping.valuePointer")}</span>
               <select
-                aria-label="取值指针"
+                aria-label={t("mapping.valuePointer")}
                 value={text(physical.valuePointer)}
                 onChange={(event) => setPhysical(openApiPhysical(physical, { valuePointer: event.target.value }, true))}
               >
-                <option value="">选择响应字段</option>
+                <option value="">{t("mapping.selectResponseField")}</option>
                 {columns.map((column) => (
                   <option key={column.name} value={column.name}>{column.name}</option>
                 ))}
@@ -470,13 +472,13 @@ export function MappingEditor({
             </label>
           ) : (
             <label className="form-field">
-              <span>取值列</span>
+              <span>{t("mapping.valueColumn")}</span>
               <select
-                aria-label="取值列"
+                aria-label={t("mapping.valueColumn")}
                 value={text(physical.valueColumn)}
                 onChange={(event) => setPhysical(postgresPhysical(physical, { valueColumn: event.target.value }, true))}
               >
-                <option value="">选择列</option>
+                <option value="">{t("mapping.selectColumn")}</option>
                 {columns.map((column) => (
                   <option key={column.name} value={column.name}>{column.name}</option>
                 ))}
@@ -484,11 +486,11 @@ export function MappingEditor({
             </label>
           )}
           <label className="form-field">
-            <span>Mapping 口径</span>
+            <span>{t("mapping.perspective")}</span>
             <input
-              aria-label="Mapping 口径"
+              aria-label={t("mapping.perspective")}
               value={text(mapping.perspective)}
-              placeholder="例如 TAX_RETURN，可留空"
+              placeholder={t("mapping.perspectivePlaceholder")}
               onChange={(event) => {
                 const value = event.target.value;
                 const next = { ...mapping };
@@ -505,15 +507,15 @@ export function MappingEditor({
               <div className="mapping-pair-row" key={semantic}>
                 <span>
                   <strong>{semantic}</strong>
-                  <small>{identityField ? "业务键" : "粒度"}</small>
+                  <small>{identityField ? t("mapping.businessKey") : t("mapping.grain")}</small>
                 </span>
                 <i>→</i>
                 <select
-                  aria-label={`${semantic} ${api ? "响应字段" : "列"}`}
+                  aria-label={`${semantic} ${api ? t("mapping.responseField") : t("mapping.column")}`}
                   value={value}
                   onChange={(event) => setBinding(semantic, event.target.value, identityField)}
                 >
-                  <option value="">{api ? "此接口无此字段" : "此表无此字段"}</option>
+                  <option value="">{api ? t("mapping.fieldNotPresentApi") : t("mapping.fieldNotPresentTable")}</option>
                   {columns.map((column) => (
                     <option key={column.name} value={column.name}>{column.name}</option>
                   ))}
@@ -524,7 +526,7 @@ export function MappingEditor({
           {api ? null : (
             <div className="field-array">
               <div className="field-array-head">
-                <h3>固定筛选</h3>
+                <h3>{t("mapping.fixedFilters")}</h3>
                 <button
                   className="secondary"
                   onClick={() => {
@@ -532,13 +534,13 @@ export function MappingEditor({
                     setFilter("", column, text(filters[column]));
                   }}
                 >
-                  添加筛选
+                  {t("mapping.addFilter")}
                 </button>
               </div>
               {Object.entries(filters).map(([column, value]) => (
                 <div className="mapping-pair-row filter-row" key={column}>
                   <select
-                    aria-label={`${column} 筛选列`}
+                    aria-label={t("mapping.filterColumn", { column })}
                     value={column}
                     onChange={(event) => setFilter(column, event.target.value, String(value ?? ""))}
                   >
@@ -548,11 +550,11 @@ export function MappingEditor({
                   </select>
                   <i>→</i>
                   <input
-                    aria-label={`${column} 筛选值`}
+                    aria-label={t("mapping.filterValue", { column })}
                     value={String(value ?? "")}
                     onChange={(event) => setFilter(column, column, event.target.value)}
                   />
-                  <button className="icon-button" aria-label={`删除筛选 ${column}`} onClick={() => setFilter(column, "", "")}>×</button>
+                  <button className="icon-button" aria-label={t("mapping.deleteFilter", { column })} onClick={() => setFilter(column, "", "")}>×</button>
                 </div>
               ))}
             </div>
@@ -569,10 +571,10 @@ export function MappingEditor({
               <div className={"pair-item" + (activeField === semantic ? " is-active" : "")} key={semantic} onClick={() => setActiveField(semantic)}>
                 <span className="pair-label">
                   <strong>{text(property.label) || semantic}</strong>
-                  <small>{identityField ? "业务键" : text(property.unit) || "属性"}</small>
+                  <small>{identityField ? t("mapping.businessKey") : text(property.unit) || t("mapping.property")}</small>
                 </span>
-                <select aria-label={`${semantic} ${api ? "响应字段" : "列"}`} value={value} onChange={(event) => setBinding(semantic, event.target.value, identityField)}>
-                  <option value="">{api ? "此接口无此字段" : "此表无此字段"}</option>
+                <select aria-label={`${semantic} ${api ? t("mapping.responseField") : t("mapping.column")}`} value={value} onChange={(event) => setBinding(semantic, event.target.value, identityField)}>
+                  <option value="">{api ? t("mapping.fieldNotPresentApi") : t("mapping.fieldNotPresentTable")}</option>
                   {fieldOptions(columns, value).map((column) => (
                     <option key={column.name} value={column.name}>{column.name}</option>
                   ))}
@@ -583,7 +585,7 @@ export function MappingEditor({
           </div>
           {properties.filter((property) => !identityKeys.includes(text(property.id)) && !text(grain[text(property.id)]) && !text(propertyBindings[text(property.id)])).length ? (
             <details>
-              <summary className="mapping-hint">此来源没有的字段</summary>
+              <summary className="mapping-hint">{t("mapping.unmappedFields")}</summary>
               <div className="pair-list">
               {properties.filter((property) => !identityKeys.includes(text(property.id)) && !text(grain[text(property.id)]) && !text(propertyBindings[text(property.id)])).map((property) => {
                 const semantic = text(property.id);
@@ -591,10 +593,10 @@ export function MappingEditor({
                   <div className={"pair-item" + (activeField === semantic ? " is-active" : "")} key={semantic} onClick={() => setActiveField(semantic)}>
                     <span className="pair-label">
                       <strong>{text(property.label) || semantic}</strong>
-                      <small>{api ? "接口可留空" : "表可留空"}</small>
+                      <small>{api ? t("mapping.apiOptional") : t("mapping.tableOptional")}</small>
                     </span>
-                    <select aria-label={`${semantic} ${api ? "响应字段" : "列"}`} value="" onChange={(event) => setBinding(semantic, event.target.value, false)}>
-                      <option value="">{api ? "此接口无此字段" : "此表无此字段"}</option>
+                    <select aria-label={`${semantic} ${api ? t("mapping.responseField") : t("mapping.column")}`} value="" onChange={(event) => setBinding(semantic, event.target.value, false)}>
+                      <option value="">{api ? t("mapping.fieldNotPresentApi") : t("mapping.fieldNotPresentTable")}</option>
                       {columns.map((column) => (
                         <option key={column.name} value={column.name}>{column.name}</option>
                       ))}
@@ -610,14 +612,14 @@ export function MappingEditor({
       {!compact && api && !columns.length ? (
         <p className="mapping-hint">
           {schemaReason === "SPEC_UNAVAILABLE"
-            ? "接口清单暂时读不到，下面保留已保存的字段对应。"
-            : "当前操作未提供响应字段清单，已保存的对应仍可用。"}
+            ? t("mapping.specMissingHint")
+            : t("mapping.noResponseSchemaHint")}
         </p>
       ) : null}
       {compact ? (
         <div className="compact-test-read">
           <div className="test-read-header">
-            <span className="test-read-title">快速试读采样</span>
+            <span className="test-read-title">{t("mapping.sampleRead")}</span>
             {saved ? (
               <span className="test-read-hint">{draftPreviewHint(true, savedRevision)}</span>
             ) : (
@@ -627,22 +629,22 @@ export function MappingEditor({
           <div className="test-read-controls">
             {identityKeys.map((key) => (
               <label className="form-field inline-test-field" key={key}>
-                <span className="test-field-label">试读 {key}</span>
+                <span className="test-field-label">{t("mapping.sampleKey", { key })}</span>
                 <input
-                  aria-label={`试读 ${key}`}
+                  aria-label={t("mapping.sampleKey", { key })}
                   value={text(identity[key])}
-                  placeholder={`输入 ${key}`}
+                  placeholder={t("mapping.inputKey", { key })}
                   onChange={(event) => setIdentity((current) => ({ ...current, [key]: event.target.value }))}
                 />
               </label>
             ))}
             {extraBindings.map((dim) => (
               <label className="form-field inline-test-field" key={dim}>
-                <span className="test-field-label">试读 {dim}</span>
+                <span className="test-field-label">{t("mapping.sampleDim", { dim })}</span>
                 <input
-                  aria-label={`试读 ${dim}`}
+                  aria-label={t("mapping.sampleDim", { dim })}
                   value={text(bindings[dim])}
-                  placeholder={`输入 ${dim}`}
+                  placeholder={t("mapping.inputDim", { dim })}
                   onChange={(event) => setBindings((current) => ({ ...current, [dim]: event.target.value }))}
                 />
               </label>
@@ -652,7 +654,7 @@ export function MappingEditor({
               disabled={busy || !canPreview}
               onClick={() => void runPreview()}
             >
-              {busy ? "读取中…" : "试读"}
+              {busy ? t("mapping.reading") : t("mapping.testRead")}
             </button>
           </div>
           {previewError ? <p className="field-error" role="alert">{previewError}</p> : null}
@@ -667,7 +669,7 @@ export function MappingEditor({
                   {preview.fields
                     .filter((item) => item.value)
                     .map((item) => `${item.semanticField}=${item.value}`)
-                    .join("，")}
+                    .join(", ")}
                 </span>
               ) : null}
             </div>
@@ -677,20 +679,20 @@ export function MappingEditor({
         <>
           {identityKeys.map((key) => (
             <label className="form-field" key={key}>
-              <span>试读 {key}</span>
+              <span>{t("mapping.sampleKey", { key })}</span>
               <input
-                aria-label={`试读 ${key}`}
+                aria-label={t("mapping.sampleKey", { key })}
                 value={text(identity[key])}
-                placeholder={`输入 ${key}`}
+                placeholder={t("mapping.inputKey", { key })}
                 onChange={(event) => setIdentity((current) => ({ ...current, [key]: event.target.value }))}
               />
             </label>
           ))}
           {extraBindings.map((dim) => (
             <label className="form-field" key={dim}>
-              <span>试读 {dim}</span>
+              <span>{t("mapping.sampleDim", { dim })}</span>
               <input
-                aria-label={`试读 ${dim}`}
+                aria-label={t("mapping.sampleDim", { dim })}
                 value={text(bindings[dim])}
                 onChange={(event) => setBindings((current) => ({ ...current, [dim]: event.target.value }))}
               />
@@ -701,7 +703,7 @@ export function MappingEditor({
             disabled={busy || !canPreview}
             onClick={() => void runPreview()}
           >
-            试读
+            {t("mapping.testRead")}
           </button>
           {saved ? (
             <p className="mapping-hint">{draftPreviewHint(true, savedRevision)}</p>
@@ -711,10 +713,10 @@ export function MappingEditor({
           {previewError ? <p className="field-error" role="alert">{previewError}</p> : null}
           {preview ? (
             <p className="mapping-hint">
-              试读 · {previewOutcomeText(text(mapping.provider), preview.kind, preview.reason)}
+              {t("mapping.testReadOutcome", { outcome: previewOutcomeText(text(mapping.provider), preview.kind, preview.reason) })}
               {preview.reason ? ` · ${preview.reason}` : ""}
               {preview.fields.filter((item) => item.value).length
-                ? ` · ${preview.fields.filter((item) => item.value).map((item) => `${item.semanticField}=${item.value}`).join("，")}`
+                ? ` · ${preview.fields.filter((item) => item.value).map((item) => `${item.semanticField}=${item.value}`).join(", ")}`
                 : ""}
             </p>
           ) : null}

@@ -2,22 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import threading
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import httpx
+import jwt
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import text
 
+from semaloom.app.authentication import DemoTokenAuthenticator, JwtAuthenticator
 from semaloom.app.bootstrap import build_services, compile_examples
 from semaloom.app.factory import create_app
-from semaloom.app.http import router
+from semaloom.app.http import TOKENS, router
 from semaloom.core.results import MetricSelect, QueryContext, QueryRequest
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.fixtures import configured_urls, engines
@@ -550,7 +559,7 @@ def test_policy_period_switch_and_straddle(client: TestClient) -> None:
     assert straddle.json()["detail"] == "POLICY_PERIOD_SPLIT_REQUIRED"
 
 
-def test_mcp_tools_list_rejects_physical_fields_and_is_not_transport(
+def test_mcp_compatibility_catalog_rejects_physical_fields(
     client: TestClient,
 ) -> None:
     missing = client.get("/v0.1/mcp/tools")
@@ -571,9 +580,76 @@ def test_mcp_tools_list_rejects_physical_fields_and_is_not_transport(
     assert "execute_sql" not in names
 
 
-@pytest.mark.skip(reason="依赖未就绪: M3 MCP")
-def test_real_mcp_transport_query_evaluate_explain() -> None:
-    raise AssertionError("real MCP transport is not implemented")
+def test_real_mcp_transport_query_evaluate_explain(client: TestClient) -> None:
+    async def exercise_transport() -> None:
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://localhost:8000",
+            headers={"Authorization": ANALYST},
+        ) as http_client:
+            async with streamable_http_client(
+                "http://localhost:8000/mcp/", http_client=http_client
+            ) as (
+                read,
+                write,
+                _,
+            ):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    listed = await session.list_tools()
+                    assert {tool.name for tool in listed.tools} == {
+                        "semantic_query",
+                        "evaluate_claim",
+                        "explain_semantic",
+                    }
+                    query = await session.call_tool(
+                        "semantic_query",
+                        {
+                            "request": GOLD_BY_ID["GQ03_QUERY_TAX_REPORTED_INCOME"].typed_request[
+                                "body"
+                            ]
+                        },
+                    )
+                    claim = await session.call_tool(
+                        "evaluate_claim",
+                        {"request": GOLD_BY_ID["GQ23_POLICY_PERIOD_SWITCH"].typed_request["body"]},
+                    )
+                    explained = await session.call_tool(
+                        "explain_semantic", {"semantic_id": "tax.reportedIncome"}
+                    )
+                    assert not query.isError
+                    assert not claim.isError
+                    assert not explained.isError
+                    assert query.structuredContent is not None
+                    assert claim.structuredContent is not None
+                    assert explained.structuredContent is not None
+
+        for authorization in (None, "Bearer nope"):
+            rejected = httpx.ASGITransport(app=client.app)
+            headers = {"Accept": "application/json, text/event-stream"}
+            if authorization is not None:
+                headers["Authorization"] = authorization
+            async with httpx.AsyncClient(
+                transport=rejected, base_url="http://localhost:8000"
+            ) as invalid_client:
+                response = await invalid_client.post(
+                    "/mcp/",
+                    headers=headers,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "acceptance", "version": "1"},
+                        },
+                    },
+                )
+                assert response.status_code == 401
+
+    asyncio.run(exercise_transport())
 
 
 def test_unauthenticated_invalid_token_and_forged_headers(client: TestClient) -> None:
@@ -592,8 +668,10 @@ def test_unauthenticated_invalid_token_and_forged_headers(client: TestClient) ->
 
 
 def test_production_profile_does_not_start_demo_services() -> None:
-    with pytest.raises(RuntimeError, match="only the local-dev profile"):
+    with pytest.raises(RuntimeError, match="production identity requires"):
         create_app(profile="prod", load_services=True)
+    with pytest.raises(RuntimeError, match="cannot use local demonstration tokens"):
+        create_app(profile="prod", load_services=True, authenticator=DemoTokenAuthenticator(TOKENS))
 
 
 def test_same_interface_has_no_industry_branch_and_domain_has_no_physical() -> None:
@@ -784,25 +862,84 @@ def test_tax_taxpayer_object_properties_are_readable(client: TestClient) -> None
     )
 
 
-@pytest.mark.xfail(
-    reason="A58: REST uses static TOKENS dict; full production JWT identity is M3/T06",
-    strict=False,
-)
-def test_rest_verifies_jwt_issuer_audience_signature(client: TestClient) -> None:
-    ok = client.post(
-        "/v0.1/query",
-        json=GOLD_BY_ID["GQ03_QUERY_TAX_REPORTED_INCOME"].typed_request["body"],
-        headers=_headers(ANALYST),
+def test_rest_verifies_jwt_issuer_audience_signature() -> None:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
     )
-    assert ok.status_code == 200
-    pytest.fail(
-        "A58 failed: REST uses the static TOKENS dict; Bearer tenant-a-analyst"
-        " has no JWT signature/issuer/audience/expiry check."
-        " repro: Authorization: Bearer tenant-a-analyst becomes tenant-a/alice."
-        " Invalid token and forged proxy headers are covered separately;"
-        " production profile refuses demo. Full production identity is M3/T06;"
-        " this case is recorded as failed, not skipped."
+    other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    issuer = "https://identity.example.test"
+    audience = "semaloom-api"
+    authenticator = JwtAuthenticator(
+        issuer=issuer,
+        audience=audience,
+        algorithms=("RS256",),
+        public_key=public_pem,
     )
+    app = create_app(
+        profile="prod", load_services=True, load_fixtures=False, authenticator=authenticator
+    )
+    now = datetime.now(UTC)
+    base_claims = {
+        "iss": issuer,
+        "aud": audience,
+        "sub": "alice",
+        "tenant": "tenant-a",
+        "roles": ["analyst"],
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+    }
+
+    def encoded(**overrides: Any) -> str:
+        claims = {**base_claims, **overrides}
+        return jwt.encode(claims, private_key, algorithm="RS256")
+
+    body = GOLD_BY_ID["GQ03_QUERY_TAX_REPORTED_INCOME"].typed_request["body"]
+    with TestClient(app) as production:
+        valid = production.post("/v0.1/query", json=body, headers=_headers(f"Bearer {encoded()}"))
+        wrong_issuer = production.post(
+            "/v0.1/query",
+            json=body,
+            headers=_headers(f"Bearer {encoded(iss='https://forged.example.test')}"),
+        )
+        wrong_audience = production.post(
+            "/v0.1/query",
+            json=body,
+            headers=_headers(f"Bearer {encoded(aud='different-api')}"),
+        )
+        expired = production.post(
+            "/v0.1/query",
+            json=body,
+            headers=_headers(f"Bearer {encoded(exp=now - timedelta(seconds=1))}"),
+        )
+        forged = jwt.encode(base_claims, other_key, algorithm="RS256")
+        wrong_signature = production.post(
+            "/v0.1/query", json=body, headers=_headers(f"Bearer {forged}")
+        )
+        demo_token = production.post("/v0.1/query", json=body, headers=_headers(ANALYST))
+        missing_tenant = production.post(
+            "/v0.1/query",
+            json=body,
+            headers=_headers(f"Bearer {encoded(tenant=None)}"),
+        )
+        missing_roles = production.post(
+            "/v0.1/query",
+            json=body,
+            headers=_headers(f"Bearer {encoded(roles=[])}"),
+        )
+
+    assert valid.status_code == 200
+    assert {
+        wrong_issuer.status_code,
+        wrong_audience.status_code,
+        expired.status_code,
+        wrong_signature.status_code,
+        demo_token.status_code,
+        missing_tenant.status_code,
+        missing_roles.status_code,
+    } == {401}
 
 
 def test_compile_examples_digest_is_stable() -> None:

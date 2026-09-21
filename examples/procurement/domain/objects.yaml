@@ -122,3 +122,74 @@
       aliases:
         - 采购数量
         - 订货量
+
+- apiVersion: semaloom/v0.1
+  kind: ObjectType
+  id: procurement.Contract
+  version: "1.0.0"
+  label: 采购合同
+  description: 企业与供应商签订的采购合同；合同金额与已承诺金额来自合同台账，缺失承诺额不按零处理。
+  identityKeys: [contractId]
+  properties:
+    - id: contractId
+      label: 合同编号
+      valueType: STRING
+      required: true
+    - id: organizationId
+      label: 组织编号
+      valueType: STRING
+      required: true
+    - id: supplierId
+      label: 供应商编号
+      valueType: STRING
+      required: true
+    - id: accountingPeriod
+      label: 会计期间
+      valueType: STRING
+      required: true
+      aliases: [合同期间, 账期]
+      semanticRoles: [time.period, time.sequence]
+    - id: category
+      label: 合同类别
+      valueType: STRING
+      aliases: [采购类别, 品类]
+      values:
+        - id: GOODS
+          label: 货物采购
+          aliases: [货物, 商品]
+        - id: SERVICE
+          label: 服务采购
+          aliases: [服务]
+        - id: LOGISTICS
+          label: 物流采购
+          aliases: [物流, 运输]
+    - id: status
+      label: 合同状态
+      valueType: STRING
+      aliases: [履约状态]
+      values:
+        - id: ACTIVE
+          label: 履约中
+          aliases: [有效, 执行中]
+        - id: EXPIRING
+          label: 即将到期
+          aliases: [临期, 待续签]
+        - id: CLOSED
+          label: 已结束
+          aliases: [结束, 已关闭]
+    - id: contractValue
+      label: 合同总额
+      valueType: DECIMAL
+      unit: CNY
+      additivity: FULL
+      aliases: [合同金额, 合同价值]
+    - id: committedSpend
+      label: 已承诺金额
+      valueType: DECIMAL
+      unit: CNY
+      additivity: FULL
+      aliases: [承诺金额, 已占用金额]
+  population:
+    unitProperty: contractId
+    scopeProperties: [accountingPeriod]
+    description: 当前授权合成合同台账按会计期间统计；同一合同只计一次，不代表企业全部采购承诺。

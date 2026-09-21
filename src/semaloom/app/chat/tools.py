@@ -140,7 +140,7 @@ class SemanticTools:
                 "name": "prepare_semantic_query",
                 "description": "Prepare then execute a composable SemanticQuery. "
                 "When the server returns NEEDS_INPUT, stop and wait for an option id. "
-                "Omit unspecified year/aggregation; do not invent SQL or groupBy "
+                "Omit unspecified scope properties and aggregation; do not invent SQL or groupBy "
                 "unless the user asked for a breakdown. groupBy ids must be declared "
                 "ObjectType property ids (qualified as ObjectType.property when needed), "
                 "never Link ids.",
@@ -388,11 +388,11 @@ class SemanticTools:
         for link in self.query.bundle.links:
             if link.source == obj.id:
                 identity_fields.update(pair.source for pair in link.identity)
-        year_property = obj.population.year_property if obj.population is not None else None
+        scope_properties = set(obj.population.scope_properties) if obj.population else set()
         candidates = [prop for prop in obj.properties if prop.id not in identity_fields]
         candidates.sort(
             key=lambda prop: (
-                0 if prop.id == year_property else 1,
+                0 if prop.id in scope_properties else 1,
                 0 if prop.values else 1,
                 0 if prop.label else 1,
                 prop.id,
@@ -406,25 +406,23 @@ class SemanticTools:
         same_metrics = previous is not None and {ref.id for ref in previous.metrics} == {
             ref.id for ref in query.metrics
         }
-        if not intent.years and not intent.trend and not intent.multiple_years:
+        if not intent.role_constraints and not intent.grouping_role:
             for ref in query.metrics:
                 metric = next((m for m in self.query.bundle.metrics if m.id == ref.id), None)
-                if (
-                    metric
-                    and metric.population
-                    and field_constrained(query.filters, metric.population.year_property)
-                ):
+                if metric and metric.population:
                     from semaloom.core.semantic_query import equality_value
 
-                    field = metric.population.year_property
-                    if (
-                        not same_metrics
-                        or previous is None
-                        or equality_value(previous.filters, field)
-                        != equality_value(query.filters, field)
-                        or equality_value(query.filters, field) is None
-                    ):
-                        raise ValueError("UNCONFIRMED_YEAR_OMIT_FILTER_TO_ASK_USER")
+                    for field in metric.population.scope_properties:
+                        if not field_constrained(query.filters, field):
+                            continue
+                        if (
+                            not same_metrics
+                            or previous is None
+                            or equality_value(previous.filters, field)
+                            != equality_value(query.filters, field)
+                            or equality_value(query.filters, field) is None
+                        ):
+                            raise ValueError("UNCONFIRMED_SCOPE_OMIT_FILTER_TO_ASK_USER")
         if intent.operation is None and not intent.comparison:
             confirmed = (
                 {ref.id: ref.aggregation for ref in previous.metrics}
@@ -481,7 +479,7 @@ class SemanticTools:
                     raise ValueError("SERVER_OWNED_DECISIONS")
                 _validate_query_shape(self.query.bundle, query)
                 # Model-supplied defaults are not user confirmation. Preserve explicit
-                # filters, but do not allow an invented year or aggregate to skip cards.
+                # filters, but do not allow invented scope or aggregation to skip cards.
                 if self.user_message:
                     query = self._without_unconfirmed_defaults(query)
                 if (

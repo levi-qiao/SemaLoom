@@ -267,7 +267,7 @@ nav {
 }
 
 /* ==========================================================================
-   Header & Action Toolbar ("横平竖直" Unified Heights & Aligned Baselines)
+   Header & Action Toolbar (Unified Heights & Aligned Baselines)
    ========================================================================== */
 
 main {
@@ -527,7 +527,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 /* ==========================================================================
-   Workspaces & Layout Columns ("横平竖直" Aligned Grids)
+   Workspaces & Layout Columns (Aligned Grids)
    ========================================================================== */
 
 .workspace {
@@ -741,7 +741,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   overflow-y: auto;
 }
 
-/* Tabs & Chips ("横平竖直" Aligned Tab Bars) */
+/* Tabs & Chips (Aligned Tab Bars) */
 .chip-row {
   display: flex;
   align-items: center;
@@ -776,7 +776,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-weight: 600;
 }
 
-/* Entity Sheet Layouts ("横平竖直" Responsive Grids) */
+/* Entity Sheet Layouts (Responsive Grids) */
 .entity-sheet {
   display: grid;
   grid-template-columns: 1fr;
@@ -1860,7 +1860,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 /* ==========================================================================
-   Property Mapping Table ("横平竖直" Table & Header Alignment)
+   Property Mapping Table (Table & Header Alignment)
    ========================================================================== */
 
 .source-tabs {
@@ -2128,7 +2128,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   min-width: 65px;
 }
 
-.rule-input-row select[aria-label="输入类型"] {
+.rule-input-row select.rule-input-type {
   flex: 0 0 76px;
   min-width: 76px;
 }

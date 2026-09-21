@@ -69,17 +69,17 @@ def test_two_round_choice_sample_merges_through_shipped_function() -> None:
     prepare2 = PrepareResult.model_validate(round2["prepare"])
     assert prepare2.status == "NEEDS_INPUT"
     submit2 = ChoiceSubmit.model_validate(round2["submit"])
-    after_year = merge_decision(after_metric, question2, submit2)
-    assert after_year.metrics[0].id == "finance.declaredRevenue"
-    assert after_year.filters is not None
+    after_scope = merge_decision(after_metric, question2, submit2)
+    assert after_scope.metrics[0].id == "finance.declaredRevenue"
+    assert after_scope.filters is not None
     final = PrepareResult.model_validate(sample["finalPrepare"])
     session = QuerySessionState.model_validate(sample["session"])
     assert final.status == "READY"
     assert final.plan is not None
     assert session.original_question == sample["session"]["originalQuestion"]
-    assert {item.slot for item in after_year.decisions} == {"metric", "year"}
-    assert after_year.metrics[0].id == final.plan.query.metrics[0].id
-    assert len(after_year.decisions) == 2
+    assert {item.slot for item in after_scope.decisions} == {"metric", "scope:taxYear"}
+    assert after_scope.metrics[0].id == final.plan.query.metrics[0].id
+    assert len(after_scope.decisions) == 2
 
     unsupported = PrepareResult.model_validate(sample["unsupported"])
     source_error = PrepareResult.model_validate(sample["sourceError"])

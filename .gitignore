@@ -21,3 +21,4 @@ dist/
 node_modules/
 frontend/dist/
 frontend/test-results/
+test-results/

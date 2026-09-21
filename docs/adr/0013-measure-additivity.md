@@ -4,7 +4,7 @@
 
 ## 决策
 
-1. **本体只声明测量是什么、沿哪些维可加。** 带单位的 Property（及继承它的 Metric 词条）可选 `additivity: FULL | SEMI | NONE`，默认 `FULL`。FULL 沿各维可 SUM；SEMI（库存、余额）只在单一年度 EQ 或按年度分组时允许 SUM；NONE（比率）禁止 SUM/AVG。Compiler 从测量槽继承到查询面 Metric。Studio 在属性行配置，不另开指标页。
+1. **本体只声明测量是什么、沿哪些维可加。** 带单位的 Property（及继承它的 Metric 词条）可选 `additivity: FULL | SEMI | NONE`，默认 `FULL`。FULL 沿各维可 SUM；SEMI（库存、余额）只在 `population.scopeProperties` 全部被单值约束或进入分组时允许 SUM；NONE（比率）禁止 SUM/AVG。Compiler 从测量槽继承到查询面 Metric。Studio 在属性行配置，不另开指标页。年度特例已由 [ADR-0015](0015-configured-scope-and-time.md) 替代。
 2. **SUM/AVG/MIN/MAX/COUNT 是 SemanticQuery 算子，不是本体类。** 请求只传语义 Metric ID 与算子名。adapter 把 AVG 编成 Gray/Chaudhuri 的 `(SUM, COUNT)` 再相除，禁止把明细拉进 Python 求均值。非法组合返回 `ADDITIVITY_VIOLATION` / `UNSUPPORTED`，不静默改写。
 3. **少量配置覆盖多种问答。** 同一测量槽在 Chat 中可问合计、平均、最值、计数、占比与同行比较；年度或统计方式未说明时由服务端生成补充信息卡片，用户确认后再计算。不在 YAML 为每种问法复制 Metric。
 4. **集合分析只有一条链。** Chat `prepare_semantic_query` 与 HTTP `POST /v0.1/semantic/prepare` + `/execute`。删除 `runtime/population.py`、`PopulationRequest` 和 `POST /v0.1/analyze`。不把 Mapping `PUSH_AGGREGATE` / 跨源中间量协议纳入本切片；PostgreSQL 已下推，OpenAPI 集合 AVG 仍是后续能力。

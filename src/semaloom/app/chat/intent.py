@@ -32,14 +32,23 @@ class DimensionSlot:
 
 
 @dataclass(frozen=True)
+class RoleConstraint:
+    """Language-adapter output resolved against ontology roles by orchestration."""
+
+    role: str
+    value_type: ValueType
+    operator: Literal["EQ", "IN"]
+    values: tuple[str | int | bool, ...]
+
+
+@dataclass(frozen=True)
 class TurnIntent:
-    year: int | None
-    years: tuple[int, ...]
+    role_constraints: tuple[RoleConstraint, ...]
+    grouping_role: str | None
+    grouping_limit: int | None
+    unsupported_capability: str | None
     comparison: str | None
     operation: str | None
-    multiple_years: bool
-    trend: bool
-    recent_year_count: int | None
     direction: Literal["higher", "lower"]
     exclude_allowed: bool
     metric_ids: frozenset[str]
@@ -48,8 +57,6 @@ class TurnIntent:
     breakdown: bool
     group_label: bool
     group_prefer: str | None
-    period_over_period: bool
-    month_over_month: bool
     claim_ids: frozenset[str]
     claim_candidates: tuple[str, ...]
     dimension_filters: tuple[DimensionValueHit, ...]
@@ -94,9 +101,9 @@ class TurnIntent:
         explicit, ambiguous = _match_named(text, _metric_terms(bundle))
         claim_ids, claim_candidates = _match_named(text, _claim_terms(bundle))
         years = set(re.findall(r"(?<!\d)(?:19|20|21)\d{2}(?!\d)", text))
-        recent_year_count = _recent_year_count(text)
-        trend = bool(
-            recent_year_count
+        recent_count = _recent_period_count(text)
+        sequence_requested = bool(
+            recent_count
             or re.search(r"趋势|走势|逐年|按年|历年|yearly|annual trend|over time", text)
         )
         operations = [
@@ -110,9 +117,36 @@ class TurnIntent:
             }.items()
             if re.search(pattern, text)
         ]
-        month_over_month = bool(re.search(r"月环比|逐月|按月环比|month.?over.?month", text))
-        period_over_period = (not month_over_month) and bool(
+        unsupported_capability = (
+            "TIME_GRAIN_UNSUPPORTED"
+            if re.search(r"月环比|逐月|按月环比|month.?over.?month", text)
+            else None
+        )
+        period_comparison = unsupported_capability is None and bool(
             re.search(r"环比|同比|比上年|比去年|year.?over.?year|period.?over.?period", text)
+        )
+        numeric_periods = tuple(sorted(int(value) for value in years))
+        selected_periods = (
+            (max(numeric_periods),) if period_comparison and numeric_periods else numeric_periods
+        )
+        role_constraints = (
+            (
+                RoleConstraint(
+                    role="time.year",
+                    value_type="INTEGER",
+                    operator="IN" if len(selected_periods) > 1 else "EQ",
+                    values=selected_periods,
+                ),
+            )
+            if selected_periods
+            else ()
+        )
+        grouping_role = (
+            "time.year"
+            if len(selected_periods) > 1 and not period_comparison
+            else "time.sequence"
+            if sequence_requested and not period_comparison
+            else None
         )
         # Dictionary values are scoped to the metric's object graph when the
         # metric is known.  Matching every dictionary in a multi-domain bundle
@@ -147,20 +181,18 @@ class TurnIntent:
             if len(pending) == 1:
                 need_dimension = pending[0]
         return cls(
-            years=tuple(sorted(int(year) for year in years)),
+            role_constraints=role_constraints,
+            grouping_role=grouping_role,
+            grouping_limit=recent_count if grouping_role else None,
+            unsupported_capability=unsupported_capability,
             operation=operations[0] if len(operations) == 1 and not comparisons else None,
-            multiple_years=(len(years) > 1 or recent_year_count is not None)
-            and not period_over_period,
-            trend=trend and not period_over_period,
-            recent_year_count=recent_year_count if not period_over_period else None,
-            year=(
-                int(max(years))
-                if period_over_period and years
-                else int(next(iter(years)))
-                if len(years) == 1
+            comparison=(
+                "periodOverPeriod"
+                if period_comparison
+                else comparisons[0]
+                if len(comparisons) == 1
                 else None
             ),
-            comparison=comparisons[0] if len(comparisons) == 1 and not period_over_period else None,
             direction="lower" if re.search(r"越小越好|lower is better", text) else "higher",
             exclude_allowed=consent and not deny,
             metric_ids=explicit,
@@ -183,8 +215,6 @@ class TurnIntent:
                 if re.search(r"企业|公司", text)
                 else None
             ),
-            period_over_period=period_over_period,
-            month_over_month=month_over_month,
             claim_ids=claim_ids,
             claim_candidates=tuple(sorted(claim_candidates)),
             dimension_filters=value_hits,
@@ -194,7 +224,15 @@ class TurnIntent:
 
     def guidance(self) -> dict[str, Any]:
         return {
-            "year": self.year,
+            "roleConstraints": [
+                {
+                    "role": item.role,
+                    "valueType": item.value_type,
+                    "operator": item.operator,
+                    "values": item.values,
+                }
+                for item in self.role_constraints
+            ],
             "requiredOperation": self.operation,
             "requiredComparison": self.comparison,
             "direction": self.direction,
@@ -202,11 +240,9 @@ class TurnIntent:
             "metricIds": sorted(self.metric_ids),
             "ambiguousMetricCandidates": self.candidates,
             "mustClarify": bool(self.candidates or self.clarify_comparison),
-            "multipleYears": self.multiple_years,
-            "trend": self.trend,
-            "recentYearCount": self.recent_year_count,
+            "groupingRole": self.grouping_role,
+            "groupingLimit": self.grouping_limit,
             "preferBreakdown": self.breakdown,
-            "periodOverPeriod": self.period_over_period,
             "claimIds": sorted(self.claim_ids),
         }
 
@@ -215,7 +251,7 @@ def _fold(value: str) -> str:
     return unicodedata.normalize("NFKC", value).casefold()
 
 
-def _recent_year_count(text: str) -> int | None:
+def _recent_period_count(text: str) -> int | None:
     match = re.search(r"(?:近|最近)\s*([0-9一二两三四五六七八九十]+)\s*年", text)
     if match is None:
         return None
@@ -310,7 +346,10 @@ def slots_for_metric(bundle: CompiledBundle, metric_id: str) -> tuple[DimensionS
     if metric is None:
         return ()
     return tuple(
-        slot for slot in dimension_slots(bundle) if slot.source_object == metric.object_type
+        slot
+        for slot in dimension_slots(bundle)
+        if slot.source_object == metric.object_type
+        and slot.field.split(".")[-1] not in metric.select
     )
 
 

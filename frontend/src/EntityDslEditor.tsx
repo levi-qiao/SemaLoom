@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
 import { IconAlert } from "./icons";
+import { useI18n } from "./i18n";
 
 import type { DraftDocument } from "./types";
 
@@ -20,6 +21,7 @@ export function EntityDslEditor({
   onChange,
   onError,
 }: Props) {
+  const { t } = useI18n();
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [scope, setScope] = useState<"entity" | "closure">(defaultScope);
   const [copied, setCopied] = useState(false);
@@ -100,7 +102,7 @@ export function EntityDslEditor({
         JSON.parse(value);
         setParseError(null);
       } catch (err) {
-        setParseError(err instanceof Error ? err.message : "JSON 格式无效");
+        setParseError(err instanceof Error ? err.message : t("dsl.invalidJson"));
       }
     }
   }
@@ -125,21 +127,21 @@ export function EntityDslEditor({
 
   function handleApply() {
     if (scope !== "entity") {
-      onError?.("整网闭包模式为组合只读视图，请切换到「实体本体」进行实时写入");
+      onError?.(t("dsl.readOnlyWarning"));
       return;
     }
     try {
       const parsed = JSON.parse(editorText) as Record<string, unknown>;
       if (typeof parsed !== "object" || parsed === null) {
-        setParseError("根对象必须是一个 JSON Object");
+        setParseError(t("dsl.mustBeObject"));
         return;
       }
       if (parsed.id !== document.id) {
-        setParseError(`不能通过直接编辑修改语义 ID（当前: ${document.id}）`);
+        setParseError(t("dsl.cannotChangeId", { id: document.id }));
         return;
       }
       if (parsed.kind !== "ObjectType") {
-        setParseError("对象类型 kind 必须是 ObjectType");
+        setParseError(t("dsl.kindMustBeObjectType"));
         return;
       }
       onChange({
@@ -152,7 +154,7 @@ export function EntityDslEditor({
       setMode("preview");
       onError?.(null);
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : "JSON 解析失败，请检查语法");
+      setParseError(err instanceof Error ? err.message : t("dsl.parseError"));
     }
   }
 
@@ -160,7 +162,7 @@ export function EntityDslEditor({
     <div className="entity-dsl-container">
       <div className="entity-dsl-toolbar">
         <div className="entity-dsl-scope-group">
-          <span className="entity-dsl-label">语义 DSL</span>
+          <span className="entity-dsl-label">{t("dsl.title")}</span>
           <button
             type="button"
             className={`dsl-scope-pill ${scope === "entity" ? "active" : ""}`}
@@ -169,7 +171,7 @@ export function EntityDslEditor({
               if (mode === "edit") setMode("preview");
             }}
           >
-            实体本体 (JSON)
+            {t("dsl.entityJson")}
           </button>
           <button
             type="button"
@@ -179,7 +181,7 @@ export function EntityDslEditor({
               if (mode === "edit") setMode("preview");
             }}
           >
-            关联全貌 (DSL)
+            {t("dsl.closureDsl")}
           </button>
         </div>
 
@@ -188,9 +190,9 @@ export function EntityDslEditor({
             type="button"
             className="secondary compact-btn"
             onClick={handleCopy}
-            title="复制 JSON"
+            title={`${t("common.copy")} JSON`}
           >
-            {copied ? "已复制" : "复制"}
+            {copied ? t("common.copied") : t("common.copy")}
           </button>
 
           {scope === "entity" ? (
@@ -200,7 +202,7 @@ export function EntityDslEditor({
                 className="secondary compact-btn"
                 onClick={() => setMode("edit")}
               >
-                编辑 JSON
+                {t("dsl.editJson")}
               </button>
             ) : (
               <>
@@ -208,9 +210,9 @@ export function EntityDslEditor({
                   type="button"
                   className="secondary compact-btn"
                   onClick={handleFormat}
-                  title="格式化 JSON"
+                  title={`${t("common.format")} JSON`}
                 >
-                  格式化
+                  {t("common.format")}
                 </button>
                 <button
                   type="button"
@@ -221,7 +223,7 @@ export function EntityDslEditor({
                     setMode("preview");
                   }}
                 >
-                  取消
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
@@ -229,7 +231,7 @@ export function EntityDslEditor({
                   disabled={Boolean(parseError)}
                   onClick={handleApply}
                 >
-                  应用修改
+                  {t("dsl.applyChanges")}
                 </button>
               </>
             )
@@ -284,12 +286,12 @@ export function EntityDslEditor({
       <div className="entity-dsl-footer">
         <span className="dsl-footer-tip">
           {mode === "edit"
-            ? "可直接在此编辑实体的 properties 与 identityKeys，点击「应用修改」写入草稿"
+            ? t("dsl.editHint")
             : scope === "entity"
-              ? "实时呈现当前实体的规范化本体定义，左侧表单变更实时同步"
-              : "包含当前实体及其关联的所有 Mapping、Link、Rule 与 Action 闭包"}
+              ? t("dsl.entityJsonHint")
+              : t("dsl.closureHint")}
         </span>
-        <span className="dsl-mode-badge">{mode === "edit" ? "编辑中" : "只读预览"}</span>
+        <span className="dsl-mode-badge">{mode === "edit" ? t("dsl.editingMode") : t("dsl.readonlyMode")}</span>
       </div>
     </div>
   );

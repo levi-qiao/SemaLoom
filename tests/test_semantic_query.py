@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
+from semaloom.adapters.analysis import _sql_expr
 from semaloom.adapters.postgres import PostgresReadProvider
 from semaloom.app.factory import create_app
 from semaloom.app.http import router
@@ -33,6 +34,23 @@ def population_query(financial_query: Any) -> Any:  # noqa: F811
     with engine.begin() as conn:
         conn.execute(text("UPDATE sample_financial_review SET company_id=id"))
     return financial_query
+
+
+def test_semantic_numeric_expression_lowers_without_configured_sql() -> None:
+    expression = {
+        "op": "round",
+        "value": {
+            "op": "sub",
+            "args": [
+                {"op": "ref", "name": "audit"},
+                {"op": "decimal", "value": "0.125"},
+            ],
+        },
+        "places": 2,
+        "mode": "ROUND_HALF_UP",
+    }
+    assert _sql_expr(expression, {"audit": "audit_income"}) == ("ROUND((audit_income - 0.125), 2)")
+    assert _sql_expr({"op": "sql", "value": "pg_sleep(10)"}, {}) is None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,7 +99,7 @@ def test_prepare_ready_and_needs_input(population_query: Any) -> None:
     )
     assert no_year.status == "NEEDS_INPUT"
     assert no_year.question is not None
-    assert no_year.question.slot == "year"
+    assert no_year.question.slot == "scope:taxYear"
 
 
 def test_sum_matches_independent_sql_oracle(population_query: Any) -> None:

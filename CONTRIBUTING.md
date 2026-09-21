@@ -2,7 +2,7 @@
 
 从 issue 或 [PLAN](docs/PLAN.md) 选择一个依赖已满足的任务，阅读 [AGENTS.md](AGENTS.md) 指向的规范。当前仓库是 pre-alpha；提交应区分已验证行为、设计目标和未知项，不把合成原型报告为生产 gate 已通过。
 
-公开文档不要把 local-dev demo token 写成生产身份、把 `GET /v0.1/mcp/tools` 写成 MCP SDK、把复合身份写成已覆盖跨源集合分析 JOIN、把 typed Rule 扩展写成任意代码执行，或把 in-process `DraftStore` 写成企业写入恢复。点查/Link/Action 已支持完整结构化身份；集合分析的复合 Link 仍明确拒绝。Studio 的结构化 Rule 编辑器和 A64–A69 联合 gate 尚未关闭。能力边界见 [capabilities](docs/capabilities.md)。
+公开文档不要把 local-dev demo token 写成生产身份，也不要把兼容目录 `GET /v0.1/mcp/tools` 写成 transport；真实 MCP transport 是 `/mcp/`，非 local-dev 身份必须走 JWT 校验。不要把复合身份写成已覆盖跨源集合分析 JOIN、把 typed Rule 扩展写成任意代码执行，或把 in-process `DraftStore` 写成企业写入恢复。点查/Link/Action 已支持完整结构化身份；集合分析的复合 Link 仍明确拒绝。Studio 的结构化 Rule 编辑器和 A64–A69 联合 gate 尚未关闭。能力边界见 [capabilities](docs/capabilities.md)。
 
 ## Implementation conventions
 

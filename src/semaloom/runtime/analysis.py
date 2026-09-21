@@ -5,18 +5,20 @@ from __future__ import annotations
 import uuid
 from typing import Any, cast
 
-from semaloom.core.measure import aggregations_for, time_dimension_held
-from semaloom.core.model import MetricDef
+from semaloom.core.measure import aggregations_for, scope_dimensions_held
+from semaloom.core.model import EmbeddedProperty, MetricDef
 from semaloom.core.semantic_query import (
     UNSUPPORTED_OPERATORS,
     AggregationOp,
     ChoiceOption,
     ChoiceQuestion,
+    FilterAtom,
     PlanRef,
     PrepareResult,
     QueryResult,
     SemanticChoice,
     SemanticQuery,
+    TypedValue,
     conflicting_equalities,
     field_constrained,
     with_choice_exits,
@@ -40,9 +42,9 @@ def _aggregation_choices(
     metric: MetricDef, query: SemanticQuery
 ) -> list[tuple[AggregationOp, str]]:
     additivity = metric.additivity or "FULL"
-    year = metric.population.year_property if metric.population else None
+    scope = metric.population.scope_properties if metric.population else ()
     allowed = aggregations_for(additivity)
-    if additivity == "SEMI" and not time_dimension_held(query, year):
+    if additivity == "SEMI" and not scope_dimensions_held(query, scope):
         allowed = tuple(op for op in allowed if op != "SUM")
     return [(op, _AGG_LABELS[op]) for op in allowed]
 
@@ -130,37 +132,44 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
             ),
         )
     metric = _metric(service, query.metrics[0].id)
-    if metric.population is not None and not field_constrained(
-        query.filters, metric.population.year_property
-    ):
-        years = _backend(service, "analysis_years")(service.bundle, metric.id, actor.tenant)
+    missing_scope = _missing_scope_property(metric, query)
+    if missing_scope is not None:
+        prop = _property(service, metric, missing_scope)
+        values = _backend(service, "analysis_dimension_values")(
+            service.bundle, metric.id, missing_scope, actor.tenant
+        )
         options = [
             ChoiceOption(
-                id=f"opt_year_{year}",
-                label=f"{year} 年",
-                explanation="已发布来源中出现的业务年度",
+                id=f"opt_scope_{index}",
+                label=_value_label(prop, value),
+                explanation=f"已发布来源中出现的{prop.label or prop.id}",
                 choice=SemanticChoice(
-                    kind="YEAR", id=str(year), field=metric.population.year_property
+                    kind="DIMENSION_VALUE",
+                    id=str(value),
+                    field=missing_scope,
+                    predicate=FilterAtom(
+                        field=missing_scope,
+                        op="EQ",
+                        value=TypedValue(value_type=prop.value_type, value=value),
+                    ),
                 ),
             )
-            for year in years[:3]
+            for index, value in enumerate(values[:5])
         ]
         return PrepareResult(
             status="NEEDS_INPUT",
             question=ChoiceQuestion(
-                question_id="q-year-" + metric.id.replace(".", "_"),
+                question_id="q-scope-" + metric.id.replace(".", "_") + "-" + missing_scope,
                 revision=1,
-                slot="year",
-                prompt="要计算哪一年？",
-                reason="该指标按年度统计，缺少年份无法确定集合。",
+                slot="scope:" + missing_scope,
+                prompt=f"请选择{prop.label or prop.id}。",
+                reason="缺少确定统计范围所需的业务维度。",
                 options=with_choice_exits(options),
             ),
         )
     for ref in query.metrics[1:]:
         extra = _metric(service, ref.id)
-        if extra.population and not field_constrained(
-            query.filters, extra.population.year_property
-        ):
+        if _missing_scope_property(extra, query) is not None:
             raise AnalysisError("INCOMPLETE_METRIC_PERIOD")
     if any(ref.aggregation is None for ref in query.metrics):
         choices = _aggregation_choices(metric, query)
@@ -226,6 +235,30 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
             compiled_digest=digest,
         ),
     )
+
+
+def _missing_scope_property(metric: MetricDef, query: SemanticQuery) -> str | None:
+    if metric.population is None:
+        return None
+    return next(
+        (
+            field
+            for field in metric.population.scope_properties
+            if not field_constrained(query.filters, field)
+            and not any(item.id.rsplit(".", 1)[-1] == field for item in query.group_by)
+        ),
+        None,
+    )
+
+
+def _property(service: QueryService, metric: MetricDef, field: str) -> EmbeddedProperty:
+    obj = next(item for item in service.bundle.object_types if item.id == metric.object_type)
+    return next(prop for prop in obj.properties if prop.id == field)
+
+
+def _value_label(prop: EmbeddedProperty, value: str | int | bool) -> str:
+    authored = next((item.label for item in prop.values if item.id == str(value)), None)
+    return authored or str(value)
 
 
 def _metric(service: QueryService, metric_id: str) -> MetricDef:

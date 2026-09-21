@@ -24,6 +24,30 @@ COMPARISONS = {
     "outperforms": "严格优于同行比例",
     "periodOverPeriod": "较上年同期",
 }
+REASON_TEXT = {
+    "EMPTY_POPULATION": "当前筛选范围没有匹配记录",
+    "NO_OBSERVED_VALUES": "当前范围没有可用于计算的有效观测",
+    "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION": "当前范围存在缺失值，需要明确是否排除后再计算",
+    "PRIOR_PERIOD_MISSING": "没有可比较的上一期间观测",
+    "SUBJECT_VALUE_MISSING": "当前期间缺少可比较的有效观测",
+    "ZERO_DENOMINATOR": "比较基准为零，无法计算比例",
+    "NON_POSITIVE_MEAN": "当前范围的比较基准不是正数",
+    "NEGATIVE_VALUES_NOT_A_SHARE": "当前范围含负值，不能解释为占比",
+    "INCOMPLETE_METRIC_SET": "所选指标中至少一项数据不完整",
+}
+REASON_TEXT_EN = {
+    "EMPTY_POPULATION": "No records match the selected scope",
+    "NO_OBSERVED_VALUES": "The selected scope has no usable observations",
+    "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION": (
+        "The selected scope contains missing values; confirm whether to exclude them"
+    ),
+    "PRIOR_PERIOD_MISSING": "No prior observed period is available for comparison",
+    "SUBJECT_VALUE_MISSING": "The current period has no usable observation",
+    "ZERO_DENOMINATOR": "The comparison baseline is zero",
+    "NON_POSITIVE_MEAN": "The comparison baseline is not positive",
+    "NEGATIVE_VALUES_NOT_A_SHARE": "Negative values cannot be presented as a share",
+    "INCOMPLETE_METRIC_SET": "At least one selected metric is incomplete",
+}
 
 CAPABILITY_MESSAGES: dict[str, str] = {
     "LINK_ANALYSIS_UNSUPPORTED": (
@@ -49,7 +73,7 @@ CAPABILITY_MESSAGES: dict[str, str] = {
     ),
     "ADDITIVITY_VIOLATION": (
         "该测量按可加性不能这样汇总。"
-        "库存和余额（SEMI）只在单一年度或按年分组时允许合计，不能把多年余额加总；"
+        "库存和余额（SEMI）只有在全部范围属性被单值约束或进入分组时才允许合计；"
         "比率（NONE）不能合计或平均，可问有效数量、最小值或最大值。"
         "流量类金额（收入、利润）可以合计或平均。"
     ),
@@ -75,7 +99,7 @@ CAPABILITY_MESSAGES_EN: dict[str, str] = {
         "Compare one metric at a time."
     ),
     "TIME_GRAIN_UNSUPPORTED": (
-        "This time grain is not supported. Use a declared year or date property, "
+        "This time grain is not supported. Use a declared ordered-period property, "
         "or remove the time grouping."
     ),
     "CROSS_SOURCE_SQL": (
@@ -218,17 +242,17 @@ def semantic_summary(
     comparison = result.scope.get("comparison")
     if comparison:
         if comparison.get("value") is None:
-            rows.append("比较无法确定：" + str(comparison.get("reason")) + "。")
+            rows.append("比较无法确定：" + _reason_text(comparison.get("reason"), "zh-CN") + "。")
         else:
             op_label = COMPARISONS.get(comparison["operation"], comparison["operation"])
             rows.append(
                 f"**比较分析**：{op_label} `{comparison['value']}%`"
                 f"（分子 {comparison['numerator']}，分母 {comparison['denominator']}）。"
             )
-            if comparison.get("currentYear") and comparison.get("priorYear"):
+            if comparison.get("currentPeriod") is not None:
                 rows.append(
-                    f"本期 {comparison['currentYear']} 年 `{comparison.get('currentValue')}`，"
-                    f"上年 {comparison['priorYear']} 年 `{comparison.get('priorValue')}`。"
+                    f"本期 {comparison['currentPeriod']} `{comparison.get('currentValue')}`，"
+                    f"上一期间 {comparison.get('priorPeriod')} `{comparison.get('priorValue')}`。"
                 )
             if query.comparison and query.comparison.op == "STRICT_PEER":
                 rows.append(
@@ -246,7 +270,9 @@ def semantic_summary(
             f"有效 {scope.get('observedCount')} 个，缺失 {scope.get('missingCount')} 个。"
         )
         if scope.get("reason"):
-            scope_lines.append("无法确定数值：" + scope["reason"] + "。缺失不当零。")
+            scope_lines.append(
+                "无法确定数值：" + _reason_text(scope["reason"], "zh-CN") + "。缺失不当零。"
+            )
     scope_lines.append(
         "- 缺失处理："
         + ("按用户选择排除缺失。" if query.missing_policy == "exclude" else "存在缺失则不计算。")
@@ -274,9 +300,13 @@ def _headline(labels: dict[str, str], result: QueryResult) -> str | None:
     return f"{name}{operation} {natural_number(value['value'])} {value['unit']}。"
 
 
+def _reason_text(reason: Any, locale: str) -> str:
+    code = str(reason or "")
+    mapping = REASON_TEXT_EN if locale == "en" else REASON_TEXT
+    return mapping.get(code, "当前数据不足以完成计算" if locale != "en" else "Insufficient data")
+
+
 def _assumption_line(item: dict[str, str]) -> str:
-    if item["slot"] == "year":
-        return f"年份未指定，按来源最新年度 {item['id']}"
     if item["slot"] == "aggregation":
         return "未指定统计方式，按金额/数量可加性取合计"
     if item["slot"] == "grain":
@@ -313,7 +343,9 @@ def _semantic_summary_en(
     comparison = result.scope.get("comparison")
     if comparison:
         if comparison.get("value") is None:
-            lines.append(f"- Comparison unavailable: {comparison.get('reason')}.")
+            lines.append(
+                f"- Comparison unavailable: {_reason_text(comparison.get('reason'), 'en')}."
+            )
         else:
             lines.append(
                 f"- Comparison: {comparison['value']}% "
@@ -327,6 +359,8 @@ def _semantic_summary_en(
             f"- {labels.get(ref.id, ref.id)}: {scope.get('populationCount')} in scope, "
             f"{scope.get('observedCount')} observed, {scope.get('missingCount')} missing."
         )
+        if scope.get("reason"):
+            lines.append(f"- Value unavailable: {_reason_text(scope.get('reason'), 'en')}.")
     lines.append(
         "- Missing values are excluded by explicit user choice."
         if query.missing_policy == "exclude"

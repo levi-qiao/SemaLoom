@@ -56,14 +56,15 @@ def test_operator_sets_follow_kimball_and_gray() -> None:
     assert default_aggregation("NONE") is None
 
 
-def test_semi_sum_holds_only_a_single_year_or_year_group() -> None:
-    assert aggregation_legal("SEMI", "SUM", _query(year=2024), "stockYear")
-    assert aggregation_legal("SEMI", "SUM", _query(year=None, group_year=True), "stockYear")
-    assert not aggregation_legal("SEMI", "SUM", _query(year=None), "stockYear")
-    assert not aggregation_legal("SEMI", "SUM", _query(year=None, years=(2024, 2025)), "stockYear")
-    assert aggregation_legal("SEMI", "AVG", _query(year=None), "stockYear")
-    assert not aggregation_legal("NONE", "SUM", _query(year=2024), "stockYear")
-    assert aggregation_legal("FULL", "SUM", _query(year=None), "stockYear")
+def test_semi_sum_holds_only_declared_scope_or_scope_group() -> None:
+    scope = ("stockYear",)
+    assert aggregation_legal("SEMI", "SUM", _query(year=2024), scope)
+    assert aggregation_legal("SEMI", "SUM", _query(year=None, group_year=True), scope)
+    assert not aggregation_legal("SEMI", "SUM", _query(year=None), scope)
+    assert not aggregation_legal("SEMI", "SUM", _query(year=None, years=(2024, 2025)), scope)
+    assert aggregation_legal("SEMI", "AVG", _query(year=None), scope)
+    assert not aggregation_legal("NONE", "SUM", _query(year=2024), scope)
+    assert aggregation_legal("FULL", "SUM", _query(year=None), scope)
 
 
 def test_warehouse_on_hand_inherits_semi_from_the_measurement_slot() -> None:

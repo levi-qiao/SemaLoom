@@ -22,7 +22,7 @@
 
 ## 接入 AI
 
-应用启动后 `GET /v0.1/agent/tools` 返回五个工具的输入 JSON Schema、HTTP method/path 和使用说明。工具数量不随行业包增加。支持现有 demo Bearer；Studio 会话也可读，POST 需 Origin/CSRF。实际 MCP transport 未实现，这不影响 HTTP 工具调用。
+应用启动后 `GET /v0.1/agent/tools` 返回五个工具的输入 JSON Schema、HTTP method/path 和使用说明。工具数量不随行业包增加。支持现有 demo Bearer；Studio 会话也可读，POST 需 Origin/CSRF。外部 MCP host 可连接 `/mcp/` 的官方 Streamable HTTP transport，使用同一 Bearer 身份执行语义查询、规则评估与定义解释。
 
 已有能运行终端命令的 AI 可直接使用仓库脚本：
 
@@ -61,4 +61,4 @@ TRUE 只代表所述数值规则成立；不能因此宣称审计通过、申报
 
 公开 quickstart 只使用合成数据。实际业务配置与私有样本不得进入 Git 或发行物；local-dev 的运行结果不能被称为已批准生产 release。
 
-当前验收要求不包含复杂 JWT/字段授权、Action 业务写入恢复、MCP transport、Rule 可视化编辑器或大图扩容。这些仍保留为后续能力，不能把未实现项说成完成，也无需为了只读分析先建设它们。所有公开使用与生产要求仍见 SECURITY 和原验收文档。
+当前已覆盖 JWT 签名、issuer、audience、expiry 和必需身份 claims，但不包含外部 IAM 撤销目录、细粒度字段授权、MCP Action、Action 业务写入恢复、Rule 可视化编辑器或大图扩容。这些仍保留为后续能力，不能把未实现项说成完成。所有公开使用与生产要求仍见 SECURITY 和原验收文档。

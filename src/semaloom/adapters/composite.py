@@ -120,11 +120,15 @@ class CompositeReadProvider:
             self._analysis_provider(bundle, plan.query).execute_analysis(bundle, plan, tenant),
         )
 
-    def analysis_years(self, bundle: CompiledBundle, metric_id: str, tenant: str) -> list[int]:
+    def analysis_dimension_values(
+        self, bundle: CompiledBundle, metric_id: str, field: str, tenant: str
+    ) -> list[str | int | bool]:
         query = SemanticQuery(api_version="semaloom/v0.1", metrics=(MetricRef(id=metric_id),))
         return cast(
-            list[int],
-            self._analysis_provider(bundle, query).analysis_years(bundle, metric_id, tenant),
+            list[str | int | bool],
+            self._analysis_provider(bundle, query).analysis_dimension_values(
+                bundle, metric_id, field, tenant
+            ),
         )
 
     def close(self) -> None:

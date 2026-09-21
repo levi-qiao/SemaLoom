@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from semaloom.app.chat.i18n import localize_question
-from semaloom.app.chat.intent import TurnIntent, slots_for_metric
+from semaloom.app.chat.intent import RoleConstraint, TurnIntent, slots_for_metric
 from semaloom.app.chat.presentation import project_browser_answer
 from semaloom.app.chat.store import ChatStore
 from semaloom.app.chat.summary import capability_message, semantic_summary
@@ -59,6 +59,7 @@ _CMP: dict[str, ComparisonOp] = {
     "shareOfTotal": "SHARE_OF_TOTAL",
     "percentAboveMean": "RELATIVE_TO_MEAN",
     "outperforms": "STRICT_PEER",
+    "periodOverPeriod": "PERIOD_OVER_PERIOD",
 }
 
 
@@ -95,44 +96,102 @@ def _one_link_name_field(
     return matches[0] if len(matches) == 1 else None
 
 
-def _year_property(bundle: CompiledBundle, metric_ids: set[str] | frozenset[str]) -> str | None:
-    fields: set[str] = set()
+def _scope_property_for_role(
+    bundle: CompiledBundle,
+    metric_ids: set[str] | frozenset[str],
+    role: str,
+    value_type: ValueType | None = None,
+) -> str | None:
+    scopes: set[tuple[str, ...]] = set()
+    objects: set[str] = set()
     for metric_id in metric_ids:
         metric = next((item for item in bundle.metrics if item.id == metric_id), None)
         if metric is not None and metric.population is not None:
-            fields.add(metric.population.year_property)
-    if len(fields) == 1:
-        return next(iter(fields))
-    return None
+            scopes.add(metric.population.scope_properties)
+            objects.add(metric.object_type)
+    if len(scopes) != 1:
+        return None
+    fields = set(next(iter(scopes)))
+    matches = {
+        prop.id
+        for obj in bundle.object_types
+        if obj.id in objects
+        for prop in obj.properties
+        if prop.id in fields
+        and role in prop.semantic_roles
+        and (value_type is None or prop.value_type == value_type)
+    }
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
-def _year_filter(field: str, year: int) -> FilterAtom:
+def _role_constraint_filter(field: str, constraint: RoleConstraint) -> FilterAtom:
+    value: str | int | bool | tuple[str | int | bool, ...]
+    value = constraint.values[0] if constraint.operator == "EQ" else constraint.values
     return FilterAtom(
         field=field,
-        op="EQ",
-        value=TypedValue(value_type="INTEGER", value=year),
+        op=constraint.operator,
+        value=TypedValue(value_type=constraint.value_type, value=value),
     )
+
+
+def _resolved_role_constraints(
+    bundle: CompiledBundle,
+    metric_ids: set[str] | frozenset[str],
+    intent: TurnIntent,
+) -> tuple[tuple[str, RoleConstraint], ...]:
+    resolved: list[tuple[str, RoleConstraint]] = []
+    for constraint in intent.role_constraints:
+        field = _scope_property_for_role(bundle, metric_ids, constraint.role, constraint.value_type)
+        if field is not None:
+            resolved.append((field, constraint))
+    return tuple(resolved)
+
+
+def _contains_filter_field(node: FilterAtom | FilterGroup | None, field: str) -> bool:
+    if isinstance(node, FilterAtom):
+        return node.field.split(".")[-1] == field.split(".")[-1]
+    if isinstance(node, FilterGroup):
+        return any(_contains_filter_field(arg, field) for arg in node.args)
+    return False
+
+
+def _without_filter_field(
+    node: FilterAtom | FilterGroup | None, field: str
+) -> FilterAtom | FilterGroup | None:
+    """Remove a confirmed slot before applying an explicit follow-up replacement."""
+    if isinstance(node, FilterAtom):
+        return None if _contains_filter_field(node, field) else node
+    if node is None:
+        return None
+    if node.kind == "OR" and _contains_filter_field(node, field):
+        # Removing one OR arm would silently retain a different scope. Rebuild
+        # the explicit slot from the follow-up instead.
+        return None
+    kept = tuple(
+        item for arg in node.args if (item := _without_filter_field(arg, field)) is not None
+    )
+    if not kept:
+        return None
+    if node.kind == "NOT":
+        return FilterGroup(kind="NOT", args=kept)
+    if len(kept) == 1:
+        return kept[0]
+    return FilterGroup(kind=node.kind, args=kept)
 
 
 def query_from_intent(intent: TurnIntent, bundle: CompiledBundle) -> SemanticQuery:
     metrics = tuple(MetricRef(id=item) for item in sorted(intent.metric_ids))
     filters: FilterAtom | FilterGroup | None = None
-    year_field = _year_property(bundle, intent.metric_ids)
-    if intent.year is not None and year_field:
-        filters = _year_filter(year_field, intent.year)
-    if intent.multiple_years and intent.years and year_field:
-        filters = FilterAtom(
-            field=year_field, op="IN", value=TypedValue(value_type="INTEGER", value=intent.years)
-        )
+    for field, constraint in _resolved_role_constraints(bundle, intent.metric_ids, intent):
+        atom = _role_constraint_filter(field, constraint)
+        filters = atom if filters is None else _append_filter(filters, atom)
     aggregation = _AGG.get(intent.operation) if intent.operation else None
     if aggregation is None and intent.comparison and metrics:
         metric = next((item for item in bundle.metrics if item.id == metrics[0].id), None)
         aggregation = default_aggregation(metric.additivity or "FULL") if metric else None
     metrics = tuple(item.model_copy(update={"aggregation": aggregation}) for item in metrics)
     comparison = None
-    if intent.period_over_period and len(metrics) == 1:
-        comparison = ComparisonExpr(op="PERIOD_OVER_PERIOD", metric=metrics[0].id)
-    elif intent.comparison and len(metrics) == 1:
+    if intent.comparison and len(metrics) == 1:
         comparison = ComparisonExpr(
             op=_CMP[intent.comparison],
             metric=metrics[0].id,
@@ -142,8 +201,15 @@ def query_from_intent(intent: TurnIntent, bundle: CompiledBundle) -> SemanticQue
         atom = _typed_atom(hit.field, hit.stored, hit.value_type)
         filters = atom if filters is None else _append_filter(filters, atom)
     group_by: tuple[GroupByItem, ...] = ()
-    if (intent.trend or intent.multiple_years) and year_field and metrics:
-        group_by = (GroupByItem(id=year_field, time_grain="YEAR"),)
+    group_field = (
+        _scope_property_for_role(bundle, intent.metric_ids, intent.grouping_role)
+        if intent.grouping_role
+        else None
+    )
+    if group_field and metrics:
+        # Pre-bucketed business periods are ordinary ontology properties.
+        # A physical DATE/DATETIME roll-up uses an adapter-declared timeGrain.
+        group_by = (GroupByItem(id=group_field),)
     if intent.group_dimension and metrics:
         item = GroupByItem(id=intent.group_dimension)
         group_by = (*group_by, item) if item not in group_by else group_by
@@ -181,14 +247,17 @@ def _apply_intent(
             updates["metrics"] = metrics
         elif not intent.metric_ids <= existing:
             raise AnalysisError("REQUEST_METRIC_DOES_NOT_MATCH_USER")
-    year_field = _year_property(bundle, {item.id for item in metrics})
-    if intent.year is not None and year_field is not None:
-        existing_year = equality_value(query.filters, year_field)
-        if field_constrained(query.filters, year_field) and existing_year != intent.year:
-            raise AnalysisError("REQUEST_YEAR_DOES_NOT_MATCH_USER")
-        if existing_year is None:
+    for field, constraint in _resolved_role_constraints(
+        bundle, {item.id for item in metrics}, intent
+    ):
+        if field_constrained(query.filters, field):
+            existing = equality_value(query.filters, field)
+            if constraint.operator != "EQ" or existing != constraint.values[0]:
+                raise AnalysisError("REQUEST_SCOPE_DOES_NOT_MATCH_USER")
+        else:
             updates["filters"] = _append_filter(
-                query.filters, _year_filter(year_field, intent.year)
+                updates.get("filters", query.filters),
+                _role_constraint_filter(field, constraint),
             )
     if intent.operation and metrics:
         aggregation = _AGG[intent.operation]
@@ -206,7 +275,7 @@ def _apply_intent(
         )
     ):
         raise AnalysisError("MISSING_EXCLUSION_NOT_AUTHORIZED")
-    if intent.period_over_period:
+    if intent.comparison == "periodOverPeriod":
         if query.comparison is None:
             if metrics:
                 updates["comparison"] = ComparisonExpr(
@@ -233,42 +302,112 @@ def _apply_intent(
             updates["filters"] = filters
     if intent.group_dimension and not query.group_by:
         updates["group_by"] = (GroupByItem(id=intent.group_dimension),)
-    if intent.multiple_years:
-        # Do not accept a single-year proposal as an answer to a multi-year request.
-        def years(node: FilterAtom | FilterGroup | None) -> set[int]:
+    for field, constraint in _resolved_role_constraints(
+        bundle, {item.id for item in metrics}, intent
+    ):
+        if constraint.operator != "IN":
+            continue
+
+        # A model proposal must preserve every explicit value from the adapter.
+        def constrained_values(
+            node: FilterAtom | FilterGroup | None, target_field: str = field
+        ) -> set[str]:
             if (
                 isinstance(node, FilterAtom)
-                and year_field
-                and node.field.split(".")[-1] == year_field
+                and node.field.split(".")[-1] == target_field.split(".")[-1]
             ):
                 value = node.value.value
                 if node.op == "EQ":
-                    return {int(str(value))}
+                    return {str(value)}
                 if node.op == "IN" and isinstance(value, tuple):
-                    return {int(v) for v in value}
+                    return {str(item) for item in value}
             if isinstance(node, FilterGroup):
-                return set().union(*(years(arg) for arg in node.args))
+                return set().union(*(constrained_values(arg) for arg in node.args))
             return set()
 
-        if not set(intent.years) <= years(updates.get("filters", query.filters)):
-            raise AnalysisError("REQUEST_YEAR_DOES_NOT_MATCH_USER")
+        if not {str(item) for item in constraint.values} <= constrained_values(
+            updates.get("filters", query.filters)
+        ):
+            raise AnalysisError("REQUEST_SCOPE_DOES_NOT_MATCH_USER")
     return query.model_copy(update=updates) if updates else query
 
 
-def _years_for(service: QueryService, metric_id: str, tenant: str) -> list[int]:
+def _scope_values_for(
+    service: QueryService, metric_id: str, field: str, tenant: str
+) -> list[str | int | bool]:
     metric = next((m for m in service.bundle.metrics if m.id == metric_id), None)
     if metric is None or not getattr(metric, "population", None):
         return []
-    handler = getattr(service.provider, "analysis_years", None)
+    handler = getattr(service.provider, "analysis_dimension_values", None)
     if not callable(handler):
         return []
     try:
-        years = handler(service.bundle, metric_id, tenant)
+        values = handler(service.bundle, metric_id, field, tenant)
     except Exception:
         return []
-    if not isinstance(years, Iterable) or isinstance(years, (str, bytes)):
+    if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
         return []
-    return [int(year) for year in years]
+    return list(values)
+
+
+def _observed_scope_values(
+    service: QueryService, metric_id: str, field: str, tenant: str
+) -> list[str | int | bool] | None:
+    """Return observed values, preserving source failure as unknown rather than empty."""
+    handler = getattr(service.provider, "analysis_dimension_values", None)
+    if not callable(handler):
+        return None
+    try:
+        values = handler(service.bundle, metric_id, field, tenant)
+    except Exception:
+        return None
+    if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
+        return None
+    return list(values)
+
+
+def _revalidate_carried_scope(
+    query: SemanticQuery,
+    intent: TurnIntent,
+    service: QueryService,
+    actor: RequestActor,
+) -> SemanticQuery:
+    """Drop a stale implicit scope after the user names a metric with no value there."""
+    if not intent.metric_ids or not query.metrics:
+        return query
+    explicit_fields = {hit.field.split(".")[-1] for hit in intent.dimension_filters}
+    explicit_fields.update(
+        field
+        for field, _ in _resolved_role_constraints(
+            service.bundle, {item.id for item in query.metrics}, intent
+        )
+    )
+    filters = query.filters
+    stale_fields: set[str] = set()
+    for ref in query.metrics:
+        metric = next((item for item in service.bundle.metrics if item.id == ref.id), None)
+        if metric is None or metric.population is None:
+            continue
+        for field in metric.population.scope_properties:
+            if field in explicit_fields or not field_constrained(filters, field):
+                continue
+            selected = equality_value(filters, field)
+            if selected is None:
+                continue
+            observed = _observed_scope_values(service, metric.id, field, actor.tenant)
+            if observed is None:
+                continue
+            if not any(str(value) == str(selected) for value in observed):
+                filters = _without_filter_field(filters, field)
+                stale_fields.add(field)
+    if not stale_fields:
+        return query
+    decisions = tuple(
+        decision
+        for decision in query.decisions
+        if not (decision.choice.kind == "DIMENSION_VALUE" and decision.choice.field in stale_fields)
+    )
+    return query.model_copy(update={"filters": filters, "decisions": decisions})
 
 
 def _complete_explicit_scope(
@@ -282,11 +421,7 @@ def _complete_explicit_scope(
     updates: dict[str, Any] = {}
     assumptions: list[dict[str, str]] = []
     if query.group_by and not (
-        intent.breakdown
-        or intent.group_label
-        or intent.group_dimension
-        or intent.trend
-        or intent.multiple_years
+        intent.breakdown or intent.group_label or intent.group_dimension or intent.grouping_role
     ):
         updates["group_by"] = ()
         assumptions.append({"slot": "grain", "id": "total", "reason": "USER_DID_NOT_ASK_BREAKDOWN"})
@@ -303,23 +438,37 @@ def _complete_explicit_scope(
             group_id = metric.population.unit_property
         if group_id:
             updates["group_by"] = (GroupByItem(id=group_id),)
-    year_field = _year_property(bundle, {item.id for item in query.metrics})
+    scope_field = (
+        _scope_property_for_role(bundle, {item.id for item in query.metrics}, intent.grouping_role)
+        if intent.grouping_role
+        else None
+    )
     if (
-        year_field
+        scope_field
         and query.metrics
-        and (intent.trend or intent.multiple_years)
-        and not field_constrained(query.filters, year_field)
+        and intent.grouping_role
+        and not field_constrained(query.filters, scope_field)
     ):
-        years = sorted(_years_for(service, query.metrics[0].id, actor.tenant))
-        if intent.recent_year_count is not None:
-            years = years[-intent.recent_year_count :]
-        if years:
+        values = sorted(
+            _scope_values_for(service, query.metrics[0].id, scope_field, actor.tenant),
+            key=str,
+        )
+        if intent.grouping_limit is not None:
+            values = values[-intent.grouping_limit :]
+        if values:
+            obj = next(
+                item
+                for item in bundle.object_types
+                if item.id
+                == next(m for m in bundle.metrics if m.id == query.metrics[0].id).object_type
+            )
+            prop = next(item for item in obj.properties if item.id == scope_field)
             updates["filters"] = _append_filter(
                 query.filters,
                 FilterAtom(
-                    field=year_field,
+                    field=scope_field,
                     op="IN",
-                    value=TypedValue(value_type="INTEGER", value=tuple(years)),
+                    value=TypedValue(value_type=prop.value_type, value=tuple(values)),
                 ),
             )
     return query.model_copy(update=updates) if updates else query, assumptions
@@ -330,14 +479,21 @@ def _follow_ups(bundle: CompiledBundle, query: SemanticQuery) -> list[dict[str, 
         return []
     labels = {metric.id: metric.label or metric.id for metric in bundle.metrics}
     name = "、".join(labels.get(ref.id, ref.id) for ref in query.metrics)
-    year_field = _year_property(bundle, {ref.id for ref in query.metrics})
-    year = equality_value(query.filters, year_field) if year_field else None
+    scope_fields = {
+        field
+        for ref in query.metrics
+        for metric in bundle.metrics
+        if metric.id == ref.id and metric.population is not None
+        for field in metric.population.scope_properties
+    }
+    scope_field = next(iter(scope_fields)) if len(scope_fields) == 1 else None
+    scope_value = equality_value(query.filters, scope_field) if scope_field else None
     # Follow-ups are new questions: only suggest a scope we can preserve exactly.
-    if query.filters is not None and year is None:
+    if query.filters is not None and scope_value is None:
         return []
     if isinstance(query.filters, FilterGroup) and len(query.filters.args) > 1:
         return []
-    year_text = f"{year}年" if year is not None else ""
+    scope_text = f"{scope_value} " if scope_value is not None else ""
     operations = {ref.aggregation for ref in query.metrics}
     operation = (
         {
@@ -355,11 +511,11 @@ def _follow_ups(bundle: CompiledBundle, query: SemanticQuery) -> list[dict[str, 
         if not query.group_by or query.group_by[0].id != slot.field:
             label = slot.prop.label or slot.prop.id
             items.append(
-                {"label": f"按{label}看", "message": f"{year_text}{name}按{label}{operation}"}
+                {"label": f"按{label}看", "message": f"{scope_text}{name}按{label}{operation}"}
             )
     if not query.group_by:
         items.append(
-            {"label": "看各对象明细", "message": f"{year_text}{name}按对象列出明细{operation}"}
+            {"label": "看各对象明细", "message": f"{scope_text}{name}按对象列出明细{operation}"}
         )
     return items[:3]
 
@@ -413,13 +569,47 @@ def _unique_named_option(message: str, question: ChoiceQuestion, kind: str) -> C
 
 
 def try_direct_turn(
-    service: QueryService, actor: RequestActor, message: str, locale: str = "zh-CN"
+    service: QueryService,
+    actor: RequestActor,
+    message: str,
+    locale: str = "zh-CN",
+    confirmed_query: dict[str, Any] | SemanticQuery | None = None,
 ) -> dict[str, Any] | None:
     """Answer or ask from ontology intent without a model when the question is structured."""
     text = message.strip()
     if not text or _DEFINITION.search(text):
         return None
     intent = TurnIntent.read(text, service.bundle)
+    if confirmed_query is not None and not (intent.metric_ids or intent.candidates):
+        prior = SemanticQuery.model_validate(confirmed_query)
+        explicit_refinement = bool(
+            intent.role_constraints
+            or intent.operation
+            or intent.dimension_filters
+            or intent.group_dimension
+            or intent.comparison
+        )
+        if explicit_refinement and prior.metrics:
+            updates: dict[str, Any] = {}
+            filters = prior.filters
+            for field, constraint in _resolved_role_constraints(
+                service.bundle, {item.id for item in prior.metrics}, intent
+            ):
+                filters = _without_filter_field(filters, field)
+                filters = _append_filter(filters, _role_constraint_filter(field, constraint))
+            if filters is not prior.filters:
+                updates["filters"] = filters
+            if intent.operation:
+                updates["metrics"] = tuple(
+                    item.model_copy(update={"aggregation": None}) for item in prior.metrics
+                )
+            return prepare_turn(
+                service,
+                actor,
+                text,
+                prior.model_copy(update=updates) if updates else prior,
+                locale,
+            )
     if intent.claim_ids or intent.claim_candidates:
         return prepare_claim_turn(service, actor, text)
     if re.search(
@@ -430,13 +620,13 @@ def try_direct_turn(
         # dictionary dimension makes the rest of the question look structured.
         return None
     structured = bool(
-        intent.period_over_period
-        or intent.month_over_month
+        intent.comparison
+        or intent.unsupported_capability
         or intent.dimension_filters
         or intent.need_dimension
         or intent.group_dimension
-        or intent.trend
-        or intent.multiple_years
+        or intent.grouping_role
+        or intent.role_constraints
     )
     if structured and (intent.metric_ids or intent.candidates):
         return prepare_turn(service, actor, text, locale=locale)
@@ -526,20 +716,20 @@ def prepare_turn(
             "originalQuestion": message,
             "releaseDigest": service.bundle.digest,
         }
-    if intent.month_over_month:
+    if intent.unsupported_capability:
         return {
             "status": "UNSUPPORTED",
             "kind": "unsupported",
             "answerReady": True,
             "textOrigin": "ENGINE",
-            "text": capability_message("TIME_GRAIN_UNSUPPORTED", locale),
-            "errorCode": "TIME_GRAIN_UNSUPPORTED",
+            "text": capability_message(intent.unsupported_capability, locale),
+            "errorCode": intent.unsupported_capability,
             "query": semantic.model_dump(mode="json", by_alias=True),
             "originalQuestion": message,
             "releaseDigest": service.bundle.digest,
         }
     metric_ids = {item.id for item in semantic.metrics} or intent.metric_ids
-    if intent.period_over_period and metric_ids:
+    if intent.comparison == "periodOverPeriod" and metric_ids:
         kinds = [
             next(
                 (row.additivity or "FULL" for row in service.bundle.metrics if row.id == item),
@@ -609,6 +799,7 @@ def prepare_turn(
                     "originalQuestion": message,
                     "releaseDigest": service.bundle.digest,
                 }
+    semantic = _revalidate_carried_scope(semantic, intent, service, actor)
     semantic = _apply_intent(semantic, intent, service.bundle)
     semantic, assumptions = _complete_explicit_scope(
         semantic, intent, service.bundle, service, actor
@@ -782,10 +973,11 @@ def prepare_claim_turn(
         }
     metric = next(item for item in service.bundle.metrics if item.id == rule.inputs[0].metric)
     obj = next(item for item in service.bundle.object_types if item.id == metric.object_type)
-    year = intent.year
     filters: dict[str, str | int | bool] = dict(identity or {})
-    if year is not None and obj.population is not None:
-        filters[obj.population.year_property] = year
+    resolved_constraints = _resolved_role_constraints(service.bundle, {metric.id}, intent)
+    for field, constraint in resolved_constraints:
+        if constraint.operator == "EQ":
+            filters[field] = constraint.values[0]
     display = [
         prop.id
         for prop in obj.properties
@@ -800,7 +992,7 @@ def prepare_claim_turn(
                 *display,
                 *period_fields,
                 *rule.applicability,
-                *([obj.population.year_property] if obj.population else []),
+                *(obj.population.scope_properties if obj.population else ()),
             ]
         )
     )
@@ -844,8 +1036,14 @@ def prepare_claim_turn(
                     *[item for item in parts if item != str(props["name"])],
                 ]
             label = " · ".join(dict.fromkeys(parts)) or value
-            if obj.population and props.get(obj.population.year_property) is not None:
-                label += f" · {props[obj.population.year_property]} 年"
+            if obj.population:
+                scope_parts = [
+                    str(props[field])
+                    for field in obj.population.scope_properties
+                    if props.get(field) is not None
+                ]
+                if scope_parts:
+                    label += " · " + " / ".join(scope_parts)
             subjects[f"opt_claim_subject_{index}"] = ident
             options.append(
                 ChoiceOption(
@@ -861,7 +1059,7 @@ def prepare_claim_turn(
                 "kind": "unsupported",
                 "answerReady": True,
                 "textOrigin": "ENGINE",
-                "text": "当前范围没有可核验的对象，请核对名称或年份。",
+                "text": "当前范围没有可核验的对象，请核对对象名称或范围条件。",
                 "errorCode": "COMPARISON_SUBJECT_NOT_FOUND",
                 "originalQuestion": message,
                 "releaseDigest": service.bundle.digest,
@@ -894,34 +1092,30 @@ def prepare_claim_turn(
     bindings: dict[str, IdentityScalar] = {
         str(key): str(value) for key, value in (row.get("identity") or {}).items()
     }
-    if year is not None and obj.population is not None:
-        year_prop = obj.population.year_property
-        metric_grain = set(metric.grain)
-        if year_prop in metric_grain or year_prop in obj.identity_keys:
-            bindings[year_prop] = year
+    metric_grain = set(metric.grain)
+    for field, constraint in resolved_constraints:
+        if constraint.operator == "EQ" and (field in metric_grain or field in obj.identity_keys):
+            bindings[field] = constraint.values[0]
     props = row.get("properties") or {}
     period_from = str(props.get(period_fields[0])) if period_fields else ""
     period_to = str(props.get(period_fields[1])) if len(period_fields) > 1 else ""
     if not period_from or period_from == "None":
-        if year is None:
-            question = ChoiceQuestion(
-                question_id="q-claim-year-" + uuid.uuid4().hex,
-                revision=1,
-                slot="claimYear",
-                prompt="要按哪个业务年度核验？",
-                reason="规则可能随期间变化，请补充业务年度。",
-                options=with_choice_exits([]),
-            )
-            return {
-                "status": "NEEDS_INPUT",
-                "waiting": True,
-                "question": question.model_dump(mode="json", by_alias=True),
-                "query_state": {"mode": "claim", "claimId": claim_id, "identity": bindings},
-                "originalQuestion": message,
-                "releaseDigest": service.bundle.digest,
-            }
-        period_from = f"{year}-01-01"
-        period_to = f"{year + 1}-01-01"
+        question = ChoiceQuestion(
+            question_id="q-claim-period-" + uuid.uuid4().hex,
+            revision=1,
+            slot="claimPeriod",
+            prompt="要按哪个业务期间核验？",
+            reason="规则需要本体对象提供明确的生效期间，不能从范围值猜测日期边界。",
+            options=with_choice_exits([]),
+        )
+        return {
+            "status": "NEEDS_INPUT",
+            "waiting": True,
+            "question": question.model_dump(mode="json", by_alias=True),
+            "query_state": {"mode": "claim", "claimId": claim_id, "identity": bindings},
+            "originalQuestion": message,
+            "releaseDigest": service.bundle.digest,
+        }
     dimensions = {
         key: str(props[key]) for key in rule.applicability if props.get(key) not in {None, ""}
     }

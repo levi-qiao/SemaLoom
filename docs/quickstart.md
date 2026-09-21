@@ -6,8 +6,8 @@ This path uses **synthetic tax and procurement fixtures only**. It needs Python 
 `semaloom_suppliers`, and `semaloom_meta`.
 
 Use Docker Compose **or** an equivalent local Homebrew `postgresql@16`. Do not point the URLs at a
-private sample database, a remote host, or any real business database. No model key, MCP SDK, or
-paid service is required.
+private sample database, a remote host, or any real business database. No model key or paid service
+is required; the MCP SDK is installed with the project dependencies.
 
 Default bindings:
 
@@ -83,11 +83,13 @@ Local-dev **demo bearers** (never production authentication):
 | `tenant-a-modeler` | modeler |
 
 Studio can also switch documented local personas through `POST /v0.1/studio/session/demo`. Setting
-`SEMALOOM_PROFILE` to anything other than `local-dev` refuses to start: there is no production
-identity adapter yet.
+`SEMALOOM_PROFILE` to anything other than `local-dev` requires
+`SEMALOOM_JWT_ISSUER`, `SEMALOOM_JWT_AUDIENCE`, and either `SEMALOOM_JWT_PUBLIC_KEY` or
+`SEMALOOM_JWT_JWKS_URL`. Production never accepts the demo tokens.
 
-`GET /v0.1/mcp/tools` after a demo Bearer returns a **static name list**. It is not an MCP SDK
-session or transport.
+The official stateless MCP Streamable HTTP endpoint is `/mcp/`; it exposes semantic query, claim
+evaluation, and semantic explain with the same Bearer identity as REST. `GET /v0.1/mcp/tools` is
+only a legacy compatibility catalog.
 
 Business discovery uses the tenant's active release and returns semantic definitions, not physical
 source bindings. Search is deterministic ID/label/description matching; multiple candidates require
@@ -102,7 +104,7 @@ curl --get 'http://127.0.0.1:8000/v0.1/search' \
 
 Query, claim and discovery also accept the existing Studio session. Cookie-authenticated POSTs
 require the same Origin/CSRF headers as Studio management; an invalid explicit Bearer does not
-fall back to the session. This is local session reuse, not production JWT authentication.
+fall back to the session. Non-local profiles use the separately configured JWT verifier.
 
 ## Five runnable example classes
 
@@ -257,7 +259,7 @@ uv build
 docker compose down   # only if you started Compose
 ```
 
-Performance, production identity, real MCP transport, composite-key collection-analysis
-joins, Action crash recovery, and a signed SBOM are **not** accepted on this path. Point
+Performance, production identity-provider/revocation integration, composite-key collection-analysis
+joins, MCP Actions/history, Action crash recovery, and a signed SBOM are **not** accepted on this path. Point
 reads and Link traversal already preserve complete structured identities; see
 [capabilities](capabilities.md).

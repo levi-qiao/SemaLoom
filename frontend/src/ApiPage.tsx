@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiHeaders, checkedJson } from "./api";
 import { ApiImportModal } from "./ApiImportModal";
 import { IconCheck, IconImport } from "./icons";
+import { useI18n } from "./i18n";
 import type { ApiAuth, ApiOperation, ApiService, DraftDocument } from "./types";
 
 type Profile = {
@@ -37,6 +38,7 @@ export function ApiPage({
   onChangeDocuments,
   onDirtyChange,
 }: Props) {
+  const { t, locale } = useI18n();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [baseline, setBaseline] = useState<Profile[]>([]);
   const [activeTab, setActiveTab] = useState<"endpoints" | "auth" | "associations" | "settings">("endpoints");
@@ -84,7 +86,7 @@ export function ApiPage({
           operationId: "getOrderRisk",
           method: "GET",
           path: "/order-risk",
-          summary: "根据订单 ID 查询企业履约风险",
+          summary: t("api.mockOrderRiskSummary"),
           parameters: [
             { name: "orderId", in: "query", required: true, type: "string" },
             { name: "tenant", in: "query", required: true, type: "string" },
@@ -95,7 +97,7 @@ export function ApiPage({
           operationId: "createPurchaseDraft",
           method: "POST",
           path: "/drafts",
-          summary: "创建采购草稿单",
+          summary: t("api.mockPurchaseDraftSummary"),
           parameters: [
             { name: "tenant", in: "query", required: true, type: "string" },
           ],
@@ -289,7 +291,7 @@ export function ApiPage({
       <div className="api-tier-sidebar">
         <div className="api-sidebar-header">
           <div className="api-sidebar-title-row">
-            <h3>API 服务列表</h3>
+            <h3>{t("api.listTitle")}</h3>
             <span className="api-count-badge">{apiProfiles.length}</span>
           </div>
 
@@ -300,14 +302,14 @@ export function ApiPage({
               onClick={() => setImportOpen(true)}
             >
               <IconImport size={13} style={{ marginRight: 5, verticalAlign: "text-bottom" }} />
-              线上导入
+              {t("api.importOnline")}
             </button>
             <button
               type="button"
               className="secondary compact-btn"
               onClick={() => setShowAddInline(!showAddInline)}
             >
-              ＋ 手动配置
+              {t("api.manualConfig")}
             </button>
           </div>
 
@@ -316,7 +318,7 @@ export function ApiPage({
               <input
                 value={newApiId}
                 onChange={(e) => setNewApiId(e.target.value)}
-                placeholder="输入 API ID (如 order_api)"
+                placeholder={t("api.idPlaceholder")}
                 autoFocus
               />
               <div className="api-inline-actions">
@@ -326,14 +328,14 @@ export function ApiPage({
                   disabled={!newApiId.trim() || busy}
                   onClick={() => void handleManualCreate()}
                 >
-                  创建
+                  {t("common.create")}
                 </button>
                 <button
                   type="button"
                   className="text-button"
                   onClick={() => setShowAddInline(false)}
                 >
-                  取消
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>
@@ -357,15 +359,15 @@ export function ApiPage({
                       {p.validationStatus === "VALID" ? (
                         <>
                           <IconCheck size={11} style={{ marginRight: 3, verticalAlign: "middle" }} />
-                          已验证
+                          {t("api.verified")}
                         </>
-                      ) : "未校验"}
+                      ) : t("api.unverified")}
                     </span>
                   </div>
                   <strong className="api-card-title">{p.label || p.sourceId}</strong>
                   <code className="api-card-id">{p.sourceId}</code>
                   <div className="api-card-meta">
-                    <span>{opCount} 个端点</span>
+                    <span>{t("api.endpointCount", { count: opCount })}</span>
                     <span className="meta-sep">·</span>
                     <span>{String(p.settings?.baseUrl || "http://127.0.0.1:8000")}</span>
                   </div>
@@ -400,7 +402,7 @@ export function ApiPage({
                   disabled={busy}
                   onClick={() => void saveCurrent()}
                 >
-                  {busy ? "保存中..." : "保存配置"}
+                  {busy ? t("common.saving") : t("api.saveConfig")}
                 </button>
               </div>
             </div>
@@ -411,28 +413,28 @@ export function ApiPage({
                 className={`api-tab-link ${activeTab === "endpoints" ? "active" : ""}`}
                 onClick={() => setActiveTab("endpoints")}
               >
-                端点清单 ({currentOperations.length})
+                {t("api.tabEndpoints", { count: currentOperations.length })}
               </button>
               <button
                 type="button"
                 className={`api-tab-link ${activeTab === "auth" ? "active" : ""}`}
                 onClick={() => setActiveTab("auth")}
               >
-                鉴权配置 ({currentAuth.type === "none" ? "无" : currentAuth.type})
+                {t("api.tabAuth", { scheme: currentAuth.type === "none" ? t("common.none") : currentAuth.type })}
               </button>
               <button
                 type="button"
                 className={`api-tab-link ${activeTab === "associations" ? "active" : ""}`}
                 onClick={() => setActiveTab("associations")}
               >
-                关联管理 ({associations.actions.length} Action · {associations.mappings.length} Mapping)
+                {t("api.tabAssoc", { actions: associations.actions.length, mappings: associations.mappings.length })}
               </button>
               <button
                 type="button"
                 className={`api-tab-link ${activeTab === "settings" ? "active" : ""}`}
                 onClick={() => setActiveTab("settings")}
               >
-                基础设置
+                {t("api.tabBase")}
               </button>
             </div>
 
@@ -443,11 +445,11 @@ export function ApiPage({
                     <input
                       value={filterQuery}
                       onChange={(e) => setFilterQuery(e.target.value)}
-                      placeholder="筛选接口 (如 /order-risk, GET, 订单...)"
+                      placeholder={t("api.filterEndpointsPlaceholder")}
                       className="endpoints-search-input"
                     />
                     <span className="endpoints-stats">
-                      显示 {filteredOperations.length} / {currentOperations.length} 个端点
+                      {t("api.showingEndpoints", { filtered: filteredOperations.length, total: currentOperations.length })}
                     </span>
                   </div>
 
@@ -468,7 +470,7 @@ export function ApiPage({
 
                           {op.parameters && op.parameters.length > 0 ? (
                             <div className="endpoint-params-row">
-                              <span className="params-label">请求参数:</span>
+                              <span className="params-label">{t("api.requestParams")}</span>
                               <div className="params-tags">
                                 {op.parameters.map((param) => (
                                   <span key={param.name} className="param-tag">
@@ -484,13 +486,13 @@ export function ApiPage({
                       ))
                     ) : (
                       <div className="empty-endpoints">
-                        <p>暂无匹配的接口端点</p>
+                        <p>{t("api.noMatchingEndpoints")}</p>
                         <button
                           type="button"
                           className="secondary compact-btn"
                           onClick={() => setImportOpen(true)}
                         >
-                          从线上导入 OpenAPI 清单
+                          {t("api.importOpenApiFromWeb")}
                         </button>
                       </div>
                     )}
@@ -502,7 +504,7 @@ export function ApiPage({
                 <div className="api-auth-pane">
                   <div className="form-grid">
                     <label className="form-field">
-                      <span>鉴权类型 (Authentication Scheme)</span>
+                      <span>{t("api.authScheme")}</span>
                       <select
                         value={currentAuth.type}
                         onChange={(e) =>
@@ -511,16 +513,16 @@ export function ApiPage({
                           })
                         }
                       >
-                        <option value="none">无鉴权 (None / Public)</option>
+                        <option value="none">{t("api.authNone")}</option>
                         <option value="bearer">Bearer Token (JWT / OAuth2)</option>
                         <option value="apiKey">API Key (Header / Query)</option>
-                        <option value="basic">HTTP Basic (用户名与密码)</option>
+                        <option value="basic">{t("api.authBasic")}</option>
                       </select>
                     </label>
 
                     {currentAuth.type === "bearer" ? (
                       <label className="form-field full-width">
-                        <span>Token 凭据 (支持使用环境变量如 $&#123;API_TOKEN&#125;)</span>
+                        <span>{t("api.tokenCredential")}</span>
                         <input
                           type="password"
                           value={currentAuth.token || ""}
@@ -537,7 +539,7 @@ export function ApiPage({
                     {currentAuth.type === "apiKey" ? (
                       <>
                         <label className="form-field">
-                          <span>Key 参数名</span>
+                          <span>{t("api.keyParamName")}</span>
                           <input
                             value={currentAuth.keyName || "X-API-Key"}
                             onChange={(e) =>
@@ -549,7 +551,7 @@ export function ApiPage({
                           />
                         </label>
                         <label className="form-field">
-                          <span>传递位置</span>
+                          <span>{t("api.paramLocation")}</span>
                           <select
                             value={currentAuth.keyIn || "header"}
                             onChange={(e) =>
@@ -566,7 +568,7 @@ export function ApiPage({
                           </select>
                         </label>
                         <label className="form-field full-width">
-                          <span>API Key 凭据</span>
+                          <span>{t("api.apiKeyCredential")}</span>
                           <input
                             type="password"
                             value={currentAuth.keyValue || ""}
@@ -584,7 +586,7 @@ export function ApiPage({
                     {currentAuth.type === "basic" ? (
                       <>
                         <label className="form-field">
-                          <span>用户名 (Username)</span>
+                          <span>{t("api.username")}</span>
                           <input
                             value={currentAuth.username || ""}
                             onChange={(e) =>
@@ -595,7 +597,7 @@ export function ApiPage({
                           />
                         </label>
                         <label className="form-field">
-                          <span>密码 (Password)</span>
+                          <span>{t("api.password")}</span>
                           <input
                             type="password"
                             value={currentAuth.password || ""}
@@ -610,7 +612,7 @@ export function ApiPage({
                     ) : null}
                   </div>
                   <p className="mapping-hint">
-                    API 鉴权凭据安全脱敏保存在控制面中，在运行时执行读操作与动作触发时自动附带。
+                    {t("api.authNotice")}
                   </p>
                 </div>
               ) : null}
@@ -619,8 +621,8 @@ export function ApiPage({
                 <div className="api-assoc-pane">
                   <div className="assoc-section">
                     <div className="assoc-head">
-                      <h4>关联的本体操作 (Actions)</h4>
-                      <span className="assoc-badge">{associations.actions.length} 个</span>
+                      <h4>{t("api.assocActions")}</h4>
+                      <span className="assoc-badge">{associations.actions.length}</span>
                     </div>
                     {associations.actions.length > 0 ? (
                       <ul className="assoc-items-list">
@@ -634,14 +636,14 @@ export function ApiPage({
                         ))}
                       </ul>
                     ) : (
-                      <p className="empty-hint">暂无本体 Action 关联该 API。可以在实体的「操作」Tab 中将动作绑定至此 API 的端点。</p>
+                      <p className="empty-hint">{t("api.assocEmptyActions")}</p>
                     )}
                   </div>
 
                   <div className="assoc-section">
                     <div className="assoc-head">
-                      <h4>关联的物理映射 (Mappings)</h4>
-                      <span className="assoc-badge">{associations.mappings.length} 个</span>
+                      <h4>{t("api.assocMappings")}</h4>
+                      <span className="assoc-badge">{associations.mappings.length}</span>
                     </div>
                     {associations.mappings.length > 0 ? (
                       <ul className="assoc-items-list">
@@ -653,13 +655,13 @@ export function ApiPage({
                               <span className="assoc-kind-badge mapping">Mapping</span>
                               <strong>{String(m.target)}</strong>
                               <code>{m.id}</code>
-                              <span className="assoc-desc">物理资源: {resName}</span>
+                              <span className="assoc-desc">{t("api.assocPhysicalResource", { resource: resName })}</span>
                             </li>
                           );
                         })}
                       </ul>
                     ) : (
-                      <p className="empty-hint">暂无实体 Mapping 消费该 API 属性。</p>
+                      <p className="empty-hint">{t("api.assocEmptyMappings")}</p>
                     )}
                   </div>
                 </div>
@@ -669,7 +671,7 @@ export function ApiPage({
                 <div className="api-settings-pane">
                   <div className="form-grid">
                     <label className="form-field">
-                      <span>API 服务名称</span>
+                      <span>{t("api.serviceName")}</span>
                       <input
                         value={selectedProfile.label}
                         onChange={(e) => updateProfile({ label: e.target.value })}
@@ -677,12 +679,12 @@ export function ApiPage({
                     </label>
 
                     <label className="form-field">
-                      <span>服务标识 (ID)</span>
+                      <span>{t("api.serviceId")}</span>
                       <input value={selectedProfile.sourceId} disabled className="is-readonly" />
                     </label>
 
                     <label className="form-field full-width">
-                      <span>服务基址 (Base URL)</span>
+                      <span>{t("api.serviceBaseUrl")}</span>
                       <input
                         value={String(selectedProfile.settings?.baseUrl || "http://127.0.0.1:8000")}
                         onChange={(e) =>
@@ -693,7 +695,7 @@ export function ApiPage({
                     </label>
 
                     <label className="form-field full-width">
-                      <span>健康检查路径</span>
+                      <span>{t("api.healthCheckPath")}</span>
                       <input
                         value={String(selectedProfile.settings?.healthPath || "/health")}
                         onChange={(e) =>
@@ -704,14 +706,14 @@ export function ApiPage({
                     </label>
 
                     <label className="form-field full-width">
-                      <span>描述说明</span>
+                      <span>{t("api.description")}</span>
                       <textarea
                         rows={3}
                         value={String(selectedProfile.settings?.description || "")}
                         onChange={(e) =>
                           updateSettings({ description: e.target.value })
                         }
-                        placeholder="该 API 提供哪些业务能力..."
+                        placeholder={t("api.descriptionPlaceholder")}
                       />
                     </label>
                   </div>
@@ -721,15 +723,15 @@ export function ApiPage({
           </>
         ) : (
           <div className="empty-selection">
-            <h3>选择或导入一个 API 服务</h3>
-            <p>管理外部微服务端点、设置鉴权协议，并与业务本体的 Action 和数据属性完成绑定。</p>
+            <h3>{t("api.selectOrImport")}</h3>
+            <p>{t("api.selectOrImportDesc")}</p>
             <button
               type="button"
               className="primary"
               onClick={() => setImportOpen(true)}
             >
               <IconImport size={14} style={{ marginRight: 6, verticalAlign: "text-bottom" }} />
-              线上导入 API 服务
+              {t("api.importOnlineBtn")}
             </button>
           </div>
         )}

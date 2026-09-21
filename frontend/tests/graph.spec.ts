@@ -24,7 +24,7 @@ for (const width of [390, 1280]) {
 
 
 test('editing ordinary metric fields preserves enterprise aliases and statistical scope', () => {
-  const population={unitProperty:'facilityId',yearProperty:'year',description:'Authorized facilities'};
+  const population={unitProperty:'facilityId',scopeProperties:['year'],description:'Authorized facilities'};
   const before={id:'operations.output',kind:'Metric',objectType:'operations.Facility',unit:'EA',grain:['facilityId'],aliases:['产量'],population};
   const saved=canonicalMetric({...before,label:'年度产出'});
   expect(saved.population).toEqual(population);
