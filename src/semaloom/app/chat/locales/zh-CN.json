@@ -8,5 +8,7 @@
   "objectScope.abortExplanation": "停止本次查询，不展示未筛选的对象记录",
   "objectScope.modelMessage": "请先补充本体中声明的业务筛选字段，再读取对象记录。",
   "objectScope.propertiesFallback": "业务范围",
+  "duplicateUnit.prompt": "当前范围里同一对象有多条记录，请再选口径或期间",
+  "duplicateUnit.reason": "不选定的话无法确定要看哪一条，不能把多条混成一个数。",
   "answer.completed": "已按发布口径完成计算。"
 }

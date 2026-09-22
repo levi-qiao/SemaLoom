@@ -97,7 +97,7 @@ def test_ambiguous_alias_cannot_be_overridden_by_model(population_query: Any) ->
             {"missingPolicy": "exclude"},
             "MISSING_EXCLUSION_NOT_AUTHORIZED",
         ),
-        ("2024年选定申报利润总额占总额比例", {}, "COMPARISON_REQUIRED_BY_USER"),
+        ("2024年选定申报利润总额占总额比例", {}, "FORMULA_REQUIRED_BY_USER"),
     ],
 )
 def test_model_proposal_respects_original_message(
@@ -162,23 +162,33 @@ def test_null_subject_is_unknown_not_absent(population_query: Any) -> None:  # n
     query = _query(
         metrics=[{"id": "finance.review.audit_profit", "aggregation": "SUM"}],
         missingPolicy="exclude",
-        comparison={
-            "op": "SHARE_OF_TOTAL",
-            "metric": "finance.review.audit_profit",
+        formula={
+            "op": "RATIO",
             "subject": {"identity": {"caseId": "C3"}},
+            "left": {
+                "metric": "finance.review.audit_profit",
+                "aggregation": "SUM",
+                "scope": "SUBJECT",
+            },
+            "right": {"metric": "finance.review.audit_profit", "aggregation": "SUM"},
         },
     )
     result = run(population_query, query)
-    assert result.scope["comparison"]["reason"] == "SUBJECT_VALUE_MISSING"
-    assert result.scope["comparison"]["value"] is None
+    assert result.scope["calculation"]["reason"] == "SUBJECT_VALUE_MISSING"
+    assert result.scope["calculation"]["value"] is None
 
 
 def test_same_name_subject_requires_choice(population_query: Any) -> None:  # noqa: F811
     query = _query(
-        comparison={
-            "op": "SHARE_OF_TOTAL",
-            "metric": "finance.review.declared_profit",
+        formula={
+            "op": "RATIO",
             "subject": {"filters": {"companyName": "示例企业"}},
+            "left": {
+                "metric": "finance.review.declared_profit",
+                "aggregation": "SUM",
+                "scope": "SUBJECT",
+            },
+            "right": {"metric": "finance.review.declared_profit", "aggregation": "SUM"},
         }
     )
     result = prepare(population_query, query, ACTOR)

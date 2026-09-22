@@ -320,7 +320,7 @@ Chat metadata 与业务来源分开；运行进程、时间、工具数量及输
 
 ## 集合统计与浏览器来源表格增补
 
-范围属性可用开放 `semanticRoles` 声明 `time.year`、`time.sequence` 等用途；它不是 core 的时间枚举，也不改变属性类型。语言适配器只有在角色和类型兼容且候选唯一时才能把“年份/趋势”等表述绑定到属性，禁止取第一个 scope、猜字段名或把年份写入任意 INTEGER/STRING 范围。
+范围属性可用开放 `semanticRoles` 声明用途；它不是 core 的时间枚举，也不改变属性类型，也不是绑定的前提。四位年份绑定到唯一的整数范围属性，即使该属性没有 `time.year` 角色。多个整数范围同时兼容时不猜测，禁止把年份写入非整数范围，也禁止只因字段名或位置就选中某个范围。趋势按唯一范围属性分组，不使用 core 的 `timeGrain=YEAR` 槽。
 
 `Metric.population` 可选声明 `unitProperty`、有序且非空的 `scopeProperties`、`description`；Compiler 验证统计单位和每个范围属性存在、无重复、单对象身份及支持的 grain，不限制范围属性必须是 INTEGER 或时间。范围属性可以表达账期、营业日、班次、版本、场景等任意领域维度。集合分析的唯一入口是 SemanticQuery（Chat：`prepare_semantic_query`；HTTP：`POST /v0.1/semantic/prepare` 与 execute）。不提供第二条统计引擎或 `analyze_population` 兼容入口。测量槽可加性与算子合法性见 [ADR-0013](../adr/0013-measure-additivity.md)。统计单位检查和缺范围选择题依赖 `population`；Runtime 对每个未约束范围属性读取该指标在当前授权租户中确有非空观测的类型化值，生成 `DIMENSION_VALUE`，不提供 `YEAR` 专用协议。未声明 population 时仍允许有界过滤与分组聚合；SEMI 合计必须钉住全部范围属性。重复统计单位、超限、来源故障和期间不符拒绝；缺失默认不计算，不自动当零。**50 是每个指标证据明细的分页上限，不是总体聚合的对象数上限**；达到结果分组预算须明确要求缩小范围，不能截断后判断不存在。接口不接受 SQL、URL 或 caller 权限。见 [ADR-0015](../adr/0015-configured-scope-and-time.md)。
 
@@ -332,9 +332,10 @@ Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实�
 ### 集合问答审计修订
 
 - `Metric.aliases` 为最多 30 个业务别名，属于领域定义；Chat 同词多指标先澄清，显式完整名称优先于被包含的短别名。发现接口同时检索别名。
-- Property `values` 为最多 30 条取值字典（id / label / aliases）。缺维值、缺判断主体或规则歧义时，Chat 发 `DIMENSION_VALUE` / `CLAIM` 选择题；环比是 `PERIOD_OVER_PERIOD` 查询算子，不是窗口函数。见 [ADR-0014](../adr/0014-ontology-dictionaries.md)。
-- `comparison.filters` 在完整已授权集合中按指标所属对象的类型属性精确定位，必须唯一；不额外缩小统计分母。与顶层 filters 重用主体属性时拒绝，返回证据中的 comparisonRequest 记录解析后的规范 identity。
-- Chat 明确请求的年度、聚合、比较及缺失政策必须匹配执行；默认不允许 exclude。当前语言检查只覆盖明确中英表达，不声称理解所有自然语言。显式多年度或“近 N 年/趋势”请求以类型化年度集合和 `timeGrain=YEAR` 分组执行，不得把多个年度合并成一个总数；无法完整表达的多指标集合请求须拆分或澄清，不提交首个结果充当完整回答。
+- Property `values` 为最多 30 条取值字典（id / label / aliases）。缺维值、缺判断主体或规则歧义时，Chat 发 `DIMENSION_VALUE` / `CLAIM` 选择题。上一期是公式上的 `previousObserved`：取该范围已观测序列的前一个值，不是窗口函数，也不是请求级比较算子。见 [ADR-0014](../adr/0014-ontology-dictionaries.md) 与 [ADR-0017](../adr/0017-compositional-analysis.md)。
+- `formula.subject` 在完整已授权集合中按指标所属对象的类型属性精确定位，必须唯一；不额外缩小统计分母。与顶层 filters 重用主体属性时拒绝。证据记录实际执行的公式、分子分母和映射。
+- 公式结果的单位与类型由操作数推导：同单位相除为无量纲 DECIMAL，异单位相除保留商单位；差值只接受相同单位，拒绝金额与数量相减。不得把公式结果标记为首个指标的金额或整数计数。
+- Chat 明确请求的年度、聚合、公式及缺失政策必须匹配执行；默认不允许 exclude。当前语言检查只覆盖明确中英表达，不声称理解所有自然语言。显式多年度或“近 N 年/趋势”按唯一范围属性分组，不得把多个期间合并成一个总数，也不依赖 `timeGrain=YEAR`。无法完整表达的多指标集合请求须拆分或澄清，不提交首个结果充当完整回答。
 - 集合工具完成后由服务器生成 `textOrigin=ENGINE` 的说明与证据；数值、数量、分子分母来自同次执行，模型不再手算后续文字。来源缺失结果仍可以交付未计算说明，不能作为零。保存失败返回 `CHAT_HISTORY_SAVE_FAILED`，无 answer/done；并发修订冲突保留原错误码。
 - 模型工具 schema 是 canonical schema 的传输投影：展开本地引用，optional object 以对象展示（可省略），仍由 Python canonical 请求及领域验证。REST canonical schema 不变更为宽松字符串。
 
@@ -348,7 +349,7 @@ Chat 的浏览器证据记录可附 lineage：仅来自该 release 下本次实�
 
 ### 主责复验增补：组合结果与澄清
 
-当前实现与未闭合目标以 [能力边界](../capabilities.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺范围属性/缺聚合返回选择题。Chat 同样等待缺失的范围、统计方式和歧义口径经补充信息卡片确认，不默认最新期间或合计，不计算或展示置信度。显式近 N 年是当前确定性语言适配器能力之一，不是 core 契约；开放业务说法由 Agent 在本体候选中选择。明确占总体总额等比较使用该算子的定义。来源故障与缺失数据不通过用户补值伪装为事实。规则返回原有确定性结论，不参与评分。模型提交的未确认范围会被拒绝，未说明的统计方式留给补充卡片。未要求明细时不默认按对象分组。多值范围以类型化筛选表达，统计单位按 `unitProperty + scopeProperties` 检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
+当前实现与未闭合目标以 [能力边界](../capabilities.md) 为准。SemanticQuery 同表多指标必须完整处理，不只选择首项；分组值与叙述逐行对应。引擎 `prepare` 对缺范围属性/缺聚合返回选择题。Chat 同样等待缺失的范围、统计方式和歧义口径经补充信息卡片确认，不默认最新期间或合计，不计算或展示置信度。显式近 N 年是当前确定性语言适配器能力之一，不是 core 契约；开放业务说法由 Agent 在本体候选中选择。占比、相对均值、同行比较和上一期都是 `VALUE` / `RATIO` / `DIFFERENCE` 与筛选、分组、聚合的组合，不是请求级比较算子枚举。主体筛选不进入总体 filters。来源故障与缺失数据不通过用户补值伪装为事实。规则返回原有确定性结论，不参与评分。模型提交的未确认范围会被拒绝，未说明的统计方式留给补充卡片。未要求明细时不默认按对象分组。多值范围以类型化筛选表达，统计单位按 `unitProperty + scopeProperties` 检查。跨表集合 JOIN 仅限已声明 ONE 同源 PostgreSQL Link；多指标联合排序/比较尚不支持，不能静默退化。
 
 ChoiceKind 增加 AGGREGATION、COMPARISON、FILTER、OTHER、CLAIM；FILTER 的 predicate 由服务器保留。DIMENSION_VALUE 由 Property.values 发射。选择题必须同时提供 OTHER 与 ABORT。`ChoiceQuestion.control` 由服务器按 live option 的 ChoiceKind 输出 `SELECT` 或 `CARDS`；前端不得按 slot 名或领域 ID 再决定控件，也不得同时重复渲染两套控件。前端只提交 option id。OTHER 就地提交 `otherText`，服务端并入原问题再解释。歧义指标、比较口径、比较主体、维值和同字段冲突 EQ 仍用选择式澄清。模型不能提交 decisions，不能改写用于校验的原始问题。明确缺失拒绝不能被模型排除策略覆盖。失败保留 pending，保存答案/清除 pending 原子完成。判断题命中 Rule 别名时直接 `evaluate_claim`，不送模型。其他无法定位业务范围的问题也通过补充说明卡片继续；自由文本仅追加原问题重新解释，不成为授权、事实值或直接执行参数。所有选项（包括 OTHER/ABORT）先校验题目、版本及选项身份。
 

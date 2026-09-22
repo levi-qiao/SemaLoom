@@ -105,6 +105,9 @@ class LinkDef(_Doc):
     identity: tuple[LinkIdentityPair, ...] = Field(min_length=1)
     cardinality: Cardinality
     traversal: Literal["FORWARD"] = "FORWARD"
+    # When true, collection analysis must be able to equi-join this link.
+    # MANY requires a fanout policy this release does not provide.
+    collection: bool = False
 
 
 class RuleInput(BaseModel):

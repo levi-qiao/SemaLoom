@@ -21,15 +21,18 @@ from semaloom.core.measure import aggregation_legal
 from semaloom.core.model import EmbeddedProperty, LinkDef, MappingDef, MetricDef, ObjectTypeDef
 from semaloom.core.semantic_query import (
     AnalysisError,
-    ComparisonExpr,
     EvidenceColumn,
     EvidenceTable,
     FilterAtom,
     FilterGroup,
+    Formula,
     GroupByItem,
+    MeasureTerm,
+    MetricRef,
     PlanRef,
     QueryResult,
     SemanticQuery,
+    SubjectSelector,
     TypedValue,
     _append_filter,
     conflicting_equalities,
@@ -74,18 +77,10 @@ _ALLOWED_FUNCS = frozenset(
 _OP_SQL = {"EQ": "=", "NE": "<>", "LT": "<", "LE": "<=", "GT": ">", "GE": ">="}
 _POSTGRES_TIME_GRAINS = frozenset({"YEAR", "QUARTER", "MONTH", "WEEK", "DAY"})
 
-_CMP_BACK = {
-    "SHARE_OF_TOTAL": "shareOfTotal",
-    "RELATIVE_TO_MEAN": "percentAboveMean",
-    "STRICT_PEER": "outperforms",
-    "PERIOD_OVER_PERIOD": "periodOverPeriod",
-}
-
 
 @dataclass
 class _Plan:
     aggregation: str
-    comparison: ComparisonExpr | None
     count_sql: str
     evidence_sql: str
     identity_col: str
@@ -385,9 +380,7 @@ def _rewrite_bind_joins(
     binds.extend(extra)
     if not binds:
         return query, ()
-    if query.comparison or any(
-        ref.aggregation == "AVG" for ref in query.metrics if ref.aggregation
-    ):
+    if query.formula or any(ref.aggregation == "AVG" for ref in query.metrics if ref.aggregation):
         raise AnalysisError("OPERATOR_NOT_SUPPORTED")
     return query.model_copy(update={"group_by": tuple(groups), "filters": filters}), tuple(binds)
 
@@ -429,11 +422,8 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     )
     if object_mapping.physical.get("table") != metric_mapping.physical.get("table"):
         raise AnalysisError("LINK_ANALYSIS_UNSUPPORTED")
-    if query.comparison:
-        if query.comparison.metric != metric.id:
-            raise AnalysisError("COMPARISON_METRIC_MISMATCH")
-        if query.group_by or query.limit:
-            raise AnalysisError("OPERATOR_NOT_SUPPORTED")
+    if query.formula and (query.group_by or query.limit or query.order_by):
+        raise AnalysisError("OPERATOR_NOT_SUPPORTED")
     if (
         metric_mapping.source_id != object_mapping.source_id
         or metric_mapping.provider != "postgres"
@@ -450,9 +440,9 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     identity_col = projection.get(obj.identity_keys[0])
     if identity_col is None:
         raise AnalysisError("NO_MAPPING")
-    if query.comparison and query.comparison.subject and query.comparison.subject.identity:
-        if set(query.comparison.subject.identity) != set(obj.identity_keys):
-            raise AnalysisError("INVALID_SUBJECT_PROPERTIES")
+    subject = query.formula.subject if query.formula else None
+    if subject and subject.identity and set(subject.identity) != set(obj.identity_keys):
+        raise AnalysisError("INVALID_SUBJECT_PROPERTIES")
     value_col = (
         _derived_sql(service, metric, projection)
         if metric.derived_from
@@ -534,8 +524,8 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     where = [tenant_pred]
     where.extend(_filter_sql(query.filters, projection, params))
     where.extend(_metric_select_sql(metric, projection, params))
-    if query.comparison and query.comparison.subject and query.comparison.subject.filters:
-        subject_keys = set(query.comparison.subject.filters)
+    if subject and subject.filters:
+        subject_keys = set(subject.filters)
         overlap = subject_keys & _filter_fields(query.filters)
         scope = set(metric.population.scope_properties) if metric.population else set()
         if overlap - scope:
@@ -592,7 +582,6 @@ def _compile(service: _Context, query: SemanticQuery, tenant: str) -> _Plan:
     )
     return _Plan(
         aggregation=aggregation,
-        comparison=query.comparison,
         count_sql=count_sql,
         evidence_sql=evidence_sql,
         identity_col=identity_col,
@@ -750,7 +739,10 @@ def _runner(service: _Context) -> Any:
 
 
 def _distinct_dimension_values(
-    service: _Context, metric: MetricDef, field: str, tenant: str
+    service: _Context,
+    metric: MetricDef,
+    field: str,
+    tenant: str,
 ) -> list[str | int | bool]:
     try:
         metric_mapping = _mapping(service, metric.id)
@@ -806,6 +798,8 @@ def _distinct_dimension_values(
 def _run(
     service: _Context, compiled: _Plan, tenant: str
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None, list[dict[str, Any]], bool]:
+    if compiled.query.formula is not None:
+        return _run_formula(service, compiled, tenant)
     run = _runner(service)
     source = compiled.metric_mapping.source_id
     try:
@@ -855,7 +849,6 @@ def _run(
                     raw = row.get("value")
                     value = None if raw is None else str(raw)
                 rows.append({"grain": grain, "value": value})
-    comparison = _comparison(service, compiled, tenant, run, reason)
     counts = {
         "population": population,
         "observed": observed,
@@ -864,303 +857,588 @@ def _run(
     }
     if reason is not None:
         rows = []
-    return rows, counts, comparison, evidence_rows, truncated
+    return rows, counts, None, evidence_rows, truncated
 
 
-def _comparison(
-    service: _Context, compiled: _Plan, tenant: str, run: Any, reason: str | None
-) -> dict[str, Any] | None:
-    comparison = compiled.comparison
-    if comparison is None:
+def _run_formula(
+    service: _Context, compiled: _Plan, tenant: str
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None, list[dict[str, Any]], bool]:
+    """Each formula term scans itself. The evidence belongs to that scan."""
+
+    run = _runner(service)
+    calculation = _calculate(service, compiled, tenant, run)
+    scan = calculation.pop("_scan", None) if calculation else None
+    reason = None if calculation is None else calculation.get("reason")
+    if scan is None:
+        evidence_rows: list[dict[str, Any]] = []
+        population = observed = missing = 0
+        truncated = False
+    else:
+        evidence_rows = list(scan["rows"])
+        population = int(scan["population"])
+        observed = int(scan["observed"])
+        missing = int(scan["missing"])
+        truncated = bool(scan["truncated"])
+        if scan.get("reason") and not reason:
+            reason = scan["reason"]
+    rows: list[dict[str, Any]] = []
+    if reason is None and calculation and calculation.get("value") is not None:
+        rows = [{"grain": {}, "value": calculation["value"]}]
+    counts = {
+        "population": population,
+        "observed": observed,
+        "missing": missing,
+        "reason": reason,
+    }
+    return rows, counts, calculation, evidence_rows, truncated
+
+
+def _calculate(service: _Context, compiled: _Plan, tenant: str, run: Any) -> dict[str, Any] | None:
+    formula = compiled.query.formula
+    if formula is None:
         return None
-    if comparison.op == "PERIOD_OVER_PERIOD":
-        return _period_over_period(service, compiled, tenant, run, reason)
-    if comparison.subject is None:
-        raise AnalysisError("COMPARISON_SUBJECT_REQUIRED")
-    params = dict(compiled.params)
-    subject_where = list(compiled.where)
-    identity = comparison.subject.identity or comparison.subject.filters or {}
-    if not identity:
-        raise AnalysisError("INVALID_SUBJECT_PROPERTIES")
-    for key, value in identity.items():
-        column = compiled.projection.get(_bare(key))
-        if column is None:
-            if comparison.subject.identity is not None:
-                column = compiled.identity_col
-            else:
-                raise AnalysisError("INVALID_SUBJECT_PROPERTIES")
-        token = f"s_{_bare(key)}"
-        subject_where.append(f"{column} = :{token}")
-        params[token] = value
-    source = compiled.metric_mapping.source_id
-    subject_rows = run(
-        source,
-        tenant,
-        text(
-            f"SELECT SUM({compiled.value_col}) AS value, "
-            f"COUNT({compiled.value_col}) AS n, COUNT(*) AS members "
-            f"FROM {compiled.from_sql} WHERE {' AND '.join(subject_where)}"
-        ),
-        params,
-    )
-    pop_rows = run(
-        source,
-        tenant,
-        text(
-            f"SELECT SUM({compiled.value_col}) AS total, COUNT({compiled.value_col}) AS observed "
-            f"FROM {compiled.from_sql} WHERE {' AND '.join(compiled.where)}"
-        ),
-        compiled.params,
-    )
-    subject_count = int(subject_rows[0]["members"] or 0)
-    if subject_count == 0:
-        raise AnalysisError("COMPARISON_SUBJECT_OUTSIDE_POPULATION")
-    if subject_count != 1:
-        raise AnalysisError("AMBIGUOUS_COMPARISON_SUBJECT")
-    identity_rows = run(
-        source,
-        tenant,
-        text(
-            f"SELECT {compiled.identity_col} AS identity FROM {compiled.from_sql} "
-            f"WHERE {' AND '.join(subject_where)} LIMIT 2"
-        ),
-        params,
-    )
-    subject_identity = str(identity_rows[0]["identity"]) if identity_rows else None
-    exclude_where = [*compiled.where, f"{compiled.identity_col} <> :excluded_identity"]
-    params["excluded_identity"] = subject_identity
-    if subject_rows[0]["value"] is None:
-        reason = "SUBJECT_VALUE_MISSING"
-    if reason:
-        return {
-            "operation": _CMP_BACK[comparison.op],
-            "value": None,
-            "reason": reason,
-            "subjectIdentity": subject_identity,
-        }
-    if subject_rows[0]["value"] is None:
-        return {
-            "operation": _CMP_BACK[comparison.op],
-            "value": None,
-            "reason": "SUBJECT_VALUE_MISSING",
-            "subjectIdentity": subject_identity,
-        }
     with localcontext() as ctx:
         ctx.prec = 28
-        subject_d = Decimal(str(subject_rows[0]["value"]))
-        total = (
-            Decimal(str(pop_rows[0]["total"])) if pop_rows[0]["total"] is not None else Decimal(0)
-        )
-        observed = int(pop_rows[0]["observed"] or 0)
-        mean = total / observed if observed else None
-        if comparison.op == "SHARE_OF_TOTAL":
-            neg = run(
-                source,
-                tenant,
-                text(
-                    f"SELECT COUNT(*) FILTER (WHERE {compiled.value_col} < 0) AS n "
-                    f"FROM {compiled.from_sql} WHERE {' AND '.join(compiled.where)}"
-                ),
-                compiled.params,
-            )
-            if int(neg[0]["n"] or 0):
-                return {
-                    "operation": "shareOfTotal",
-                    "value": None,
-                    "reason": "NEGATIVE_VALUES_NOT_A_SHARE",
-                    "subjectIdentity": subject_identity,
-                }
-            if total == 0:
-                return {
-                    "operation": "shareOfTotal",
-                    "value": None,
-                    "reason": "ZERO_DENOMINATOR",
-                    "subjectIdentity": subject_identity,
-                }
-            return {
-                "operation": "shareOfTotal",
-                "value": str(subject_d / total * 100),
-                "numerator": str(subject_d),
-                "denominator": str(total),
-                "formula": "subject / population sum * 100",
-                "reason": None,
-                "subjectIdentity": subject_identity,
-            }
-        if comparison.op == "RELATIVE_TO_MEAN":
-            if mean is None or mean <= 0:
-                return {
-                    "operation": "percentAboveMean",
-                    "value": None,
-                    "reason": "NON_POSITIVE_MEAN",
-                    "subjectIdentity": subject_identity,
-                }
-            return {
-                "operation": "percentAboveMean",
-                "value": str((subject_d - mean) / mean * 100),
-                "numerator": str(subject_d - mean),
-                "denominator": str(mean),
-                "formula": "(subject - population mean) / population mean * 100",
-                "reason": None,
-                "subjectIdentity": subject_identity,
-            }
-        params["subject_value"] = subject_d
-        op = "<" if comparison.direction == "higher" else ">"
-        peer_rows = run(
-            source,
-            tenant,
-            text(
-                f"SELECT COUNT({compiled.value_col}) "
-                f"FILTER (WHERE {compiled.value_col} {op} :subject_value) "
-                f"AS wins, COUNT({compiled.value_col}) AS peers FROM {compiled.from_sql} "
-                f"WHERE {' AND '.join(exclude_where)}"
-            ),
-            params,
-        )
-        wins = Decimal(str(peer_rows[0]["wins"] or 0))
-        peers = Decimal(str(peer_rows[0]["peers"] or 0))
-        if peers == 0:
-            return {
-                "operation": "outperforms",
-                "value": None,
-                "reason": "ZERO_DENOMINATOR",
-                "subjectIdentity": subject_identity,
-            }
-        return {
-            "operation": "outperforms",
-            "value": str(wins / peers * 100),
-            "numerator": str(wins),
-            "denominator": str(peers),
-            "formula": (
-                "strictly outperformed peers / all observed peers * 100 "
-                f"({comparison.direction}; ties count in denominator)"
-            ),
-            "reason": None,
-            "subjectIdentity": subject_identity,
+        evaluated = _eval_formula(service, compiled.query, formula, formula.subject, tenant, run)
+    payload: dict[str, Any] = {
+        "value": None if evaluated.value is None else format(evaluated.value, "f"),
+        "numerator": None if evaluated.numerator is None else format(evaluated.numerator, "f"),
+        "denominator": None
+        if evaluated.denominator is None
+        else format(evaluated.denominator, "f"),
+        "formula": evaluated.formula,
+        "reason": evaluated.reason,
+        "subjectIdentity": evaluated.subject_identity,
+        "mappings": list(evaluated.mappings),
+    }
+    if evaluated.current_period is not None or evaluated.prior_period is not None:
+        payload["currentPeriod"] = evaluated.current_period
+        payload["priorPeriod"] = evaluated.prior_period
+    if evaluated.peer_relation:
+        payload["peerRelation"] = evaluated.peer_relation
+    if evaluated.executed_filters is not None:
+        payload["executedFilters"] = evaluated.executed_filters
+    if evaluated.population is not None:
+        payload["_scan"] = {
+            "population": evaluated.population,
+            "observed": evaluated.observed,
+            "missing": evaluated.missing,
+            "rows": list(evaluated.evidence_rows),
+            "truncated": evaluated.truncated,
+            "reason": evaluated.reason,
         }
+    return payload
 
 
-def _period_over_period(
-    service: _Context, compiled: _Plan, tenant: str, run: Any, reason: str | None
-) -> dict[str, Any]:
-    scope = compiled.metric.population.scope_properties if compiled.metric.population else ()
-    if len(scope) != 1:
-        raise AnalysisError("TIME_GRAIN_UNSUPPORTED")
-    period_field = scope[0]
-    current = equality_value(compiled.query.filters, period_field)
-    if current is None:
-        raise AnalysisError("COMPARISON_PERIOD_REQUIRED")
-    periods = _distinct_dimension_values(service, compiled.metric, period_field, tenant)
-    current_index = next(
-        (index for index, value in enumerate(periods) if str(value) == str(current)), None
+@dataclass
+class _Scalar:
+    value: Decimal | None
+    formula: str
+    reason: str | None = None
+    numerator: Decimal | None = None
+    denominator: Decimal | None = None
+    subject_identity: str | None = None
+    current_period: Any = None
+    prior_period: Any = None
+    mappings: tuple[str, ...] = ()
+    peer_relation: str | None = None
+    evidence_rows: tuple[dict[str, Any], ...] = ()
+    population: int | None = None
+    observed: int | None = None
+    missing: int | None = None
+    truncated: bool = False
+    executed_filters: Any = None
+    scan_scope: str | None = None
+
+
+def _formula_value_metadata(service: _Context, node: Formula | MeasureTerm) -> tuple[str, str]:
+    if isinstance(node, MeasureTerm):
+        metric = _metric(service, node.metric)
+        if node.aggregation == "COUNT":
+            return "count", "INTEGER"
+        return (
+            metric.unit or "",
+            "DECIMAL" if node.aggregation == "AVG" else metric.value_type or "DECIMAL",
+        )
+    left_unit, left_type = _formula_value_metadata(service, node.left)
+    if node.op == "VALUE":
+        return left_unit, left_type
+    assert node.right is not None
+    right_unit, right_type = _formula_value_metadata(service, node.right)
+    if node.op == "DIFFERENCE":
+        if left_unit != right_unit:
+            raise AnalysisError("UNIT_MISMATCH")
+        return left_unit, "INTEGER" if left_type == right_type == "INTEGER" else "DECIMAL"
+    unit = "" if left_unit == right_unit else f"({left_unit or '1'})/({right_unit or '1'})"
+    return unit, "DECIMAL"
+
+
+def _formula_text(node: Formula | MeasureTerm) -> str:
+    if isinstance(node, MeasureTerm):
+        text = f"{node.aggregation}({node.metric})"
+        if node.previous_observed:
+            text = f"previous({text})"
+        if node.scope == "SUBJECT":
+            text += "[subject]"
+        elif node.scope == "PEERS":
+            text += "[peers]"
+        if node.value_relation:
+            text += f" where value {node.value_relation} subject"
+        return text
+    if node.op == "VALUE":
+        return _formula_text(node.left)
+    symbol = "/" if node.op == "RATIO" else "-"
+    assert node.right is not None
+    return f"({_formula_text(node.left)} {symbol} {_formula_text(node.right)})"
+
+
+def _eval_formula(
+    service: _Context,
+    query: SemanticQuery,
+    node: Formula | MeasureTerm,
+    subject: SubjectSelector | None,
+    tenant: str,
+    run: Any,
+) -> _Scalar:
+    if isinstance(node, MeasureTerm):
+        return _eval_term(service, query, node, subject, tenant, run)
+    left = _eval_formula(service, query, node.left, node.subject or subject, tenant, run)
+    if node.op == "VALUE":
+        return left
+    assert node.right is not None
+    right = _eval_formula(service, query, node.right, node.subject or subject, tenant, run)
+    symbol = "/" if node.op == "RATIO" else "-"
+    formula = f"({left.formula} {symbol} {right.formula})"
+    mappings = tuple(dict.fromkeys((*left.mappings, *right.mappings)))
+    identity = left.subject_identity or right.subject_identity
+    relation = left.peer_relation or right.peer_relation
+    if left.reason or right.reason or left.value is None or right.value is None:
+        chosen = _choose_scan(left, right)
+        return _Scalar(
+            None,
+            formula,
+            left.reason or right.reason or "NO_OBSERVED_VALUES",
+            left.value,
+            right.value,
+            identity,
+            mappings=mappings,
+            peer_relation=relation,
+            evidence_rows=chosen.evidence_rows,
+            population=chosen.population,
+            observed=chosen.observed,
+            missing=chosen.missing,
+            truncated=chosen.truncated,
+            executed_filters=chosen.executed_filters,
+            scan_scope=chosen.scan_scope,
+            current_period=chosen.current_period,
+            prior_period=chosen.prior_period,
+        )
+    chosen = _choose_scan(left, right)
+    shared = {
+        "mappings": mappings,
+        "peer_relation": relation,
+        "evidence_rows": chosen.evidence_rows,
+        "population": chosen.population,
+        "observed": chosen.observed,
+        "missing": chosen.missing,
+        "truncated": chosen.truncated,
+        "executed_filters": chosen.executed_filters,
+        "scan_scope": chosen.scan_scope,
+        "current_period": chosen.current_period,
+        "prior_period": chosen.prior_period,
+    }
+    if node.op == "DIFFERENCE":
+        return _Scalar(
+            left.value - right.value, formula, None, left.value, right.value, identity, **shared
+        )
+    if right.value == 0:
+        return _Scalar(
+            None,
+            formula,
+            "ZERO_DENOMINATOR",
+            left.value,
+            right.value,
+            identity,
+            **shared,
+        )
+    return _Scalar(
+        left.value / right.value, formula, None, left.value, right.value, identity, **shared
     )
-    prior_period = (
-        periods[current_index - 1] if current_index is not None and current_index > 0 else None
-    )
-    obj = _object_type(service.bundle, compiled.metric.object_type)
-    prop = next((item for item in obj.properties if item.id == period_field), None) if obj else None
-    if prop is None or "time.sequence" not in prop.semantic_roles:
-        raise AnalysisError("INVALID_PROPERTIES")
 
-    def aggregate(plan: _Plan) -> tuple[Decimal | None, int]:
-        if plan.aggregation == "AVG":
-            select = f"SELECT SUM({plan.value_col}) AS total, COUNT({plan.value_col}) AS n"
-        elif plan.aggregation == "COUNT":
-            select = f"SELECT COUNT({plan.value_col}) AS total, COUNT({plan.value_col}) AS n"
-        else:
-            select = (
-                f"SELECT {plan.aggregation}({plan.value_col}) AS total, "
-                f"COUNT({plan.value_col}) AS n"
+
+def _eval_term(
+    service: _Context,
+    query: SemanticQuery,
+    term: MeasureTerm,
+    subject: SubjectSelector | None,
+    tenant: str,
+    run: Any,
+) -> _Scalar:
+    inner = query.model_copy(
+        update={
+            "metrics": (MetricRef(id=term.metric, aggregation=term.aggregation),),
+            "formula": None,
+            "group_by": (),
+            "order_by": (),
+            "limit": None,
+        }
+    )
+    current_period = None
+    prior_period = None
+    if term.previous_observed:
+        shifted = _shift_to_previous(service, inner, tenant)
+        if shifted is None:
+            field_value = _constrained_scope(service, inner)
+            return _Scalar(
+                None,
+                _formula_text(term),
+                "PRIOR_PERIOD_MISSING",
+                current_period=None if field_value is None else field_value[1],
             )
+        inner, current_period, prior_period = shifted
+    plan = _compile(service, inner, tenant)
+    guarded = _population_guard(plan, run, tenant)
+    scan = _scan_fields(guarded, _filter_payload(inner.filters), term.scope)
+    where = list(plan.where)
+    params = dict(plan.params)
+    identity = None
+    if guarded.reason and term.scope != "SUBJECT":
+        return _Scalar(
+            None,
+            _formula_text(term),
+            guarded.reason,
+            subject_identity=identity,
+            current_period=current_period,
+            prior_period=prior_period,
+            mappings=(plan.metric_mapping.id,),
+            **scan,
+        )
+    if term.scope == "SUBJECT":
+        if subject is None:
+            raise AnalysisError("COMPARISON_SUBJECT_REQUIRED")
+        identity = _require_subject(plan, subject, where, params, run, tenant)
+    elif term.scope == "PEERS" or term.value_relation is not None:
+        if subject is None:
+            raise AnalysisError("COMPARISON_SUBJECT_REQUIRED")
+        identity = _subject_identity(plan, subject, run, tenant)
+        where.append(f"{plan.identity_col} <> :excluded_identity")
+        params["excluded_identity"] = identity
+    if term.value_relation:
+        reference = _subject_total(service, query, term, subject, tenant, run)
+        if reference is None:
+            return _Scalar(
+                None,
+                _formula_text(term),
+                "SUBJECT_VALUE_MISSING",
+                subject_identity=identity,
+                mappings=(plan.metric_mapping.id,),
+                peer_relation=term.value_relation,
+                **scan,
+            )
+        params["subject_value"] = reference
+        operator = "<" if term.value_relation == "LT" else ">"
         rows = run(
             plan.metric_mapping.source_id,
             tenant,
-            text(f"{select} FROM {plan.from_sql} WHERE {' AND '.join(plan.where)}"),
-            plan.params,
-        )
-        observed = int(rows[0]["n"] or 0)
-        raw = rows[0]["total"]
-        if raw is None or observed == 0:
-            return None, observed
-        value = Decimal(str(raw))
-        if plan.aggregation == "AVG":
-            value = value / observed
-        return value, observed
-
-    current_value, current_n = aggregate(compiled)
-    payload = {
-        "operation": "periodOverPeriod",
-        "periodField": period_field,
-        "currentPeriod": current,
-        "priorPeriod": prior_period,
-        "subjectIdentity": None,
-        "formula": "(current period - prior observed period) / abs(prior observed period) * 100",
-    }
-    if reason:
-        return {**payload, "value": None, "reason": reason, "numerator": None, "denominator": None}
-    if prior_period is None:
-        return {
-            **payload,
-            "value": None,
-            "reason": "PRIOR_PERIOD_MISSING",
-            "numerator": None,
-            "denominator": None,
-            "currentValue": None if current_value is None else str(current_value),
-        }
-    prior_query = compiled.query.model_copy(
-        update={
-            "filters": _append_filter(
-                without_field(compiled.query.filters, period_field),
-                FilterAtom(
-                    field=period_field,
-                    op="EQ",
-                    value=TypedValue(value_type=prop.value_type, value=prior_period),
-                ),
+            text(
+                f"SELECT COUNT({plan.value_col}) FILTER "
+                f"(WHERE {plan.value_col} {operator} :subject_value) AS total "
+                f"FROM {plan.from_sql} WHERE {' AND '.join(where)}"
             ),
-            "comparison": None,
+            params,
+        )
+        return _Scalar(
+            Decimal(str(rows[0]["total"] or 0)),
+            _formula_text(term),
+            subject_identity=identity,
+            mappings=(plan.metric_mapping.id,),
+            peer_relation=term.value_relation,
+            **scan,
+        )
+    value = _scalar_aggregate(plan, where, params, run, tenant)
+    if term.scope == "SUBJECT" and value is None:
+        return _Scalar(
+            None,
+            _formula_text(term),
+            "SUBJECT_VALUE_MISSING",
+            subject_identity=identity,
+            current_period=current_period,
+            prior_period=prior_period,
+            mappings=(plan.metric_mapping.id,),
+            **scan,
+        )
+    return _Scalar(
+        value,
+        _formula_text(term),
+        subject_identity=identity,
+        current_period=current_period,
+        prior_period=prior_period,
+        mappings=(plan.metric_mapping.id,),
+        **scan,
+    )
+
+
+@dataclass
+class _Guard:
+    reason: str | None
+    population: int
+    observed: int
+    missing: int
+    rows: tuple[dict[str, Any], ...]
+    truncated: bool
+
+
+def _population_guard(plan: _Plan, run: Any, tenant: str) -> _Guard:
+    """Same missing-policy and duplicate-unit gate the plain aggregate uses."""
+
+    try:
+        count_row = run(plan.metric_mapping.source_id, tenant, text(plan.count_sql), plan.params)[0]
+        evidence_rows = run(
+            plan.metric_mapping.source_id, tenant, text(plan.evidence_sql), plan.params
+        )
+    except (SQLAlchemyError, KeyError, IndexError) as exc:
+        raise AnalysisError("PROVIDER_UNAVAILABLE") from exc
+    for row in evidence_rows:
+        value = row.get("value")
+        if isinstance(value, float):
+            raise AnalysisError("FLOAT_ARITHMETIC")
+        if isinstance(value, Decimal) and not value.is_finite():
+            raise AnalysisError("NON_FINITE_VALUE")
+    population = int(count_row["population"] or 0)
+    observed = int(count_row["observed"] or 0)
+    missing = int(count_row["missing"] or 0)
+    if plan.unit_col is not None and population and int(count_row.get("units") or 0) != population:
+        raise AnalysisError("DUPLICATE_OR_MISSING_STATISTICAL_UNIT")
+    reason = None
+    if population == 0:
+        reason = "EMPTY_POPULATION"
+    elif missing and plan.query.missing_policy != "exclude":
+        reason = "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION"
+    elif observed == 0:
+        reason = "NO_OBSERVED_VALUES"
+    return _Guard(
+        reason,
+        population,
+        observed,
+        missing,
+        tuple(evidence_rows),
+        population > len(evidence_rows),
+    )
+
+
+def _filter_payload(node: FilterAtom | FilterGroup | None) -> Any:
+    if node is None:
+        return None
+    return node.model_dump(mode="json", by_alias=True)
+
+
+def _scan_fields(guard: _Guard, filters: Any, scope: str) -> dict[str, Any]:
+    return {
+        "evidence_rows": guard.rows,
+        "population": guard.population,
+        "observed": guard.observed,
+        "missing": guard.missing,
+        "truncated": guard.truncated,
+        "executed_filters": filters,
+        "scan_scope": scope,
+    }
+
+
+def _choose_scan(left: _Scalar, right: _Scalar) -> _Scalar:
+    """Prefer the scan that explains a refusal, otherwise the shifted or full population."""
+
+    def rank(item: _Scalar) -> tuple[int, int, int]:
+        blocking = (
+            0
+            if item.reason
+            in {
+                "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION",
+                "EMPTY_POPULATION",
+                "NO_OBSERVED_VALUES",
+            }
+            else 1
+        )
+        shifted = 0 if item.prior_period is not None else 1
+        population = 0 if item.scan_scope == "QUERY" else 1
+        return (blocking, shifted, population)
+
+    return min((left, right), key=rank)
+
+
+def _constrained_scope(service: _Context, query: SemanticQuery) -> tuple[str, Any] | None:
+    metric = _metric(service, query.metrics[0].id)
+    scope = metric.population.scope_properties if metric.population else ()
+    constrained = [
+        (field, equality_value(query.filters, field))
+        for field in scope
+        if equality_value(query.filters, field) is not None
+    ]
+    if len(constrained) == 1:
+        return constrained[0]
+    if len(scope) == 1 and constrained:
+        return constrained[0]
+    return None
+
+
+def _shift_to_previous(
+    service: _Context, query: SemanticQuery, tenant: str
+) -> tuple[SemanticQuery, Any, Any] | None:
+    metric = _metric(service, query.metrics[0].id)
+    scope = metric.population.scope_properties if metric.population else ()
+    constrained = [field for field in scope if equality_value(query.filters, field) is not None]
+    if len(constrained) == 1:
+        field = constrained[0]
+    elif len(scope) == 1:
+        field = scope[0]
+    else:
+        raise AnalysisError("TIME_GRAIN_UNSUPPORTED")
+    current = equality_value(query.filters, field)
+    if current is None:
+        raise AnalysisError("COMPARISON_PERIOD_REQUIRED")
+    sequence_query = query.model_copy(
+        update={
+            "metrics": (MetricRef(id=metric.id, aggregation="COUNT"),),
+            "filters": without_field(query.filters, field),
         }
     )
-    prior_plan = _compile(service, prior_query, tenant)
-    prior_value, prior_n = aggregate(prior_plan)
-    if prior_value is None or prior_n == 0:
-        return {
-            **payload,
-            "value": None,
-            "reason": "PRIOR_PERIOD_MISSING",
-            "numerator": None,
-            "denominator": None,
-            "currentValue": None if current_value is None else str(current_value),
+    sequence_plan = _compile(service, sequence_query, tenant)
+    column = sequence_plan.projection[field]
+    periods = [
+        row["value"]
+        for row in _runner(service)(
+            sequence_plan.metric_mapping.source_id,
+            tenant,
+            text(
+                f"SELECT DISTINCT {column} AS value FROM {sequence_plan.from_sql} "
+                f"WHERE {' AND '.join(sequence_plan.where)} AND {column} IS NOT NULL "
+                f"AND {sequence_plan.value_col} IS NOT NULL AND {column} <= :current_period "
+                "ORDER BY value DESC LIMIT 2"
+            ),
+            {**sequence_plan.params, "current_period": current},
+        )
+    ]
+    periods.reverse()
+    index = next((item for item, value in enumerate(periods) if str(value) == str(current)), None)
+    if index is None or index == 0:
+        return None
+    prior = periods[index - 1]
+    obj = _object_type(service.bundle, metric.object_type)
+    prop = next((item for item in obj.properties if item.id == field), None) if obj else None
+    if prop is None:
+        raise AnalysisError("INVALID_PROPERTIES")
+    shifted = query.model_copy(
+        update={
+            "filters": _append_filter(
+                without_field(query.filters, field),
+                FilterAtom(
+                    field=field,
+                    op="EQ",
+                    value=TypedValue(value_type=prop.value_type, value=prior),
+                ),
+            )
         }
-    if current_value is None or current_n == 0:
-        return {
-            **payload,
-            "value": None,
-            "reason": "SUBJECT_VALUE_MISSING",
-            "numerator": None,
-            "denominator": None,
-            "priorValue": str(prior_value),
+    )
+    return shifted, current, prior
+
+
+def _require_subject(
+    plan: _Plan,
+    subject: SubjectSelector,
+    where: list[str],
+    params: dict[str, Any],
+    run: Any,
+    tenant: str,
+) -> str:
+    identity = subject.identity or subject.filters or {}
+    if not identity:
+        raise AnalysisError("INVALID_SUBJECT_PROPERTIES")
+    for key, value in identity.items():
+        column = plan.projection.get(_bare(key))
+        if column is None:
+            if subject.identity is not None:
+                column = plan.identity_col
+            else:
+                raise AnalysisError("INVALID_SUBJECT_PROPERTIES")
+        token = f"s_{_bare(key)}"
+        where.append(f"{column} = :{token}")
+        params[token] = value
+    rows = run(
+        plan.metric_mapping.source_id,
+        tenant,
+        text(
+            f"SELECT COUNT(*) AS members, MIN({plan.identity_col}) AS identity "
+            f"FROM {plan.from_sql} WHERE {' AND '.join(where)}"
+        ),
+        params,
+    )
+    members = int(rows[0]["members"] or 0)
+    if members == 0:
+        raise AnalysisError("COMPARISON_SUBJECT_OUTSIDE_POPULATION")
+    if members != 1:
+        raise AnalysisError("AMBIGUOUS_COMPARISON_SUBJECT")
+    return str(rows[0]["identity"])
+
+
+def _subject_identity(plan: _Plan, subject: SubjectSelector, run: Any, tenant: str) -> str:
+    """Resolve one subject without narrowing the population predicate."""
+
+    where = list(plan.where)
+    params = dict(plan.params)
+    return _require_subject(plan, subject, where, params, run, tenant)
+
+
+def _subject_total(
+    service: _Context,
+    query: SemanticQuery,
+    term: MeasureTerm,
+    subject: SubjectSelector | None,
+    tenant: str,
+    run: Any,
+) -> Decimal | None:
+    if subject is None:
+        raise AnalysisError("COMPARISON_SUBJECT_REQUIRED")
+    inner = query.model_copy(
+        update={
+            "metrics": (MetricRef(id=term.metric, aggregation="SUM"),),
+            "formula": None,
+            "group_by": (),
+            "order_by": (),
+            "limit": None,
         }
-    if prior_value == 0:
-        return {
-            **payload,
-            "value": None,
-            "reason": "ZERO_DENOMINATOR",
-            "numerator": str(current_value - prior_value),
-            "denominator": "0",
-            "currentValue": str(current_value),
-            "priorValue": str(prior_value),
-        }
-    with localcontext() as ctx:
-        ctx.prec = 28
-        change = (current_value - prior_value) / abs(prior_value) * 100
-    return {
-        **payload,
-        "value": str(change),
-        "numerator": str(current_value - prior_value),
-        "denominator": str(prior_value),
-        "currentValue": str(current_value),
-        "priorValue": str(prior_value),
-        "reason": None,
-    }
+    )
+    plan = _compile(service, inner, tenant)
+    where = list(plan.where)
+    params = dict(plan.params)
+    _require_subject(plan, subject, where, params, run, tenant)
+    return _scalar_aggregate(plan, where, params, run, tenant)
+
+
+def _scalar_aggregate(
+    plan: _Plan, where: list[str], params: dict[str, Any], run: Any, tenant: str
+) -> Decimal | None:
+    column = plan.value_col
+    if plan.aggregation == "COUNT":
+        select = f"SELECT COUNT({column}) AS total, COUNT({column}) AS n"
+    elif plan.aggregation == "AVG":
+        select = f"SELECT SUM({column}) AS total, COUNT({column}) AS n"
+    else:
+        select = f"SELECT {plan.aggregation}({column}) AS total, COUNT({column}) AS n"
+    rows = run(
+        plan.metric_mapping.source_id,
+        tenant,
+        text(f"{select} FROM {plan.from_sql} WHERE {' AND '.join(where)}"),
+        params,
+    )
+    observed = int(rows[0]["n"] or 0)
+    raw = rows[0]["total"]
+    if plan.aggregation == "COUNT":
+        return Decimal(str(raw or 0))
+    if raw is None or observed == 0:
+        return None
+    value = Decimal(str(raw))
+    if plan.aggregation == "AVG":
+        value = value / observed
+    return value
 
 
 _LABEL_MARKERS = ("name", "title", "label", "名称", "姓名")
@@ -1245,7 +1523,10 @@ def _same_table_labels(
 
 
 def _dictionary_labels(
-    service: _Context, source: ObjectTypeDef, field_ids: dict[str, set[str]]
+    service: _Context,
+    source: ObjectTypeDef,
+    field_ids: dict[str, set[str]],
+    tenant: str | None = None,
 ) -> dict[tuple[str, str], str]:
     objects = [source]
     linked = {
@@ -1266,6 +1547,70 @@ def _dictionary_labels(
         for value in ids:
             if value in dictionary:
                 found[(field, value)] = dictionary[value]
+    if tenant:
+        found.update(_mapped_value_labels(service, source, tenant, field_ids))
+    return found
+
+
+def _mapped_value_labels(
+    service: _Context,
+    source: ObjectTypeDef,
+    tenant: str,
+    field_ids: dict[str, set[str]],
+) -> dict[tuple[str, str], str]:
+    """Read optional dictionary tables declared on Mapping.physical.valueLabels."""
+    found: dict[tuple[str, str], str] = {}
+    objects = {source.id}
+    objects.update(
+        link.target
+        for link in service.bundle.links
+        if link.source == source.id and link.cardinality == "ONE"
+    )
+    run = getattr(service.provider, "execute_select", None)
+    if not callable(run):
+        return found
+    for mapping in service.bundle.mappings:
+        if mapping.target not in objects or mapping.provider != "postgres":
+            continue
+        specs = mapping.physical.get("valueLabels")
+        if not isinstance(specs, dict):
+            continue
+        tenant_col = require_ident(
+            mapping.physical.get("tenantColumn", "tenant_id"), field="tenantColumn"
+        )
+        for field, spec in specs.items():
+            if not isinstance(spec, dict):
+                continue
+            needed = field_ids.get(str(field)) or field_ids.get(_bare(str(field)))
+            if not needed:
+                continue
+            table = require_ident(spec.get("table") or mapping.physical.get("table"), field="table")
+            id_col = require_ident(spec.get("idColumn") or spec.get("id_column"), field="idColumn")
+            label_col = require_ident(
+                spec.get("labelColumn") or spec.get("label_column"), field="labelColumn"
+            )
+            params: dict[str, Any] = {"tenant": tenant}
+            keys: list[str] = []
+            for index, ident in enumerate(sorted(str(item) for item in needed if item)[:50]):
+                token = f"lab_{index}"
+                params[token] = ident
+                keys.append(f":{token}")
+            if not keys:
+                continue
+            sql = text(
+                f"SELECT {id_col} AS ident, {label_col} AS label FROM {table} "
+                f"WHERE {tenant_col} = :tenant AND {id_col} IN ({', '.join(keys)})"
+            )
+            try:
+                rows = run(mapping.source_id, tenant, sql, params)
+            except (SQLAlchemyError, KeyError, AnalysisError):
+                continue
+            for row in rows:
+                ident = str(row.get("ident") or "")
+                label = str(row.get("label") or "").strip()
+                if ident and label:
+                    found.setdefault((str(field), ident), label)
+                    found.setdefault((_bare(str(field)), ident), label)
     return found
 
 
@@ -1364,7 +1709,7 @@ def _decorate_labels(
             field_ids.setdefault(str(key), set()).add(str(item))
     resolved: dict[tuple[str, str], str] = {}
     if obj is not None:
-        resolved.update(_dictionary_labels(service, obj, field_ids))
+        resolved.update(_dictionary_labels(service, obj, field_ids, tenant))
         try:
             resolved.update(
                 _same_table_labels(service, obj, _mapping(service, obj.id), tenant, field_ids)
@@ -1628,16 +1973,22 @@ def _execute_one(service: _Context, plan: PlanRef, tenant: str) -> QueryResult:
     if query is None:
         return _empty_result(plan, service.bundle.digest)
     compiled = _compile(service, query, tenant)
-    rows, counts, comparison, evidence_rows, truncated = _run(service, compiled, tenant)
+    rows, counts, calculation, evidence_rows, truncated = _run(service, compiled, tenant)
+    unit, value_type = (
+        _formula_value_metadata(service, query.formula)
+        if query.formula is not None
+        else (
+            "count" if compiled.aggregation == "COUNT" else compiled.metric.unit,
+            "INTEGER" if compiled.aggregation == "COUNT" else compiled.metric.value_type,
+        )
+    )
     values = tuple(
         {
             "metric": compiled.metric.id,
             "grain": row.get("grain") or {},
             "value": row["value"],
-            "unit": "count" if compiled.aggregation == "COUNT" else compiled.metric.unit,
-            "valueType": "INTEGER"
-            if compiled.aggregation == "COUNT"
-            else compiled.metric.value_type,
+            "unit": unit,
+            "valueType": value_type,
             "aggregation": compiled.aggregation,
         }
         for row in rows
@@ -1670,6 +2021,10 @@ def _execute_one(service: _Context, plan: PlanRef, tenant: str) -> QueryResult:
             *(_mapping(service, dependency) for dependency in compiled.metric.derived_from),
         ]
     }
+    for mapping_id in () if calculation is None else calculation.get("mappings") or []:
+        found = next((item for item in service.bundle.mappings if item.id == mapping_id), None)
+        if found is not None:
+            used_mappings[found.id] = found
     return QueryResult(
         result_id=uuid.uuid4().hex,
         plan_id=plan.plan_id,
@@ -1679,11 +2034,12 @@ def _execute_one(service: _Context, plan: PlanRef, tenant: str) -> QueryResult:
             "populationCount": counts["population"],
             "observedCount": counts["observed"],
             "missingCount": counts["missing"],
-            "denominator": None if comparison is None else comparison.get("denominator"),
-            "numerator": None if comparison is None else comparison.get("numerator"),
-            "comparison": comparison,
+            "denominator": None if calculation is None else calculation.get("denominator"),
+            "numerator": None if calculation is None else calculation.get("numerator"),
+            "calculation": calculation,
             "reason": counts.get("reason"),
-            "subjectIdentity": None if comparison is None else comparison.get("subjectIdentity"),
+            "subjectIdentity": None if calculation is None else calculation.get("subjectIdentity"),
+            "executedFilters": None if calculation is None else calculation.get("executedFilters"),
             "complete": True,
         },
         mapping_fields=tuple(
@@ -1705,6 +2061,11 @@ def _execute_one(service: _Context, plan: PlanRef, tenant: str) -> QueryResult:
                 "mappingId": compiled.metric_mapping.id,
                 "sourceId": compiled.metric_mapping.source_id,
                 "queryDigest": hashlib.sha256(compiled.sql.encode()).hexdigest(),
+                **(
+                    {"formula": calculation["formula"]}
+                    if calculation and calculation.get("formula")
+                    else {}
+                ),
             },
         ),
     )
@@ -1716,12 +2077,41 @@ def _digest(service: _Context, query: SemanticQuery, tenant: str) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
+def _formula_plans(
+    context: _Context,
+    query: SemanticQuery,
+    node: Formula | MeasureTerm,
+    tenant: str,
+    subject: SubjectSelector | None = None,
+) -> list[_Plan]:
+    if isinstance(node, Formula):
+        subject = node.subject or subject
+        plans = _formula_plans(context, query, node.left, tenant, subject)
+        if node.right is not None:
+            plans.extend(_formula_plans(context, query, node.right, tenant, subject))
+        return plans
+    if node.value_relation is not None and (node.aggregation != "COUNT" or node.scope != "PEERS"):
+        raise AnalysisError("OPERATOR_NOT_SUPPORTED")
+    single = query.model_copy(
+        update={
+            "metrics": (MetricRef(id=node.metric, aggregation=node.aggregation),),
+            "formula": Formula(op="VALUE", left=node, subject=subject),
+        }
+    )
+    plan = _compile(context, single, tenant)
+    if (node.scope != "QUERY" or node.value_relation is not None) and subject is None:
+        raise AnalysisError("COMPARISON_SUBJECT_REQUIRED")
+    return [plan]
+
+
 def prepare_analysis(
     bundle: CompiledBundle, query: SemanticQuery, tenant: str, provider: Any
 ) -> str:
     context = _Context(bundle, provider)
     if not query.metrics:
         raise AnalysisError("METRIC_REQUIRED")
+    if query.formula is not None:
+        _formula_value_metadata(context, query.formula)
     if len({(ref.id, ref.aggregation) for ref in query.metrics}) != len(query.metrics):
         raise AnalysisError("DUPLICATE_METRIC_SELECTION")
     sources = set()
@@ -1729,9 +2119,12 @@ def prepare_analysis(
         single = query.model_copy(update={"metrics": (ref,)})
         compiled = _compile(context, single, tenant)
         sources.add((compiled.metric_mapping.source_id, compiled.table))
+    if query.formula is not None:
+        for compiled in _formula_plans(context, query, query.formula, tenant):
+            sources.add((compiled.metric_mapping.source_id, compiled.table))
     if len(sources) != 1:
         raise AnalysisError("CROSS_SOURCE_SQL")
-    if len(query.metrics) > 1 and (query.order_by or query.limit or query.comparison):
+    if len(query.metrics) > 1 and (query.order_by or query.limit):
         raise AnalysisError("MULTI_METRIC_ORDER_COMPARISON_UNSUPPORTED")
     return _digest(context, query, tenant)
 
@@ -1748,20 +2141,25 @@ def execute_analysis(
         raise AnalysisError("PLAN_INVALID")
     context = _Context(bundle, provider, bind_provider or provider)
     try:
+        metric_runs = (
+            (plan.query.metrics[0],) if plan.query.formula is not None else plan.query.metrics
+        )
         results = [
             _execute_one(
                 context,
-                plan.model_copy(
+                plan
+                if plan.query.formula is not None
+                else plan.model_copy(
                     update={"query": plan.query.model_copy(update={"metrics": (ref,)})}
                 ),
                 tenant,
             )
-            for ref in plan.query.metrics
+            for ref in metric_runs
         ]
     except (SQLAlchemyError, KeyError, IndexError) as exc:
         raise AnalysisError("PROVIDER_UNAVAILABLE") from exc
     first = results[0]
-    scopes = {ref.id: result.scope for ref, result in zip(plan.query.metrics, results, strict=True)}
+    scopes = {ref.id: result.scope for ref, result in zip(metric_runs, results, strict=True)}
     incomplete = any(scope.get("reason") for scope in scopes.values())
     return first.model_copy(
         update={
@@ -1786,7 +2184,7 @@ def execute_analysis(
                 ),
                 rows=tuple(
                     (ref.id, *row)
-                    for ref, result in zip(plan.query.metrics, results, strict=True)
+                    for ref, result in zip(metric_runs, results, strict=True)
                     for row in result.evidence.rows
                 ),
                 truncated=any(result.evidence.truncated for result in results),
@@ -1823,7 +2221,7 @@ def analysis_subjects(
     obj = next(item for item in bundle.object_types if item.id == compiled.metric.object_type)
     params = dict(compiled.params)
     where = list(compiled.where)
-    subject = query.comparison.subject if query.comparison else None
+    subject = query.formula.subject if query.formula else None
     if subject:
         for key, value in (subject.identity or subject.filters or {}).items():
             col = compiled.projection.get(_bare(key))

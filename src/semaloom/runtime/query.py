@@ -200,21 +200,27 @@ class QueryService:
         filters = {
             k: scalar_value(str(v), definitions[k].value_type) for k, v in request.filters.items()
         }
-        filter_fields = set(request.filters) | set(obj.identity_keys)
+        identity = set(obj.identity_keys)
+        filter_fields = set(request.filters) | identity
         search_candidates = [
             m
             for m in self.bundle.mappings
             if m.target == obj.id and filter_fields <= _mapped_object_fields(m)
         ]
-        best_match = [m for m in search_candidates if fields <= _mapped_object_fields(m)]
-        candidates = best_match if best_match else search_candidates
+        covering = [m for m in search_candidates if fields <= _mapped_object_fields(m)]
+        candidates = covering or search_candidates
+        if len(candidates) > 1 and not covering:
+            identity_grain = [item for item in candidates if set(item.grain_fields) == identity]
+            if identity_grain:
+                candidates = identity_grain
         if len(candidates) > 1:
             auth = [m for m in candidates if m.completeness == "AUTHORITATIVE"]
             if len(auth) == 1:
                 candidates = auth
+            elif auth:
+                candidates = auth
         if len(candidates) > 1:
             measure_ids = {prop.id for prop in obj.properties if prop.unit}
-            identity = set(obj.identity_keys)
             requested = fields - identity
             if requested:
                 by_req = [item for item in candidates if requested <= _mapped_object_fields(item)]

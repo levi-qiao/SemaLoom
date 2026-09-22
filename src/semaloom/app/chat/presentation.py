@@ -28,10 +28,6 @@ _OPERATIONS = {
     "MIN": "最小值",
     "MAX": "最大值",
     "COUNT": "有效数量",
-    "shareOfTotal": "占总体比例",
-    "percentAboveMean": "相对均值",
-    "outperforms": "超过同类",
-    "periodOverPeriod": "较上期",
 }
 _TRUTH = {"TRUE": "成立", "FALSE": "不成立", "UNKNOWN": "尚不确定"}
 
@@ -177,10 +173,6 @@ def _presentation(
             "MIN": "Minimum",
             "MAX": "Maximum",
             "COUNT": "Observed count",
-            "shareOfTotal": "Share of total",
-            "percentAboveMean": "Relative to mean",
-            "outperforms": "Outperforms peers",
-            "periodOverPeriod": "Change from prior period",
         }
         if locale.startswith("en")
         else _OPERATIONS
@@ -272,28 +264,28 @@ def _presentation(
                 }
             )
         scope = payload.get("scope")
-        comparison = payload.get("comparison") or (
-            scope.get("comparison") if isinstance(scope, dict) else None
+        calculation = payload.get("calculation") or (
+            scope.get("calculation") if isinstance(scope, dict) else None
         )
         if (
             len(metrics) < _MAX_METRICS
-            and isinstance(comparison, dict)
-            and comparison.get("value") is not None
+            and isinstance(calculation, dict)
+            and calculation.get("value") is not None
+            and calculation.get("numerator") is not None
         ):
-            raw = comparison["value"]
-            operation = str(comparison.get("operation") or "")
-            denominator = comparison.get("denominator")
+            raw = calculation["value"]
+            denominator = calculation.get("denominator")
             metrics.append(
                 {
-                    "id": f"{entry.get('id', 'evidence')}:comparison",
+                    "id": f"{entry.get('id', 'evidence')}:calculation",
                     "evidenceId": str(entry.get("id", "")),
-                    "label": operations.get(operation, _copy(locale, "比较结果", "Comparison")),
+                    "label": _copy(locale, "计算结果", "Calculation"),
                     "value": str(raw),
                     "displayValue": natural_number(raw),
-                    "unit": str(comparison.get("unit") or ""),
+                    "unit": "",
                     "meta": (
                         _copy(locale, "分子", "Numerator")
-                        + f" {comparison.get('numerator')} · "
+                        + f" {calculation.get('numerator')} · "
                         + _copy(locale, "分母", "denominator")
                         + f" {denominator}"
                         if denominator is not None

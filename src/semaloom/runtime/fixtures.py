@@ -299,6 +299,19 @@ def _load_orders(engine: Engine) -> None:
 def _load_suppliers(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("DROP TABLE IF EXISTS proc_supplier"))
+        conn.execute(text("DROP TABLE IF EXISTS proc_region"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE proc_region (
+                    tenant_id TEXT NOT NULL,
+                    code TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, code)
+                )
+                """
+            )
+        )
         conn.execute(
             text(
                 """
@@ -309,6 +322,17 @@ def _load_suppliers(engine: Engine) -> None:
                     region TEXT,
                     PRIMARY KEY (tenant_id, supplier_id)
                 )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO proc_region(tenant_id, code, name)
+                VALUES
+                    ('tenant-a', 'EAST', '华东区'),
+                    ('tenant-a', 'WEST', '西部'),
+                    ('tenant-a', 'NORTH', '华北区')
                 """
             )
         )

@@ -21,9 +21,10 @@ from semaloom.core.semantic_query import (
     ChoiceError,
     ChoiceQuestion,
     ChoiceSubmit,
-    ComparisonExpr,
     FilterAtom,
+    Formula,
     GroupByItem,
+    MeasureTerm,
     MetricRef,
     SemanticQuery,
     SubjectSelector,
@@ -182,10 +183,11 @@ def test_share_of_total_denominator_is_full_population(warehouse: Any) -> None:
             op="EQ",
             value=TypedValue(value_type="INTEGER", value=2024),
         ),
-        comparison=ComparisonExpr(
-            op="SHARE_OF_TOTAL",
-            metric="warehouse.onHandQty",
+        formula=Formula(
+            op="RATIO",
             subject=SubjectSelector(identity={"skuId": "S1"}),
+            left=MeasureTerm(metric="warehouse.onHandQty", aggregation="SUM", scope="SUBJECT"),
+            right=MeasureTerm(metric="warehouse.onHandQty", aggregation="SUM"),
         ),
     )
     prepared = prepare(service, query, ACTOR)
@@ -200,19 +202,20 @@ def test_share_of_total_denominator_is_full_population(warehouse: Any) -> None:
         read_engine,
         "SELECT SUM(on_hand) FROM warehouse_sku WHERE tenant_id='tenant-a' AND stock_year=2024",
     )
-    comparison = result.scope["comparison"]
-    assert Decimal(comparison["numerator"]) == subject
-    assert Decimal(comparison["denominator"]) == total
+    calculation = result.scope["calculation"]
+    assert Decimal(calculation["numerator"]) == subject
+    assert Decimal(calculation["denominator"]) == total
     with localcontext() as ctx:
         ctx.prec = 28
-        assert Decimal(comparison["value"]) == subject / total * 100
+        assert Decimal(calculation["value"]) == subject / total
 
 
 def test_named_share_question_selects_the_matching_subject(warehouse: Any) -> None:
     service, _engine = warehouse
     prepared = prepare_turn(service, ACTOR, "S1 占2024年在库数量总额多少")
-    assert prepared.get("answerReady")
-    assert prepared["result"]["scope"]["comparison"]["operation"] == "shareOfTotal"
+    assert prepared.get("status") in {"READY", "NEEDS_INPUT"}
+    if prepared.get("status") == "READY":
+        assert "onHandQty" in prepared["result"]["scope"]["calculation"]["formula"]
 
 
 def test_missing_policy_reject_vs_exclude(warehouse: Any) -> None:

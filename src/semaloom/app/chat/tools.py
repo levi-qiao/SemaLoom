@@ -198,7 +198,8 @@ class SemanticTools:
                 and (
                     self.intent.metric_ids
                     or self.intent.candidates
-                    or self.intent.clarify_comparison
+                    or self.intent.clarify_formula
+                    or self.intent.clarify_grouping
                     or any(item["result"].get("population") for item in self.evidence.values())
                 )
             ):
@@ -229,10 +230,12 @@ class SemanticTools:
                 return self.pending
             if self.user_message:
                 if (
-                    self.intent.candidates or self.intent.clarify_comparison
+                    self.intent.candidates
+                    or self.intent.clarify_formula
+                    or self.intent.clarify_grouping
                 ) and value.kind != "clarification":
                     raise ValueError("CLARIFICATION_REQUIRED")
-                if self.intent.comparison and value.kind in {"answer", "explanation"}:
+                if self.intent.formula_shape and value.kind in {"answer", "explanation"}:
                     raise ValueError("COMPARISON_EVIDENCE_REQUIRED")
                 if self.intent.operation and value.kind in {"answer", "explanation"}:
                     raise ValueError("SEMANTIC_ANALYSIS_REQUIRED")
@@ -285,7 +288,11 @@ class SemanticTools:
             return {"accepted": True, "releaseDigest": self.query.bundle.digest}
         if (
             self.user_message
-            and (self.intent.candidates or self.intent.clarify_comparison)
+            and (
+                self.intent.candidates
+                or self.intent.clarify_formula
+                or self.intent.clarify_grouping
+            )
             and name
             not in {
                 "list_semantics",
@@ -423,7 +430,7 @@ class SemanticTools:
                             or equality_value(query.filters, field) is None
                         ):
                             raise ValueError("UNCONFIRMED_SCOPE_OMIT_FILTER_TO_ASK_USER")
-        if intent.operation is None and not intent.comparison:
+        if intent.operation is None and not intent.formula_shape:
             confirmed = (
                 {ref.id: ref.aggregation for ref in previous.metrics}
                 if same_metrics and previous
@@ -482,18 +489,17 @@ class SemanticTools:
                 # filters, but do not allow invented scope or aggregation to skip cards.
                 if self.user_message:
                     query = self._without_unconfirmed_defaults(query)
-                if (
-                    query.comparison
-                    and query.comparison.subject
-                    and query.comparison.subject.identity
-                ):
+                if query.formula and query.formula.subject and query.formula.subject.identity:
+                    from semaloom.core.semantic_query import formula_metric_ids
+
+                    metric_id = next(iter(formula_metric_ids(query.formula)), None)
                     metric = next(
-                        (m for m in self.query.bundle.metrics if m.id == query.comparison.metric),
+                        (m for m in self.query.bundle.metrics if m.id == metric_id),
                         None,
                     )
                     if metric is None:
                         raise ValueError("UNKNOWN_METRIC")
-                    self._identity(metric.object_type, query.comparison.subject.identity)
+                    self._identity(metric.object_type, query.formula.subject.identity)
             elif self.user_message and not self.intent.candidates:
                 query = query_from_intent(self.intent, self.query.bundle)
             payload = prepare_turn(self.query, self.actor, message, query, locale=self.locale)

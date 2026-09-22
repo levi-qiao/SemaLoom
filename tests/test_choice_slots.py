@@ -12,9 +12,10 @@ from semaloom.app.chat.choices import prepare_turn, try_direct_turn
 from semaloom.app.chat.intent import TurnIntent
 from semaloom.app.chat.tools import SemanticTools
 from semaloom.core.semantic_query import (
-    ComparisonExpr,
     FilterAtom,
+    Formula,
     GroupByItem,
+    MeasureTerm,
     MetricRef,
     SemanticQuery,
     TypedValue,
@@ -176,24 +177,29 @@ def test_period_over_period_compares_two_years(financial_query: Any) -> None:  #
         filters=FilterAtom(
             field="taxYear", op="EQ", value=TypedValue(value_type="INTEGER", value=2025)
         ),
-        comparison=ComparisonExpr(op="PERIOD_OVER_PERIOD", metric="finance.review.declared_profit"),
+        formula=Formula(
+            op="VALUE",
+            left=MeasureTerm(
+                metric="finance.review.declared_profit",
+                aggregation="SUM",
+                previous_observed=True,
+            ),
+        ),
         missing_policy="exclude",
     )
     prepared = prepare(financial_query, query, ACTOR)
     assert prepared.status == "READY" and prepared.plan is not None
     result = execute(financial_query, prepared.plan, ACTOR)
-    comparison = result.scope.get("comparison") or {}
-    assert comparison.get("operation") == "periodOverPeriod"
-    assert comparison.get("periodField") == "taxYear"
-    assert comparison.get("currentPeriod") == 2025
-    assert comparison.get("priorPeriod") == 2024
-    assert Decimal(comparison["value"]) > 0
+    calculation = result.scope.get("calculation") or {}
+    assert calculation.get("priorPeriod") == 2024
+    assert calculation.get("currentPeriod") == 2025
+    assert Decimal(calculation["value"]) == Decimal("300.03")
     chat = prepare_turn(financial_query, ACTOR, "2025年选定申报利润总额合计环比")
     assert chat.get("status") == "READY"
-    assert "较上年同期" in chat["text"]
+    assert "300.03" in chat["text"] or "300.03" in str(chat["result"]["values"])
 
 
-def test_month_over_month_is_unsupported(financial_query: Any) -> None:  # noqa: F811
+def test_month_phrase_is_not_blacklisted(financial_query: Any) -> None:  # noqa: F811
     result = prepare_turn(financial_query, ACTOR, "选定申报利润总额月环比")
-    assert result["status"] == "UNSUPPORTED"
-    assert result["errorCode"] == "TIME_GRAIN_UNSUPPORTED"
+    assert result["status"] == "NEEDS_INPUT"
+    assert result.get("errorCode") != "TIME_GRAIN_UNSUPPORTED"

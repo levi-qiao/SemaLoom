@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from semaloom.app.chat.i18n import localize_question
+from semaloom.app.chat.i18n import text as locale_text
 from semaloom.app.chat.intent import RoleConstraint, TurnIntent, slots_for_metric
 from semaloom.app.chat.presentation import project_browser_answer
 from semaloom.app.chat.store import ChatStore
@@ -27,11 +28,11 @@ from semaloom.core.semantic_query import (
     ChoiceOption,
     ChoiceQuestion,
     ChoiceSubmit,
-    ComparisonExpr,
-    ComparisonOp,
     FilterAtom,
     FilterGroup,
+    Formula,
     GroupByItem,
+    MeasureTerm,
     MetricRef,
     QueryResult,
     SemanticChoice,
@@ -47,6 +48,70 @@ from semaloom.runtime.analysis import AnalysisError, execute, prepare
 from semaloom.runtime.auth import RequestActor
 from semaloom.runtime.eval import EvaluationError, evaluate_claim_with_evidence
 from semaloom.runtime.query import QueryService
+from semaloom.runtime.vocabulary import display_label, mentioned_stored_value
+
+
+def _choice_context(
+    message: str, semantic: SemanticQuery, bundle: CompiledBundle
+) -> dict[str, Any]:
+    """Frozen ontology snapshot for spoken card copy. Option ids stay server-owned."""
+    metric_doc = None
+    object_doc = None
+    if semantic.metrics:
+        metric = next((item for item in bundle.metrics if item.id == semantic.metrics[0].id), None)
+        if metric is not None:
+            metric_doc = {
+                "id": metric.id,
+                "label": metric.label,
+                "perspective": metric.perspective,
+                "objectType": metric.object_type,
+            }
+            obj = next(
+                (item for item in bundle.object_types if item.id == metric.object_type), None
+            )
+            if obj is not None:
+                object_doc = {
+                    "id": obj.id,
+                    "label": obj.label,
+                    "properties": [
+                        {
+                            "id": prop.id,
+                            "label": prop.label,
+                            "roles": list(prop.semantic_roles),
+                        }
+                        for prop in obj.properties
+                    ],
+                }
+    return {
+        "userQuestion": message,
+        "metric": metric_doc,
+        "objectType": object_doc,
+    }
+
+
+def _period_from_year_bindings(
+    obj: Any,
+    bindings: dict[str, IdentityScalar],
+    period_from: str,
+    period_to: str,
+) -> tuple[str, str]:
+    if period_from and period_from != "None":
+        return period_from, period_to
+    integers = [
+        prop
+        for prop in obj.properties
+        if prop.value_type == "INTEGER" and bindings.get(prop.id) not in {None, ""}
+    ]
+    tagged = [prop for prop in integers if "time.year" in prop.semantic_roles]
+    chosen = tagged if len(tagged) == 1 else integers if len(integers) == 1 else []
+    for prop in chosen:
+        raw = bindings.get(prop.id)
+        if raw in {None, ""}:
+            continue
+        year = int(raw)
+        return f"{year}-01-01", f"{year + 1}-01-01"
+    return period_from, period_to
+
 
 _AGG: dict[str, AggregationOp] = {
     "mean": "AVG",
@@ -54,12 +119,6 @@ _AGG: dict[str, AggregationOp] = {
     "min": "MIN",
     "max": "MAX",
     "count": "COUNT",
-}
-_CMP: dict[str, ComparisonOp] = {
-    "shareOfTotal": "SHARE_OF_TOTAL",
-    "percentAboveMean": "RELATIVE_TO_MEAN",
-    "outperforms": "STRICT_PEER",
-    "periodOverPeriod": "PERIOD_OVER_PERIOD",
 }
 
 
@@ -78,24 +137,6 @@ def _typed_atom(field: str, stored: str, value_type: ValueType) -> FilterAtom:
     )
 
 
-def _one_link_name_field(
-    bundle: CompiledBundle, object_type: str, prefer: str | None = None
-) -> str | None:
-    matches: list[str] = []
-    for link in bundle.links:
-        if link.source != object_type or link.cardinality != "ONE":
-            continue
-        target = next((item for item in bundle.object_types if item.id == link.target), None)
-        if target is None or not any(prop.id == "name" for prop in target.properties):
-            continue
-        field = f"{target.id}.name"
-        haystack = f"{target.id} {target.label or ''}".casefold()
-        if prefer and prefer in haystack:
-            return field
-        matches.append(field)
-    return matches[0] if len(matches) == 1 else None
-
-
 def _scope_property_for_role(
     bundle: CompiledBundle,
     metric_ids: set[str] | frozenset[str],
@@ -112,16 +153,23 @@ def _scope_property_for_role(
     if len(scopes) != 1:
         return None
     fields = set(next(iter(scopes)))
-    matches = {
-        prop.id
+    props = [
+        prop
         for obj in bundle.object_types
         if obj.id in objects
         for prop in obj.properties
-        if prop.id in fields
-        and role in prop.semantic_roles
-        and (value_type is None or prop.value_type == value_type)
-    }
-    return next(iter(matches)) if len(matches) == 1 else None
+        if prop.id in fields and (value_type is None or prop.value_type == value_type)
+    ]
+    if role == "scope":
+        return next(iter(fields)) if len(fields) == 1 else None
+    if role == "integer-scope":
+        typed = [prop.id for prop in props if prop.value_type == "INTEGER"]
+        return typed[0] if len(typed) == 1 else None
+    matches = [prop.id for prop in props if role in prop.semantic_roles]
+    if len(matches) == 1:
+        return matches[0]
+    typed = [prop.id for prop in props]
+    return typed[0] if len(typed) == 1 else None
 
 
 def _role_constraint_filter(field: str, constraint: RoleConstraint) -> FilterAtom:
@@ -186,17 +234,11 @@ def query_from_intent(intent: TurnIntent, bundle: CompiledBundle) -> SemanticQue
         atom = _role_constraint_filter(field, constraint)
         filters = atom if filters is None else _append_filter(filters, atom)
     aggregation = _AGG.get(intent.operation) if intent.operation else None
-    if aggregation is None and intent.comparison and metrics:
+    if aggregation is None and intent.formula_shape and metrics:
         metric = next((item for item in bundle.metrics if item.id == metrics[0].id), None)
-        aggregation = default_aggregation(metric.additivity or "FULL") if metric else None
+        aggregation = default_aggregation(metric.additivity or "FULL") if metric else "SUM"
     metrics = tuple(item.model_copy(update={"aggregation": aggregation}) for item in metrics)
-    comparison = None
-    if intent.comparison and len(metrics) == 1:
-        comparison = ComparisonExpr(
-            op=_CMP[intent.comparison],
-            metric=metrics[0].id,
-            direction=intent.direction,
-        )
+    formula = _formula_from_shape(intent, metrics[0].id, aggregation or "SUM") if metrics else None
     for hit in intent.dimension_filters:
         atom = _typed_atom(hit.field, hit.stored, hit.value_type)
         filters = atom if filters is None else _append_filter(filters, atom)
@@ -213,26 +255,119 @@ def query_from_intent(intent: TurnIntent, bundle: CompiledBundle) -> SemanticQue
     if intent.group_dimension and metrics:
         item = GroupByItem(id=intent.group_dimension)
         group_by = (*group_by, item) if item not in group_by else group_by
-    elif (intent.breakdown or intent.group_label) and metrics:
-        metric = next((item for item in bundle.metrics if item.id == metrics[0].id), None)
-        if metric is not None:
-            linked = (
-                _one_link_name_field(bundle, metric.object_type, intent.group_prefer)
-                if intent.group_label
-                else None
-            )
-            if linked:
-                group_by = (GroupByItem(id=linked),)
-            elif metric.population is not None:
-                group_by = (GroupByItem(id=metric.population.unit_property),)
     return SemanticQuery(
         api_version="semaloom/v0.1",
         metrics=metrics,
         filters=filters,
         group_by=group_by,
-        comparison=comparison,
+        formula=formula,
         missing_policy="exclude" if intent.exclude_allowed else "reject",
     )
+
+
+def _formula_from_shape(
+    intent: TurnIntent, metric: str, aggregation: AggregationOp
+) -> Formula | None:
+    shape = intent.formula_shape
+    if shape == "previous":
+        return Formula(
+            op="VALUE",
+            left=MeasureTerm(metric=metric, aggregation=aggregation, previous_observed=True),
+        )
+    if shape == "subject_ratio":
+        return Formula(
+            op="RATIO",
+            left=MeasureTerm(metric=metric, aggregation="SUM", scope="SUBJECT"),
+            right=MeasureTerm(metric=metric, aggregation="SUM"),
+        )
+    if shape == "mean_delta":
+        return Formula(
+            op="RATIO",
+            left=Formula(
+                op="DIFFERENCE",
+                left=MeasureTerm(metric=metric, aggregation="SUM", scope="SUBJECT"),
+                right=MeasureTerm(metric=metric, aggregation="AVG"),
+            ),
+            right=MeasureTerm(metric=metric, aggregation="AVG"),
+        )
+    if shape == "peer":
+        relation = intent.peer_relation or "LT"
+        return Formula(
+            op="RATIO",
+            left=MeasureTerm(
+                metric=metric, aggregation="COUNT", scope="PEERS", value_relation=relation
+            ),
+            right=MeasureTerm(metric=metric, aggregation="COUNT", scope="PEERS"),
+        )
+    return None
+
+
+def _formula_signature(node: Formula | MeasureTerm) -> tuple[Any, ...]:
+    if isinstance(node, MeasureTerm):
+        return (node.aggregation, node.scope, node.value_relation, node.previous_observed)
+    return (
+        node.op,
+        _formula_signature(node.left),
+        None if node.right is None else _formula_signature(node.right),
+    )
+
+
+def _grouping_question(
+    service: QueryService, message: str, semantic: SemanticQuery, intent: TurnIntent
+) -> dict[str, Any]:
+    bundle = service.bundle
+    metric_ids = {item.id for item in semantic.metrics} or set(intent.metric_ids)
+    objects = {item.id: item for item in bundle.object_types}
+    options: list[ChoiceOption] = []
+    seen: set[str] = set()
+    for metric in bundle.metrics:
+        if metric.id not in metric_ids:
+            continue
+        owners = [objects.get(metric.object_type)]
+        for link in bundle.links:
+            if (
+                link.source == metric.object_type
+                and link.cardinality == "ONE"
+                and len(link.identity) == 1
+            ):
+                owners.append(objects.get(link.target))
+        for owner in owners:
+            if owner is None:
+                continue
+            for prop in owner.properties:
+                if prop.unit:
+                    continue
+                field = prop.id if owner.id == metric.object_type else f"{owner.id}.{prop.id}"
+                if field in seen:
+                    continue
+                seen.add(field)
+                label = prop.label or prop.id
+                if owner.id != metric.object_type and owner.label and prop.label:
+                    label = f"{owner.label}{prop.label}"
+                options.append(
+                    ChoiceOption(
+                        id="opt_group_" + field.replace(".", "_"),
+                        label=label,
+                        explanation="按这个属性分组",
+                        choice=SemanticChoice(kind="GROUP", id=field),
+                    )
+                )
+    question = ChoiceQuestion(
+        question_id="q-group-" + uuid.uuid4().hex,
+        revision=1,
+        slot="group",
+        prompt="要按哪个属性分组？",
+        reason="这句话里的分组没有对上已发布的属性。",
+        options=with_choice_exits(options[:6]),
+    )
+    return {
+        "status": "NEEDS_INPUT",
+        "waiting": True,
+        "question": question.model_dump(mode="json", by_alias=True),
+        "query": semantic.model_dump(mode="json", by_alias=True),
+        "originalQuestion": message,
+        "releaseDigest": bundle.digest,
+    }
 
 
 def _apply_intent(
@@ -275,26 +410,19 @@ def _apply_intent(
         )
     ):
         raise AnalysisError("MISSING_EXCLUSION_NOT_AUTHORIZED")
-    if intent.comparison == "periodOverPeriod":
-        if query.comparison is None:
-            if metrics:
-                updates["comparison"] = ComparisonExpr(
-                    op="PERIOD_OVER_PERIOD", metric=metrics[0].id
-                )
-            else:
-                raise AnalysisError("COMPARISON_REQUIRED_BY_USER")
-        elif query.comparison.op != "PERIOD_OVER_PERIOD":
-            raise AnalysisError("COMPARISON_REQUIRED_BY_USER")
-    elif intent.comparison:
-        required = {
-            "shareOfTotal": "SHARE_OF_TOTAL",
-            "percentAboveMean": "RELATIVE_TO_MEAN",
-            "outperforms": "STRICT_PEER",
-        }[intent.comparison]
-        if query.comparison is None or query.comparison.op != required:
-            raise AnalysisError("COMPARISON_REQUIRED_BY_USER")
-        if intent.comparison == "outperforms" and query.comparison.direction != intent.direction:
-            raise AnalysisError("COMPARISON_DIRECTION_DOES_NOT_MATCH_USER")
+    if intent.formula_shape:
+        operation = intent.operation or "sum"
+        expected = _formula_from_shape(
+            intent,
+            metrics[0].id if metrics else "",
+            _AGG[operation],
+        )
+        if expected is None or query.formula is None:
+            raise AnalysisError("FORMULA_REQUIRED_BY_USER")
+        if query.formula.op != expected.op or _formula_signature(
+            query.formula
+        ) != _formula_signature(expected):
+            raise AnalysisError("FORMULA_REQUIRED_BY_USER")
     filters = updates.get("filters", query.filters)
     for hit in intent.dimension_filters:
         if not field_constrained(filters, hit.field.split(".")[-1]):
@@ -416,28 +544,16 @@ def _complete_explicit_scope(
     bundle: CompiledBundle,
     service: QueryService,
     actor: RequestActor,
+    message: str = "",
 ) -> tuple[SemanticQuery, list[dict[str, str]]]:
     """Resolve explicit scope; leave missing business choices to engine prepare."""
     updates: dict[str, Any] = {}
     assumptions: list[dict[str, str]] = []
-    if query.group_by and not (
-        intent.breakdown or intent.group_label or intent.group_dimension or intent.grouping_role
-    ):
+    if query.group_by and not (intent.group_dimension or intent.grouping_role):
         updates["group_by"] = ()
         assumptions.append({"slot": "grain", "id": "total", "reason": "USER_DID_NOT_ASK_BREAKDOWN"})
-    elif (
-        (intent.breakdown or intent.group_label or intent.group_dimension)
-        and not query.group_by
-        and query.metrics
-    ):
-        metric = next((item for item in bundle.metrics if item.id == query.metrics[0].id), None)
-        group_id = intent.group_dimension
-        if group_id is None and metric is not None and intent.group_label:
-            group_id = _one_link_name_field(bundle, metric.object_type, intent.group_prefer)
-        if group_id is None and metric is not None and metric.population is not None:
-            group_id = metric.population.unit_property
-        if group_id:
-            updates["group_by"] = (GroupByItem(id=group_id),)
+    elif intent.group_dimension and not query.group_by and query.metrics:
+        updates["group_by"] = (GroupByItem(id=intent.group_dimension),)
     scope_field = (
         _scope_property_for_role(bundle, {item.id for item in query.metrics}, intent.grouping_role)
         if intent.grouping_role
@@ -471,7 +587,48 @@ def _complete_explicit_scope(
                     value=TypedValue(value_type=prop.value_type, value=tuple(values)),
                 ),
             )
-    return query.model_copy(update=updates) if updates else query, assumptions
+    current = query.model_copy(update=updates) if updates else query
+    mentioned = _bind_mentioned_observed_values(current, message, bundle, service, actor)
+    if mentioned is not current:
+        current = mentioned
+    return current, assumptions
+
+
+def _bind_mentioned_observed_values(
+    query: SemanticQuery,
+    message: str,
+    bundle: CompiledBundle,
+    service: QueryService,
+    actor: RequestActor,
+) -> SemanticQuery:
+    """If the user already named an observed scope value, do not ask again."""
+    if not query.metrics or not message.strip():
+        return query
+    filters = query.filters
+    changed = False
+    for ref in query.metrics:
+        metric = next((item for item in bundle.metrics if item.id == ref.id), None)
+        if metric is None or metric.population is None:
+            continue
+        obj = next((item for item in bundle.object_types if item.id == metric.object_type), None)
+        for field in metric.population.scope_properties:
+            if field_constrained(filters, field):
+                continue
+            values = _scope_values_for(service, metric.id, field, actor.tenant)
+            if not values:
+                continue
+            prop = None
+            if obj is not None:
+                prop = next((item for item in obj.properties if item.id == field), None)
+            hit = mentioned_stored_value(message, values, prop)
+            if hit is None:
+                continue
+            value_type = prop.value_type if prop is not None else "STRING"
+            filters = _append_filter(filters, _typed_atom(field, str(hit), value_type))
+            changed = True
+    if not changed:
+        return query
+    return query.model_copy(update={"filters": filters})
 
 
 def _follow_ups(bundle: CompiledBundle, query: SemanticQuery) -> list[dict[str, str]]:
@@ -518,6 +675,47 @@ def _follow_ups(bundle: CompiledBundle, query: SemanticQuery) -> list[dict[str, 
             {"label": "看各对象明细", "message": f"{scope_text}{name}按对象列出明细{operation}"}
         )
     return items[:3]
+
+
+def _continue_after_duplicate(
+    service: QueryService,
+    actor: RequestActor,
+    message: str,
+    semantic: SemanticQuery,
+    locale: str,
+    assumptions: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Ask for a missing business condition instead of stopping on a grain clash."""
+    retry = prepare(service, semantic, actor)
+    if retry.status == "NEEDS_INPUT" and retry.question is not None:
+        payload = retry.model_dump(mode="json", by_alias=True)
+        payload.update(
+            {
+                "query": semantic.model_dump(mode="json", by_alias=True),
+                "originalQuestion": message,
+                "releaseDigest": service.bundle.digest,
+                "assumptions": assumptions,
+                "waiting": True,
+            }
+        )
+        return payload
+    question = ChoiceQuestion(
+        question_id="q-refine-scope-" + uuid.uuid4().hex,
+        revision=1,
+        slot="scope",
+        prompt=locale_text(locale, "duplicateUnit.prompt"),
+        reason=locale_text(locale, "duplicateUnit.reason"),
+        options=with_choice_exits(()),
+    )
+    return {
+        "status": "NEEDS_INPUT",
+        "waiting": True,
+        "question": question.model_dump(mode="json", by_alias=True),
+        "query": semantic.model_dump(mode="json", by_alias=True),
+        "originalQuestion": message,
+        "releaseDigest": service.bundle.digest,
+        "assumptions": assumptions,
+    }
 
 
 def _completed_payload(
@@ -587,7 +785,7 @@ def try_direct_turn(
             or intent.operation
             or intent.dimension_filters
             or intent.group_dimension
-            or intent.comparison
+            or intent.formula_shape
         )
         if explicit_refinement and prior.metrics:
             updates: dict[str, Any] = {}
@@ -620,8 +818,8 @@ def try_direct_turn(
         # dictionary dimension makes the rest of the question look structured.
         return None
     structured = bool(
-        intent.comparison
-        or intent.unsupported_capability
+        intent.formula_shape
+        or intent.clarify_grouping
         or intent.dimension_filters
         or intent.need_dimension
         or intent.group_dimension
@@ -650,7 +848,7 @@ def prepare_turn(
     semantic = query or query_from_intent(intent, service.bundle)
     decided_metric = any(d.choice.kind == "METRIC" for d in semantic.decisions)
     if intent.candidates and not decided_metric:
-        semantic = semantic.model_copy(update={"metrics": (), "comparison": None})
+        semantic = semantic.model_copy(update={"metrics": (), "formula": None})
         options = []
         for metric_id in intent.candidates[:3]:
             metric = next((item for item in service.bundle.metrics if item.id == metric_id), None)
@@ -662,7 +860,7 @@ def prepare_turn(
                     label=metric.label or metric_id,
                     # Internal semantic ids remain in the submitted choice,
                     # while the card shows only ontology-authored business copy.
-                    explanation=metric.description or metric.label or metric_id,
+                    explanation=metric.description or metric.label or " ",
                     choice=SemanticChoice(kind="METRIC", id=metric_id),
                 )
             )
@@ -671,8 +869,8 @@ def prepare_turn(
                 question_id="q-metric-intent-" + uuid.uuid4().hex,
                 revision=1,
                 slot="metric",
-                prompt="你说的指标是哪种口径？",
-                reason="本体中该业务词对应多个指标，口径会改变结果。",
+                prompt="请选择要看的指标。",
+                reason="这句话对应多项，选定后结果会不同。",
                 options=with_choice_exits(options),
             )
             return {
@@ -682,16 +880,17 @@ def prepare_turn(
                 "query": semantic.model_dump(mode="json", by_alias=True),
                 "originalQuestion": message,
                 "releaseDigest": service.bundle.digest,
+                "choiceContext": _choice_context(message, semantic, service.bundle),
             }
-    if intent.clarify_comparison and not any(
+    if intent.clarify_formula and not any(
         d.choice.kind == "COMPARISON" for d in semantic.decisions
     ):
         question = ChoiceQuestion(
-            question_id="q-comparison-" + uuid.uuid4().hex,
+            question_id="q-formula-" + uuid.uuid4().hex,
             revision=1,
-            slot="comparison",
-            prompt="你希望比较哪一种比例？",
-            reason="这些比例的分母和含义不同。",
+            slot="formula",
+            prompt="你希望怎样比较？",
+            reason="这几种算法的分母不同。",
             options=with_choice_exits(
                 [
                     ChoiceOption(
@@ -701,9 +900,9 @@ def prepare_turn(
                         choice=SemanticChoice(kind="COMPARISON", id=op),
                     )
                     for op, label, explanation in (
-                        ("SHARE_OF_TOTAL", "占总体总额", "主体数值除以总体合计"),
-                        ("RELATIVE_TO_MEAN", "相对均值增幅", "主体比总体平均值高多少"),
-                        ("STRICT_PEER", "严格优于同行", "严格胜出的同行数量占同行总数"),
+                        ("subject-ratio", "占总体合计", "主体数值除以总体合计"),
+                        ("mean-delta", "相对总体均值", "主体与总体平均值的差，再除以平均值"),
+                        ("peer-fraction", "严格优于同行的比例", "严格胜出的同行数量除以同行数量"),
                     )
                 ]
             ),
@@ -716,20 +915,10 @@ def prepare_turn(
             "originalQuestion": message,
             "releaseDigest": service.bundle.digest,
         }
-    if intent.unsupported_capability:
-        return {
-            "status": "UNSUPPORTED",
-            "kind": "unsupported",
-            "answerReady": True,
-            "textOrigin": "ENGINE",
-            "text": capability_message(intent.unsupported_capability, locale),
-            "errorCode": intent.unsupported_capability,
-            "query": semantic.model_dump(mode="json", by_alias=True),
-            "originalQuestion": message,
-            "releaseDigest": service.bundle.digest,
-        }
+    if intent.clarify_grouping and not any(d.choice.kind == "GROUP" for d in semantic.decisions):
+        return _grouping_question(service, message, semantic, intent)
     metric_ids = {item.id for item in semantic.metrics} or intent.metric_ids
-    if intent.comparison == "periodOverPeriod" and metric_ids:
+    if intent.formula_shape == "previous" and metric_ids:
         kinds = [
             next(
                 (row.additivity or "FULL" for row in service.bundle.metrics if row.id == item),
@@ -802,7 +991,7 @@ def prepare_turn(
     semantic = _revalidate_carried_scope(semantic, intent, service, actor)
     semantic = _apply_intent(semantic, intent, service.bundle)
     semantic, assumptions = _complete_explicit_scope(
-        semantic, intent, service.bundle, service, actor
+        semantic, intent, service.bundle, service, actor, message
     )
     try:
         prepared = prepare(service, semantic, actor)
@@ -874,6 +1063,10 @@ def prepare_turn(
                     "retryable": True,
                     "releaseDigest": service.bundle.digest,
                 }
+            if exc.code == "DUPLICATE_OR_MISSING_STATISTICAL_UNIT":
+                return _continue_after_duplicate(
+                    service, actor, message, semantic, locale, assumptions
+                )
             text = capability_message(exc.code, locale)
             return {
                 "status": "UNSUPPORTED",
@@ -891,6 +1084,7 @@ def prepare_turn(
         payload.update(completed)
     if prepared.status == "NEEDS_INPUT":
         payload["waiting"] = True
+        payload["choiceContext"] = _choice_context(message, semantic, service.bundle)
     return payload
 
 
@@ -973,11 +1167,15 @@ def prepare_claim_turn(
         }
     metric = next(item for item in service.bundle.metrics if item.id == rule.inputs[0].metric)
     obj = next(item for item in service.bundle.object_types if item.id == metric.object_type)
-    filters: dict[str, str | int | bool] = dict(identity or {})
+    identity_payload: dict[str, str | int | bool] = dict(identity or {})
     resolved_constraints = _resolved_role_constraints(service.bundle, {metric.id}, intent)
     for field, constraint in resolved_constraints:
         if constraint.operator == "EQ":
-            filters[field] = constraint.values[0]
+            identity_payload[field] = constraint.values[0]
+    filters = {key: value for key, value in identity_payload.items() if key in obj.identity_keys}
+    extra_bindings = {
+        key: value for key, value in identity_payload.items() if key not in obj.identity_keys
+    }
     display = [
         prop.id
         for prop in obj.properties
@@ -986,25 +1184,19 @@ def prepare_claim_turn(
     period_fields: tuple[str, ...] = ()
     if obj.period is not None:
         period_fields = (obj.period.from_property, obj.period.to_property)
-    requested = tuple(
-        dict.fromkeys(
-            [
-                *display,
-                *period_fields,
-                *rule.applicability,
-                *(obj.population.scope_properties if obj.population else ()),
-            ]
+    requested = tuple(dict.fromkeys([*display, *period_fields, *rule.applicability]))
+    try:
+        found = service.find_objects(
+            ObjectSearchRequest(
+                object_type=obj.id,
+                filters=filters,
+                properties=requested,
+                limit=50,
+            ),
+            actor,
         )
-    )
-    found = service.find_objects(
-        ObjectSearchRequest(
-            object_type=obj.id,
-            filters=filters,
-            properties=requested,
-            limit=50,
-        ),
-        actor,
-    )
+    except ValueError:
+        found = {"objects": [], "hasMore": False}
     rows = list(found.get("objects") or [])
     named = []
     folded = unicodedata.normalize("NFKC", message).casefold()
@@ -1094,19 +1286,86 @@ def prepare_claim_turn(
     }
     metric_grain = set(metric.grain)
     for field, constraint in resolved_constraints:
-        if constraint.operator == "EQ" and (field in metric_grain or field in obj.identity_keys):
+        if constraint.operator == "EQ" and field in obj.identity_keys:
             bindings[field] = constraint.values[0]
+    scope_values = {**extra_bindings}
+    for field, constraint in resolved_constraints:
+        if constraint.operator == "EQ" and field in metric_grain and field not in obj.identity_keys:
+            scope_values[field] = constraint.values[0]
     props = row.get("properties") or {}
     period_from = str(props.get(period_fields[0])) if period_fields else ""
     period_to = str(props.get(period_fields[1])) if len(period_fields) > 1 else ""
+    if not period_from or period_from == "None":
+        period_from, period_to = _period_from_year_bindings(
+            obj, {**bindings, **scope_values}, period_from, period_to
+        )
+    if (not period_from or period_from == "None") and metric.population:
+        missing_scope = next(
+            (
+                field
+                for field in metric.population.scope_properties
+                if field not in bindings and field not in scope_values
+            ),
+            None,
+        )
+        if missing_scope is not None:
+            observed_scope = _scope_values_for(service, metric.id, missing_scope, actor.tenant)
+            prop = next((item for item in obj.properties if item.id == missing_scope), None)
+            if prop is not None and observed_scope:
+                mentioned = mentioned_stored_value(message, observed_scope, prop)
+                if mentioned is not None:
+                    bindings[missing_scope] = mentioned
+                    period_from, period_to = _period_from_year_bindings(
+                        obj, bindings, period_from, period_to
+                    )
+                else:
+                    options = [
+                        ChoiceOption(
+                            id=f"opt_claim_scope_{index}",
+                            label=display_label(prop, value),
+                            explanation=prop.label or prop.id,
+                            choice=SemanticChoice(
+                                kind="DIMENSION_VALUE",
+                                id=str(value),
+                                field=missing_scope,
+                                predicate=_typed_atom(missing_scope, str(value), prop.value_type),
+                            ),
+                        )
+                        for index, value in enumerate(observed_scope[:5])
+                    ]
+                    question = ChoiceQuestion(
+                        question_id="q-claim-scope-" + uuid.uuid4().hex,
+                        revision=1,
+                        slot="scope:" + missing_scope,
+                        prompt=(
+                            f"要核验{rule.label or '这条规则'}，请选择{prop.label or prop.id}。"
+                        ),
+                        reason="选定后继续判断，不猜测期间。",
+                        options=with_choice_exits(options),
+                    )
+                    return {
+                        "status": "NEEDS_INPUT",
+                        "waiting": True,
+                        "mode": "claim",
+                        "claimId": claim_id,
+                        "question": question.model_dump(mode="json", by_alias=True),
+                        "query_state": {
+                            "mode": "claim",
+                            "claimId": claim_id,
+                            "identity": bindings,
+                            "originalQuestion": message,
+                        },
+                        "originalQuestion": message,
+                        "releaseDigest": service.bundle.digest,
+                    }
     if not period_from or period_from == "None":
         question = ChoiceQuestion(
             question_id="q-claim-period-" + uuid.uuid4().hex,
             revision=1,
             slot="claimPeriod",
             prompt="要按哪个业务期间核验？",
-            reason="规则需要本体对象提供明确的生效期间，不能从范围值猜测日期边界。",
-            options=with_choice_exits([]),
+            reason="这条规则还需要一个生效期间。",
+            options=with_choice_exits(()),
         )
         return {
             "status": "NEEDS_INPUT",
@@ -1136,7 +1395,7 @@ def prepare_claim_turn(
             "kind": "unsupported",
             "answerReady": True,
             "textOrigin": "ENGINE",
-            "text": f"规则未能完成核验（{exc.code}）。",
+            "text": "这条规则还不能完成核验，请补充对象或期间后再试。",
             "errorCode": exc.code,
             "originalQuestion": message,
             "releaseDigest": service.bundle.digest,
@@ -1243,6 +1502,16 @@ def submit_choice(
             raise ChoiceError("UNKNOWN_OPTION")
         if question.slot == "claim":
             prepared = prepare_claim_turn(service, actor, original, claim_id=chosen.choice.id)
+        elif chosen.choice.kind == "DIMENSION_VALUE" and chosen.choice.field:
+            identity = dict(state.get("identity") or {})
+            identity[chosen.choice.field] = chosen.choice.id
+            prepared = prepare_claim_turn(
+                service,
+                actor,
+                original,
+                claim_id=str(state.get("claimId") or ""),
+                identity=identity,
+            )
         else:
             if chosen.choice.field is None:
                 raise ChoiceError("SUBJECT_FIELD_REQUIRED")

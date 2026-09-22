@@ -161,9 +161,10 @@ def test_share_phrasing_allows_year_and_metric_between_zhan_and_total(
     from semaloom.app.chat.intent import TurnIntent
 
     intent = TurnIntent.read("样本企业 05 占2025年选定申报利润总额多少", gateway.query.bundle)
-    assert intent.comparison == "shareOfTotal"
+    assert intent.formula_shape == "subject_ratio"
     assert intent.metric_ids == frozenset({"finance.review.declared_profit"})
     assert intent.role_constraints[0].values == (2025,)
+    assert intent.role_constraints[0].role == "integer-scope"
 
 
 def test_claim_aliases_are_read_from_ontology(gateway: SemanticTools) -> None:
@@ -213,20 +214,15 @@ def test_model_schema_exposes_nested_comparison_fields_without_weakening_python(
     raw = next(item for item in gateway.catalog() if item["name"] == "prepare_semantic_query")
     schema = json.dumps(raw["inputSchema"])
     assert "$ref" not in schema
-    comparison = raw["inputSchema"]["properties"]["query"]["properties"]["comparison"]
-    assert comparison["type"] == "object"
-    assert set(comparison["properties"]["op"]["enum"]) == {
-        "SHARE_OF_TOTAL",
-        "RELATIVE_TO_MEAN",
-        "STRICT_PEER",
-        "PERIOD_OVER_PERIOD",
-    }
-    assert comparison["properties"]["subject"]["type"] == "object"
+    formula = raw["inputSchema"]["properties"]["query"]["properties"]["formula"]
+    assert formula["type"] == "object"
+    assert set(formula["properties"]["op"]["enum"]) == {"VALUE", "RATIO", "DIFFERENCE"}
+    assert "SHARE_OF_TOTAL" not in schema
     with pytest.raises(ValidationError):
         SemanticQuery.model_validate(
             {
                 "apiVersion": "semaloom/v0.1",
                 "metrics": [{"id": "m", "aggregation": "SUM"}],
-                "comparison": '{"op":"SHARE_OF_TOTAL"}',
+                "formula": "RATIO",
             }
         )

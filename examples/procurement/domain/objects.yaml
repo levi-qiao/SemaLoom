@@ -148,7 +148,6 @@
       valueType: STRING
       required: true
       aliases: [合同期间, 账期]
-      semanticRoles: [time.period, time.sequence]
     - id: category
       label: 合同类别
       valueType: STRING

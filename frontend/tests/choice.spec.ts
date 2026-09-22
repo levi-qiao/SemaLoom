@@ -71,8 +71,9 @@ test("choice cards against isolated Python Chat: three rounds, tables, refresh r
     .filter({ hasNotText: "其他" })
     .first();
   await firstLive.click();
-  await expect(page.getByRole("combobox", { name: "要计算哪一年？" })).toBeVisible();
-  await page.getByRole("combobox", { name: "要计算哪一年？" }).selectOption({ label: "2024 年" });
+  const scopeSelect = page.getByRole("form", { name: "业务选择" }).getByRole("combobox");
+  await expect(scopeSelect).toHaveAccessibleName(/请选择年度/);
+  await scopeSelect.selectOption({ label: "2024" });
   await expect(page.getByText("希望如何统计这个指标？")).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "合计", exact: true }).click();

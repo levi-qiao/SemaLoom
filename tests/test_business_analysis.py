@@ -162,6 +162,40 @@ def test_search_requires_selection_and_limits_tenant(financial_query: QueryServi
     assert not missing["objects"]
 
 
+def test_object_search_rejects_ambiguous_partial_mappings(financial_query: QueryService) -> None:
+    mapping = next(
+        item for item in financial_query.bundle.mappings if item.target == "finance.ReviewCase"
+    )
+    physical = {
+        **mapping.physical,
+        "propertyColumns": {
+            key: value
+            for key, value in mapping.physical["propertyColumns"].items()
+            if key != "uniquePair"
+        },
+    }
+    partial = mapping.model_copy(update={"physical": physical})
+    duplicate = partial.model_copy(update={"id": mapping.id + ".alternative"})
+    bundle = financial_query.bundle.model_copy(
+        update={
+            "mappings": (
+                *(
+                    item
+                    for item in financial_query.bundle.mappings
+                    if item.target != mapping.target
+                ),
+                partial,
+                duplicate,
+            )
+        }
+    )
+    service = QueryService(bundle, financial_query.provider)
+    with pytest.raises(ValueError, match="AMBIGUOUS_MAPPING"):
+        service.find_objects(
+            ObjectSearchRequest(object_type=mapping.target, properties=("uniquePair",)), ACTOR
+        )
+
+
 def test_chat_gateway_turns_broad_object_search_into_scope_card(
     financial_query: QueryService,
 ) -> None:

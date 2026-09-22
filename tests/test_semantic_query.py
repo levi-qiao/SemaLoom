@@ -163,19 +163,24 @@ def test_group_and_or_topn(population_query: Any) -> None:
 
 def test_share_does_not_shrink_denominator(population_query: Any) -> None:
     query = _query(
-        comparison={
-            "op": "SHARE_OF_TOTAL",
-            "metric": "finance.review.declared_profit",
+        formula={
+            "op": "RATIO",
             "subject": {"identity": {"caseId": "C2"}},
+            "left": {
+                "metric": "finance.review.declared_profit",
+                "aggregation": "SUM",
+                "scope": "SUBJECT",
+            },
+            "right": {"metric": "finance.review.declared_profit", "aggregation": "SUM"},
         }
     )
     prepared = prepare(population_query, query, ACTOR)
     assert prepared.plan is not None
     result = execute(population_query, prepared.plan, ACTOR)
-    comparison = result.scope["comparison"]
-    assert Decimal(comparison["numerator"]) == Decimal("100.02")
-    assert Decimal(comparison["denominator"]) == Decimal("300.03")
-    assert Decimal(comparison["value"]) == Decimal("100.02") / Decimal("300.03") * 100
+    calculation = result.scope["calculation"]
+    assert Decimal(calculation["numerator"]) == Decimal("100.02")
+    assert Decimal(calculation["denominator"]) == Decimal("300.03")
+    assert Decimal(calculation["value"]) == Decimal("100.02") / Decimal("300.03")
 
 
 def test_thousands_of_rows_pushdown_caps_evidence_only(population_query: Any) -> None:

@@ -64,7 +64,7 @@
         "revision": 1,
         "slot": "scope:taxYear",
         "prompt": "请选择年度。",
-        "reason": "缺少确定统计范围所需的业务维度。",
+        "reason": "还需要选定期间或口径，选定后继续计算。",
         "multiSelect": false,
         "options": [
           {

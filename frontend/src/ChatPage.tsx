@@ -66,7 +66,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
   const { locale, t } = useI18n();
   const getErrorMessage = (code: string) => {
     const key = errorCodeMap[code];
-    return key ? t(key) : code;
+    return key ? t(key) : t("chat.error.unknown");
   };
   const getToolName = (name: string) => {
     const key = toolNameMap[name];
@@ -211,7 +211,7 @@ export function ChatPage({ session }: { session: StudioSession }) {
               item.stage === "tool"
                 ? (getToolName(item.name) || t("chat.readingBusinessInfo"))
                 : item.outcome === "error"
-                ? t("chat.correctingTool", { code: item.code })
+                ? t("chat.correctingTool")
                 : t("chat.preparingAnalysis")
             );
           } else if (item.type === "choice") {

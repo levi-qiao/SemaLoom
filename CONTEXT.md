@@ -8,7 +8,7 @@ SemaLoom 描述企业业务的含义、事实来源、确定性判断与受控�
 
 **ObjectIdentity（对象身份）**：在租户及对象类型内唯一标识一个对象的业务键集合；同名字段不构成相同身份。
 
-**Property（属性）**：对象的描述性或状态性特征。带 `unit` 的数值属性是测量槽，对应表中的金额/数量列，不是另建一层科目清单。测量槽可选声明 Kimball **可加性**（`FULL` / `SEMI` / `NONE`，默认 `FULL`）：库存与余额沿时间不可 SUM，比率不可 SUM/AVG。见 [ADR-0013](docs/adr/0013-measure-additivity.md)。STRING/INTEGER/BOOLEAN 属性可声明 **取值字典**（`values`：存储 id、显示名、别名）；Chat 把未说出的维值变成卡片或下拉，不猜测、不把自由文本当筛选。见 [ADR-0014](docs/adr/0014-ontology-dictionaries.md)。
+**Property（属性）**：对象的描述性或状态性特征。带 `unit` 的数值属性是测量槽，对应表中的金额/数量列，不是另建一层科目清单。测量槽可选声明 Kimball **可加性**（`FULL` / `SEMI` / `NONE`，默认 `FULL`）：库存与余额沿时间不可 SUM，比率不可 SUM/AVG。见 [ADR-0013](docs/adr/0013-measure-additivity.md)。STRING/INTEGER/BOOLEAN 属性可选用闭集 **取值字典**（`values`：存储 id、显示名、别名），也可由接入层从字典表或观测列读取标签；Chat 把未说出的维值变成选择题，不猜测、不把自由文本当筛选。见 [ADR-0014](docs/adr/0014-ontology-dictionaries.md)。
 
 **Metric（测量 IR）**：Query、Rule、SemanticQuery 与 Chat 发现的**稳定语义入口（查询面一级公民）**。作者面不是独立物理种类：带 `unit` 的 Property 是测量槽，一表一条 Mapping；Compiler 从槽与 Mapping 生成 Metric IR（默认 ID `{objectType}.{property}`），并继承单位、粒度和可加性。可选**词条**只补充业务名、别名、口径或 EAV `select`，不另写表 Mapping、不穷举来源科目。合计、平均是查询算子，不是本体类。见 [ADR-0012](docs/adr/0012-facts-and-business-vocabulary.md)、[ADR-0013](docs/adr/0013-measure-additivity.md)。
 

@@ -20,7 +20,9 @@ FilterOp = Literal["EQ", "NE", "LT", "LE", "GT", "GE", "IN", "BETWEEN"]
 BoolOp = Literal["AND", "OR", "NOT"]
 AggregationOp = Literal["SUM", "MIN", "MAX", "COUNT", "AVG"]
 TimeGrain = str
-ComparisonOp = Literal["SHARE_OF_TOTAL", "RELATIVE_TO_MEAN", "STRICT_PEER", "PERIOD_OVER_PERIOD"]
+TermScope = Literal["QUERY", "SUBJECT", "PEERS"]
+ValueRelation = Literal["LT", "GT"]
+FormulaOp = Literal["VALUE", "RATIO", "DIFFERENCE"]
 ChoiceKind = Literal[
     "METRIC",
     "AGGREGATION",
@@ -29,6 +31,7 @@ ChoiceKind = Literal[
     "SUBJECT",
     "DIMENSION_VALUE",
     "CLAIM",
+    "GROUP",
     "ABORT",
     "FILTER",
     "OTHER",
@@ -38,9 +41,7 @@ AbortCode = Literal["unclear", "mismatch"]
 MissingPolicy = Literal["reject", "exclude"]
 
 SUPPORTED_AGGREGATIONS: frozenset[str] = frozenset({"SUM", "MIN", "MAX", "COUNT", "AVG"})
-SUPPORTED_COMPARISONS: frozenset[str] = frozenset(
-    {"SHARE_OF_TOTAL", "RELATIVE_TO_MEAN", "STRICT_PEER", "PERIOD_OVER_PERIOD"}
-)
+SUPPORTED_FORMULAS: frozenset[str] = frozenset({"VALUE", "RATIO", "DIFFERENCE"})
 UNSUPPORTED_OPERATORS: frozenset[str] = frozenset(
     {
         "WINDOW_LAG",
@@ -160,11 +161,59 @@ class SubjectSelector(_Frozen):
         return self
 
 
-class ComparisonExpr(_Frozen):
-    op: ComparisonOp
+class MeasureTerm(_Frozen):
+    """One aggregation of one metric.
+
+    ``QUERY`` uses the request filters. ``SUBJECT`` adds the formula subject
+    and does not narrow sibling terms. ``PEERS`` drops that subject.
+    ``previous_observed`` rebinds one equality-constrained scope property to
+    the previous observed value. ``value_relation`` counts peers whose measure
+    stands strictly on that side of the subject aggregate.
+    """
+
     metric: str
+    aggregation: AggregationOp
+    scope: TermScope = "QUERY"
+    value_relation: ValueRelation | None = None
+    previous_observed: bool = False
+
+
+class Formula(_Frozen):
+    """Scalar composition over measure terms. No named business comparison."""
+
+    op: FormulaOp
+    left: MeasureTerm | Formula
+    right: MeasureTerm | Formula | None = None
     subject: SubjectSelector | None = None
-    direction: Literal["higher", "lower"] = "higher"
+
+    @model_validator(mode="after")
+    def arity(self) -> Formula:
+        if self.op == "VALUE" and self.right is not None:
+            raise ValueError("VALUE takes one measure")
+        if self.op != "VALUE" and self.right is None:
+            raise ValueError(f"{self.op} takes two measures")
+        return self
+
+
+Formula.model_rebuild()
+
+
+def iter_measure_terms(node: Formula | MeasureTerm) -> tuple[MeasureTerm, ...]:
+    if isinstance(node, MeasureTerm):
+        return (node,)
+    right = () if node.right is None else iter_measure_terms(node.right)
+    return (*iter_measure_terms(node.left), *right)
+
+
+def formula_needs_subject(formula: Formula) -> bool:
+    return any(
+        term.scope in {"SUBJECT", "PEERS"} or term.value_relation is not None
+        for term in iter_measure_terms(formula)
+    )
+
+
+def formula_metric_ids(formula: Formula) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(term.metric for term in iter_measure_terms(formula)))
 
 
 class SemanticChoice(_Frozen):
@@ -252,8 +301,8 @@ class ChoiceQuestion(_Frozen):
         kinds = {item.choice.kind for item in self.options}
         if "ABORT" not in kinds:
             raise ValueError("choice questions must include an ABORT option")
-        if self.multi_select and self.slot in {"metric", "year", "missingPolicy"}:
-            raise ValueError("metric, year and missingPolicy questions are single-select")
+        if self.multi_select and self.slot in {"metric", "missingPolicy", "group"}:
+            raise ValueError("metric, group and missingPolicy questions are single-select")
         return self
 
 
@@ -279,7 +328,7 @@ class SemanticQuery(_Frozen):
     filters: FilterAtom | FilterGroup | None = None
     order_by: tuple[OrderByItem, ...] = ()
     limit: int | None = Field(default=None, ge=1, le=1000)
-    comparison: ComparisonExpr | None = None
+    formula: Formula | None = None
     missing_policy: MissingPolicy | None = None
     evidence_limit: int = Field(default=50, ge=1, le=50)
     decisions: tuple[Decision, ...] = ()
@@ -410,7 +459,8 @@ def merge_decision(
     metrics = list(query.metrics)
     filters = query.filters
     missing = query.missing_policy
-    comparison = query.comparison
+    formula = query.formula
+    group_by = query.group_by
     for option in selected:
         choice = option.choice
         if choice.kind == "METRIC":
@@ -423,13 +473,16 @@ def merge_decision(
             aggregation = cast(AggregationOp, choice.id)
             metrics = [item.model_copy(update={"aggregation": aggregation}) for item in metrics]
         elif choice.kind == "COMPARISON":
-            if choice.id not in SUPPORTED_COMPARISONS or not metrics:
+            if not metrics:
                 raise ChoiceError("UNKNOWN_OPTION")
-            comparison = ComparisonExpr(
-                op=cast(ComparisonOp, choice.id),
-                metric=metrics[0].id,
-                subject=comparison.subject if comparison else None,
-            )
+            built = _formula_choice(choice.id, metrics[0].id, formula.subject if formula else None)
+            if built is None:
+                raise ChoiceError("UNKNOWN_OPTION")
+            formula = built
+        elif choice.kind == "GROUP":
+            if not choice.id:
+                raise ChoiceError("INVALID_CHOICE")
+            group_by = (GroupByItem(id=choice.id),)
         elif choice.kind == "FILTER":
             if choice.predicate is None:
                 raise ChoiceError("INVALID_CHOICE")
@@ -441,13 +494,10 @@ def merge_decision(
                 raise ChoiceError("UNKNOWN_OPTION")
             missing = choice.id  # type: ignore[assignment]
         elif choice.kind == "SUBJECT":
-            if choice.field is None:
+            if choice.field is None or formula is None:
                 raise ChoiceError("SUBJECT_FIELD_REQUIRED")
-            comparison = ComparisonExpr(
-                op=comparison.op if comparison else "SHARE_OF_TOTAL",
-                metric=comparison.metric if comparison else metrics[0].id,
-                subject=SubjectSelector(identity={choice.field: choice.id}),
-                direction=comparison.direction if comparison else "higher",
+            formula = formula.model_copy(
+                update={"subject": SubjectSelector(identity={choice.field: choice.id})}
             )
         elif choice.kind == "DIMENSION_VALUE":
             if choice.predicate is not None:
@@ -487,10 +537,44 @@ def merge_decision(
             "metrics": tuple(metrics),
             "filters": filters,
             "missing_policy": missing,
-            "comparison": comparison,
+            "formula": formula,
+            "group_by": group_by,
             "decisions": decisions,
         }
     )
+
+
+def _formula_choice(choice_id: str, metric: str, subject: SubjectSelector | None) -> Formula | None:
+    """Build a scalar formula from a server-owned clarification id."""
+
+    if choice_id == "subject-ratio":
+        return Formula(
+            op="RATIO",
+            subject=subject,
+            left=MeasureTerm(metric=metric, aggregation="SUM", scope="SUBJECT"),
+            right=MeasureTerm(metric=metric, aggregation="SUM"),
+        )
+    if choice_id == "mean-delta":
+        return Formula(
+            op="RATIO",
+            subject=subject,
+            left=Formula(
+                op="DIFFERENCE",
+                left=MeasureTerm(metric=metric, aggregation="SUM", scope="SUBJECT"),
+                right=MeasureTerm(metric=metric, aggregation="AVG"),
+            ),
+            right=MeasureTerm(metric=metric, aggregation="AVG"),
+        )
+    if choice_id == "peer-fraction":
+        return Formula(
+            op="RATIO",
+            subject=subject,
+            left=MeasureTerm(
+                metric=metric, aggregation="COUNT", scope="PEERS", value_relation="LT"
+            ),
+            right=MeasureTerm(metric=metric, aggregation="COUNT", scope="PEERS"),
+        )
+    return None
 
 
 __all__ = [
@@ -499,11 +583,16 @@ __all__ = [
     "ChoiceError",
     "ChoiceQuestion",
     "ChoiceSubmit",
+    "Formula",
+    "MeasureTerm",
     "PrepareResult",
     "QueryResult",
     "QuerySessionState",
     "SemanticQuery",
     "abort_option",
+    "formula_metric_ids",
+    "formula_needs_subject",
+    "iter_measure_terms",
     "merge_decision",
     "other_option",
     "with_choice_exits",

@@ -81,10 +81,10 @@ def test_single_member_share_is_one_hundred(gold_query: Any) -> None:
         year=2025,
         comparison={"identity": {"caseId": "Y25A"}, "operation": "shareOfTotal"},
     )
-    comparison = result.scope["comparison"]
-    assert Decimal(comparison["numerator"]) == Decimal("50.25")
-    assert Decimal(comparison["denominator"]) == Decimal("50.25")
-    assert Decimal(comparison["value"]) == Decimal("100")
+    calculation = result.scope["calculation"]
+    assert Decimal(calculation["numerator"]) == Decimal("50.25")
+    assert Decimal(calculation["denominator"]) == Decimal("50.25")
+    assert Decimal(calculation["value"]) == Decimal("1")
     assert result.scope["populationCount"] == result.scope["observedCount"] == 1
 
 

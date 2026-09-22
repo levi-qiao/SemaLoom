@@ -46,10 +46,10 @@ def population_query(financial_query: Any) -> Any:  # noqa: F811
 
 def test_intent_allows_multi_year_and_metric_for_generic_query(population_query: Any) -> None:
     intent = TurnIntent.read("2024年和2025年申报营业收入与应纳税所得额", population_query.bundle)
-    assert intent.role_constraints[0].role == "time.year"
+    assert intent.role_constraints[0].role == "integer-scope"
     assert intent.role_constraints[0].operator == "IN"
     assert intent.role_constraints[0].values == (2024, 2025)
-    assert intent.grouping_role == "time.year"
+    assert intent.grouping_role == "scope"
     query = query_from_intent(intent, population_query.bundle)
     assert isinstance(query, SemanticQuery)
     assert query.group_by == (GroupByItem(id="taxYear"),)
@@ -582,6 +582,95 @@ def test_capability_message_explains_link_boundary() -> None:
     assert "ONE" in text or "一对一" in text or "基数为 ONE" in text
     assert "不支持" in text
     assert capability_message(None)
+    duplicate = capability_message("DUPLICATE_OR_MISSING_STATISTICAL_UNIT")
+    assert "DUPLICATE_OR_MISSING_STATISTICAL_UNIT" not in duplicate
+    unknown = capability_message("SOME_NEW_INTERNAL_CODE")
+    assert "SOME_NEW_INTERNAL_CODE" not in unknown
+
+
+def test_tax_filing_amount_guides_with_scope_cards() -> None:
+    from semaloom.app.bootstrap import build_services
+
+    services = build_services(load_data=True)
+    intent = TurnIntent.read("我要查纳税申报金额", services.query.bundle)
+    assert intent.metric_ids == frozenset({"tax.reportedIncome"})
+    result = try_direct_turn(services.query, ACTOR, "我要查纳税申报金额")
+    assert result is not None
+    assert result["status"] == "NEEDS_INPUT"
+    assert result["waiting"] is True
+    assert "DUPLICATE_OR_MISSING_STATISTICAL_UNIT" not in str(result)
+    assert result["question"]["slot"] == "scope:taxYear"
+    labels = [item["label"] for item in result["question"]["options"]]
+    assert "2024" in labels
+    assert "其他" in labels
+
+
+def test_overlap_tax_phrase_offers_reported_income_card() -> None:
+    bundle = compile_examples()
+    intent = TurnIntent.read("查纳税申报这一块", bundle)
+    assert not intent.metric_ids
+    assert intent.candidates[0] == "tax.reportedIncome"
+
+
+def test_named_period_skips_scope_card() -> None:
+    from semaloom.app.bootstrap import build_services
+
+    services = build_services(load_data=True)
+    result = try_direct_turn(services.query, ACTOR, "2025-01合同总额合计")
+    assert result is not None
+    assert result.get("answerReady")
+    assert "6500" in result["text"]
+    assert result["status"] != "NEEDS_INPUT"
+
+
+def test_region_filter_uses_business_label() -> None:
+    from semaloom.app.bootstrap import build_services
+
+    services = build_services(load_data=True)
+    result = try_direct_turn(services.query, ACTOR, "华东区采购额合计")
+    assert result is not None
+    assert result.get("answerReady")
+    assert "EAST" not in result["text"]
+    assert "华东区" in result["text"]
+
+
+def test_summarize_word_does_not_ask_aggregation() -> None:
+    from semaloom.app.bootstrap import build_services
+
+    services = build_services(load_data=True)
+    result = try_direct_turn(services.query, ACTOR, "按供应商名称汇总采购金额")
+    assert result is not None
+    if result.get("waiting"):
+        assert result["question"]["slot"] != "aggregation"
+
+
+def test_income_reconcile_offers_subject_or_period_cards() -> None:
+    from semaloom.app.bootstrap import build_services
+
+    services = build_services(load_data=True)
+    result = try_direct_turn(services.query, ACTOR, "申报与审计收入是否一致")
+    assert result is not None
+    assert result.get("waiting") is True
+    assert result["question"]["slot"] in {"claimSubject", "scope:taxYear", "claim"}
+    blob = str(result)
+    assert "AMBIGUOUS_MAPPING" not in blob
+    assert "CARDINALITY_VIOLATION" not in blob
+
+
+def test_duplicate_unit_asks_to_continue(population_query: Any) -> None:
+    from tests.analysis_support import analysis_query
+
+    with population_query.provider._engines["sample_pg"].begin() as conn:
+        conn.execute(text("UPDATE sample_financial_review SET company_id='duplicate'"))
+    result = prepare_turn(
+        population_query, ACTOR, "请按当前范围计算", analysis_query(operation="mean")
+    )
+    assert result["status"] == "NEEDS_INPUT"
+    assert result["waiting"] is True
+    assert "DUPLICATE_OR_MISSING_STATISTICAL_UNIT" not in str(result)
+    assert result["question"]["slot"] in {"scope", "scope:taxYear"}
+    kinds = {item["choice"]["kind"] for item in result["question"]["options"]}
+    assert kinds >= {"ABORT", "OTHER"}
 
 
 def _query_with_split_tax_return_table(service: Any) -> QueryService:
