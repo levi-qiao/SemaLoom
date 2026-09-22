@@ -2,8 +2,15 @@ import { useState } from "react";
 import { apiHeaders, checkedJson } from "./api";
 import { IconAlert } from "./icons";
 import { Modal } from "./Modal";
-import { useI18n, currentLocale } from "./i18n";
+import { useI18n, currentLocale, type I18nKey } from "./i18n";
 import type { ApiAuth, ApiOperation, ApiParameter, ApiService } from "./types";
+
+const specErrorKeys: Record<string, I18nKey> = {
+  SPEC_ORIGIN_NOT_ALLOWED: "api.originNotAllowed",
+  SPEC_REDIRECT_NOT_ALLOWED: "api.redirectNotAllowed",
+  SPEC_TOO_LARGE: "api.specTooLarge",
+  SPEC_FETCH_FAILED: "api.fetchFailed",
+};
 
 type Props = {
   open: boolean;
@@ -219,7 +226,8 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
       const parsed = parseSpec(specObj, url.trim());
       setPreviewService(parsed);
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : t("api.fetchFailed"));
+      const code = err instanceof Error ? err.message : "SPEC_FETCH_FAILED";
+      setParseError(specErrorKeys[code] ? code : "SPEC_FETCH_FAILED");
     } finally {
       setBusy(false);
     }
@@ -351,7 +359,7 @@ export function ApiImportModal({ open, onClose, onImport, onError }: Props) {
           {parseError ? (
             <div className="import-error-box" role="alert">
               <IconAlert size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-              <span>{parseError}</span>
+              <span>{specErrorKeys[parseError] ? t(specErrorKeys[parseError]) : parseError}</span>
             </div>
           ) : null}
 

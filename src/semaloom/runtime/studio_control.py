@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 from semaloom.adapters.mapping import BuiltinMappingCompiler
 from semaloom.compiler import compile_documents
@@ -39,6 +40,9 @@ class DraftSnapshot:
     documents: tuple[Document, ...]
     candidate_digest: str
     exists: bool
+
+    def compile(self) -> CompiledBundle:
+        return _compile(self.documents)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -154,8 +158,10 @@ class StudioDraftService:
             )
             conn.execute(text("ALTER TABLE studio_draft DROP COLUMN payload"))
 
-    def load(self, tenant: str, draft_id: str) -> DraftSnapshot:
-        with self.engine.connect() as conn:
+    def load(
+        self, tenant: str, draft_id: str, *, connection: Connection | None = None
+    ) -> DraftSnapshot:
+        with nullcontext(connection) if connection is not None else self.engine.connect() as conn:
             row = conn.execute(
                 text(
                     """
@@ -163,6 +169,7 @@ class StudioDraftService:
                     FROM studio_draft
                     WHERE tenant_id = :tenant_id AND draft_id = :draft_id
                     """
+                    + (" FOR UPDATE" if connection is not None else "")
                 ),
                 {"tenant_id": tenant, "draft_id": draft_id},
             ).first()
@@ -194,10 +201,12 @@ class StudioDraftService:
         draft_id: str,
         documents: list[Document],
         expected_revision: int,
+        *,
+        connection: Connection | None = None,
     ) -> DraftSnapshot:
         candidate = _compile(tuple(dict(item) for item in documents))
         encoded = json.dumps(documents)
-        with self.engine.begin() as conn:
+        with nullcontext(connection) if connection is not None else self.engine.begin() as conn:
             row = conn.execute(
                 text(
                     """
@@ -281,7 +290,7 @@ class StudioDraftService:
         return definition_impacts(snapshot.documents, semantic_id)
 
     def bundle(self, tenant: str, draft_id: str) -> CompiledBundle:
-        return _compile(self.load(tenant, draft_id).documents)
+        return self.load(tenant, draft_id).compile()
 
     def history(self, tenant: str, draft_id: str) -> list[dict[str, Any]]:
         with self.engine.connect() as conn:

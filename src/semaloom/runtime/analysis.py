@@ -239,6 +239,7 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
             release_digest=service.bundle.digest,
             query=query,
             compiled_digest=digest,
+            environment_binding_digest=service.environment_binding_digest,
         ),
     )
 
@@ -285,6 +286,22 @@ def execute(service: QueryService, plan: PlanRef, actor: RequestActor) -> QueryR
         raise PermissionError("FORBIDDEN")
     if plan.release_digest != service.bundle.digest:
         raise AnalysisError("VERSION_INVALID")
-    return cast(
+    if plan.environment_binding_digest != service.environment_binding_digest:
+        raise AnalysisError("VERSION_INVALID")
+    result = cast(
         QueryResult, _backend(service, "execute_analysis")(service.bundle, plan, actor.tenant)
+    )
+    if service.environment_binding_digest is None:
+        return result
+    return result.model_copy(
+        update={
+            "scope": {
+                **result.scope,
+                "environmentBindingDigest": service.environment_binding_digest,
+            },
+            "source_activities": tuple(
+                {**item, "environmentBindingDigest": service.environment_binding_digest}
+                for item in result.source_activities
+            ),
+        }
     )

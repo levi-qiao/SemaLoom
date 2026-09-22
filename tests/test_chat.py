@@ -409,3 +409,19 @@ def test_list_conversations_and_continue_conversation(client: TestClient) -> Non
     listing2 = client.get("/v0.1/chat/conversations", headers=headers).json()
     updated = next(c for c in listing2["conversations"] if c["id"] == cid)
     assert updated["turnCount"] == 2
+
+
+def test_claim_period_clarification_is_english_and_keeps_choices() -> None:
+    from semaloom.app.chat.i18n import text
+
+    question = {
+        "slot": "claimPeriod",
+        "prompt": text("zh-CN", "claimPeriod.prompt"),
+        "reason": text("zh-CN", "claimPeriod.reason"),
+        "options": [],
+    }
+    localized = localize_question(question, "en")
+    assert localized is not None
+    assert localized["prompt"] == "Which business period should be evaluated?"
+    assert localized["reason"] == "This rule requires an effective business period."
+    assert localized["options"] == []

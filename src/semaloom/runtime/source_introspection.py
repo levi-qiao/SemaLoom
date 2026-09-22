@@ -24,6 +24,8 @@ def peek_source_rows(
     schema: str | None,
     tenant: str,
     limit: int = 20,
+    *,
+    tenant_column: str = "tenant_id",
 ) -> dict[str, Any]:
     """Bounded tenant-scoped row peek for mapping UI. Identifiers must match the catalog."""
     catalog = introspect_source(provider, url)
@@ -54,15 +56,15 @@ def peek_source_rows(
             "rows": [],
             "reason": None if column_names else "NO_COLUMNS",
         }
-    qualified = (
-        f"{schema_name}.{table_name}" if schema_name and schema_name != "public" else table_name
-    )
-    where = ""
-    params: dict[str, Any] = {}
-    if "tenant_id" in column_names:
-        where = " WHERE tenant_id = :tenant"
-        params["tenant"] = tenant
-    capped = min(limit, MAX_PREVIEW_ROWS)
+    tenant_column = require_ident(tenant_column, field="tenantColumn")
+    catalog_columns = {item.get("name") for item in match.get("columns", [])}
+    if not tenant or tenant_column not in catalog_columns:
+        return {"columns": column_names, "rows": [], "reason": "TENANT_SCOPE_REQUIRED"}
+    schema_name = require_ident(match.get("schema"), field="schema")
+    qualified = f"{schema_name}.{table_name}"
+    where = f" WHERE {tenant_column} = :tenant"
+    params: dict[str, Any] = {"tenant": tenant}
+    capped = max(1, min(limit, MAX_PREVIEW_ROWS))
     sql = text(f"SELECT {', '.join(column_names)} FROM {qualified}{where} LIMIT {capped}")
     engine = engine_from_url(url)
     try:

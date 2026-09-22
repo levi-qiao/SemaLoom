@@ -69,7 +69,7 @@ jobs:
       - run: pnpm build
       - name: Verify packaged Studio assets are current
         working-directory: .
-        run: git diff --exit-code -- src/semaloom/app/static
+        run: git diff --exit-code -- src/semaloom/app/static src/semaloom/app/chat/locales
 
   browser:
     runs-on: ubuntu-latest

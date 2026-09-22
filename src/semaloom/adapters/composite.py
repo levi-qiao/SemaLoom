@@ -29,6 +29,15 @@ class CompositeReadProvider:
     def __init__(self, providers: dict[str, ReadProvider]) -> None:
         self._providers = providers
 
+    def bind_sources(self, tenant: str, urls: dict[str, dict[str, str]]) -> CompositeReadProvider:
+        providers: dict[str, ReadProvider] = {}
+        for kind, provider in self._providers.items():
+            bind = getattr(provider, "bind_sources", None)
+            if not callable(bind):
+                raise ValueError("provider does not support pinned source bindings")
+            providers[kind] = bind(tenant, urls.get(kind, {}))
+        return CompositeReadProvider(providers)
+
     def fetch_metric(
         self,
         mapping: MappingDef,

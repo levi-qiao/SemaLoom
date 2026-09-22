@@ -51,7 +51,7 @@ uv run semaloom load-fixtures
 uv run semaloom compile examples/tax examples/procurement
 uv run semaloom query \
   --metric tax.reportedIncome \
-  --binding taxpayer=TAXPAYER-A \
+  --binding taxpayerId=TAXPAYER-A \
   --binding taxYear=2024 \
   --binding perspective=TAX_RETURN \
   --period-from 2024-01-01 \
@@ -185,7 +185,7 @@ Missing observation (no synthetic row):
 ```bash
 uv run semaloom query \
   --metric tax.reportedIncome \
-  --binding taxpayer=TAXPAYER-B \
+  --binding taxpayerId=TAXPAYER-B \
   --binding taxYear=2025 \
   --binding perspective=TAX_RETURN \
   --period-from 2025-01-01 \
@@ -263,3 +263,15 @@ Performance, production identity-provider/revocation integration, composite-key 
 joins, MCP Actions/history, Action crash recovery, and a signed SBOM are **not** accepted on this path. Point
 reads and Link traversal already preserve complete structured identities; see
 [capabilities](capabilities.md).
+
+## Safe configuration and API document import
+
+`load-fixtures` resets only the known loopback synthetic databases shown above. It rejects remote hosts,
+other database names and URL query overrides before connecting; use a separate project environment for
+business data. A missing or empty pack directory is a compilation error, including a wheel installation
+without `SEMALOOM_PACK_PATHS` pointing to real domain/integration definitions.
+
+Remote OpenAPI document import is disabled until the deployment administrator sets
+`SEMALOOM_SPEC_ALLOWED_ORIGINS`, for example `http://127.0.0.1:8000` for the local demonstration server.
+List exact origins separated by commas, with no paths; redirects are refused and documents are limited to
+1 MiB. Pasting a document requires no network allowlist. A blocked import reports a recovery message in Studio.

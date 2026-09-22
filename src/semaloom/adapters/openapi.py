@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from threading import RLock
 from typing import Any
+from weakref import finalize
 
 import httpx
 
@@ -25,6 +27,18 @@ class OpenApiReadProvider:
         self._clients = clients
         self._base_url_resolver = base_url_resolver
         self._dynamic_clients: dict[tuple[str, str, str], httpx.Client] = {}
+        self._pool_lock = RLock()
+        self._pool_finalizer = finalize(
+            self, _close_dynamic_clients, self._dynamic_clients, self._pool_lock
+        )
+
+    def bind_sources(self, tenant: str, urls: dict[str, str]) -> OpenApiReadProvider:
+        """Freeze destinations in a snapshot that owns its temporary clients."""
+        destinations = dict(urls)
+        return OpenApiReadProvider(
+            {},
+            lambda caller, source: destinations.get(source) if caller == tenant else None,
+        )
 
     def fetch_object(
         self,
@@ -224,27 +238,32 @@ class OpenApiReadProvider:
         return ObjectSearch(kind="UNAVAILABLE", reason="SEARCH_NOT_SUPPORTED", observed_at=_now())
 
     def close(self) -> None:
-        for client in {*self._clients.values(), *self._dynamic_clients.values()}:
+        for client in set(self._clients.values()):
             client.close()
-        self._dynamic_clients.clear()
+        _close_dynamic_clients(self._dynamic_clients, self._pool_lock)
 
     def _client(self, tenant: str, source_id: str) -> httpx.Client | None:
         if self._base_url_resolver is not None:
             base_url = self._base_url_resolver(tenant, source_id)
             if base_url is not None:
                 key = (tenant, source_id, base_url)
-                client = self._dynamic_clients.get(key)
-                if client is None:
-                    for stale in [
-                        item
-                        for item in self._dynamic_clients
-                        if item[:2] == (tenant, source_id) and item != key
-                    ]:
-                        self._dynamic_clients.pop(stale).close()
-                    client = httpx.Client(base_url=base_url, timeout=5.0)
-                    self._dynamic_clients[key] = client
-                return client
+                with self._pool_lock:
+                    client = self._dynamic_clients.get(key)
+                    if client is None:
+                        if len(self._dynamic_clients) >= 64:
+                            return None
+                        client = httpx.Client(base_url=base_url, timeout=5.0)
+                        self._dynamic_clients[key] = client
+                    return client
         return self._clients.get(source_id)
+
+
+def _close_dynamic_clients(clients: dict[tuple[str, str, str], httpx.Client], lock: RLock) -> None:
+    with lock:
+        owned = tuple(clients.values())
+        clients.clear()
+    for client in owned:
+        client.close()
 
 
 def _identity_pointers(mapping: MappingDef, identity_value: IdentityValue) -> dict[str, str]:

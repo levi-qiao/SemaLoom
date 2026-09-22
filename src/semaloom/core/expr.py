@@ -101,6 +101,43 @@ def collect_refs(expr: Expr) -> tuple[str, ...]:
     return tuple(dict.fromkeys(names))
 
 
+def unit_dimensions(unit: str | None) -> dict[str, int]:
+    """Units are exact semantic symbols; no implicit scale or currency conversion."""
+    return {} if unit in {None, "", "1"} else {unit: 1}
+
+
+def expression_unit(expr: Expr, inputs: dict[str, str | None]) -> dict[str, int] | None:
+    """Infer dimensions; bare numeric constants adopt additive/comparison context.
+
+    Multiplication/division treat constants as dimensionless. Keeping exponents
+    permits cancellation without guessing conversions from display strings.
+    """
+    op = expr["op"]
+    if op == "ref":
+        return unit_dimensions(inputs[expr["name"]])
+    if op == "decimal":
+        return None
+    if op in {"bool", "string", "date", "datetime"}:
+        return {}
+    if op == "round":
+        return expression_unit(expr["value"], inputs)
+    children = [expr["arg"]] if op == "not" else expr["args"]
+    units = [expression_unit(child, inputs) for child in children]
+    if op in {"add", "sub"} | COMPARE_OPS:
+        known = [unit for unit in units if unit is not None]
+        if known and any(unit != known[0] for unit in known[1:]):
+            raise ValueError("incompatible measurement units")
+        return {} if op in COMPARE_OPS else known[0] if known else None
+    if op in BOOL_OPS | {"not"}:
+        return {}
+    result: dict[str, int] = {}
+    for index, unit in enumerate(units):
+        sign = -1 if op == "div" and index > 0 else 1
+        for symbol, exponent in (unit or {}).items():
+            result[symbol] = result.get(symbol, 0) + sign * exponent
+    return {symbol: exponent for symbol, exponent in result.items() if exponent}
+
+
 def _walk_refs(expr: Expr, names: list[str]) -> None:
     op = expr.get("op")
     if op == "ref":

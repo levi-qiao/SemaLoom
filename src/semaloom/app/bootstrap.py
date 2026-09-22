@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from sqlalchemy import text
 
@@ -12,6 +13,7 @@ from semaloom.adapters.composite import CompositeReadProvider
 from semaloom.adapters.openapi import OpenApiReadProvider
 from semaloom.adapters.postgres import PostgresReadProvider
 from semaloom.core.bundle import CompiledBundle
+from semaloom.core.digest import sha256_digest
 from semaloom.core.provider import ReadProvider
 from semaloom.runtime.action import ActionService, DraftStore
 from semaloom.runtime.fixtures import (
@@ -56,9 +58,42 @@ class AppServices:
             if tenant is not None
             else self.registry.current(self.environment)
         )
-        if current is None:
-            return self.query
-        return QueryService(self.registry.load(current), self.provider)
+        bundle = self.query.bundle if current is None else self.registry.load(current)
+        return self.query_for_bundle(bundle, tenant)
+
+    def query_for_bundle(self, bundle: CompiledBundle, tenant: str | None) -> QueryService:
+        if tenant is None:
+            return QueryService(bundle, self.provider)
+        profiles = self.source_profiles.list(tenant)
+        urls: dict[str, dict[str, str]] = {}
+        manifest = []
+        for profile in profiles:
+            url = resolve_environment_binding(profile.binding_ref, self.environment_bindings)
+            endpoint = urlsplit(url or "")
+            manifest.append(
+                {
+                    "source": profile.source_id,
+                    "revision": profile.revision,
+                    "binding": profile.binding_ref,
+                    "provider": profile.provider,
+                    # Credentials never enter public evidence or semantic digests.
+                    "destination": (
+                        endpoint.scheme,
+                        endpoint.hostname,
+                        endpoint.port,
+                        endpoint.path,
+                    ),
+                }
+            )
+            if url is not None:
+                urls.setdefault(profile.provider, {})[profile.source_id] = url
+        if not isinstance(self.provider, CompositeReadProvider):
+            raise ValueError("application provider cannot pin source bindings")
+        return QueryService(
+            bundle,
+            self.provider.bind_sources(tenant, urls),
+            environment_binding_digest=sha256_digest(manifest),
+        )
 
     def close(self) -> None:
         close = getattr(self.provider, "close", None)

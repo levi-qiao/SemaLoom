@@ -92,7 +92,7 @@ Core 选择语义合法路径、执行预算和授权约束；接入 adapter 编
 
 ## 实体建模工作台
 
-Studio 以实体关系图为入口，联动属性/规则检查器和来源追踪；实体可以映射多个数据库及 API。元数据使用 PostgreSQL，图谱从版本化定义投影生成；图布局独立于语义摘要。前端通过受控管理接口保存模型（保存即激活），不直接写来源或运行任意查询。布局、组件、前端技术栈和保存流程以 [DESIGN](DESIGN.md) 为准，实施归属 T09。
+Studio 以实体关系图为入口，联动属性/规则检查器和来源追踪；实体可以映射多个数据库及 API。元数据使用 PostgreSQL，图谱从版本化定义投影生成；图布局独立于语义摘要。前端通过受控管理接口保存模型（保存 revision、发布与激活同事务），不直接写来源或运行任意查询。布局、组件、前端技术栈和保存流程以 [DESIGN](DESIGN.md) 为准，实施归属 T09。
 
 ## 拟采用的仓库布局
 
@@ -196,3 +196,7 @@ Chat 的确定性 intent adapter 只根据本体标签、别名和类型唯一�
 原候选研究保留在 [通用语义查询建议](semantic-query-design.md)，实际选型和修订以 ADR-0011 为准。物理规划和快照执行位于 adapters/analysis.py，runtime/analysis.py 只做语义准备与能力调度；Chat 与 HTTP 只使用 SemanticQuery prepare/execute。当前同事实表能力与未闭合 Link/窗口目标见 [能力边界](capabilities.md)。
 
 Chat 的开放式业务目录问答复用 runtime.discovery 的固定版本定义投影，说明文本与引擎事实分型，领域词汇仍由本体拥有；见 [Chat 语义契约](spec/semantic-contract-v0.1.md)。Studio 的 ELK 只拥有视图布局，边界与替换记录见 [ADR-0009](adr/0009-progressive-studio-dependencies.md)。
+
+请求来源绑定：应用在取得租户 release 后一次读取 source profile 集合，生成不可变的来源解析快照；
+Provider 只在该快照内解析目标，共享应用生命周期的有界连接池。改绑不会关闭正在读取的旧连接。
+证据及 prepare/execute 计划携带非秘密环境绑定摘要；这不替代在线来源验证或全局数据快照。

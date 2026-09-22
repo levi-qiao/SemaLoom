@@ -10,6 +10,9 @@ Query/Claim/上述发现入口接受显式 Bearer，或复用 Studio 服务端�
 
 T01 负责正式 DSL/API 结构，T02–T06 完善运行行为，T09 完善 Studio 管理契约；JSON Schema 管结构，Compiler 和 Runtime 管语义及跨字段约束。只维护一份可执行类型定义并导出 schema，用测试防止导出格式和规范偏离；不让 Pydantic 类型强制转换意外扩大接受范围。
 
+当前 Studio 发布语义以 §12 和 ADR-0008 的保存即生效修订为准：独立 validate/approve/publish 路径已删除。
+下文中的独立发布批准、完整联机环境证明和执行 profile 保留为生产验收目标，不属于当前已实现能力。
+
 ## 1. 标识、类型与发布
 
 - Semantic ID 使用稳定的带命名空间标识，例如 `tax.operatingRevenue`；展示名称和 alias 可变，ID 不跟随翻译变化。
@@ -161,6 +164,12 @@ V0.1 对一个完整 businessPeriod 选择一个覆盖它的 Policy version。�
 
 所有税务数值规则及名称在合成示例中标明“演示，非有效税法”。真实 Policy 参数、适用条件及日期由业务专家审核，未获得审核只运行合成 fixture。
 
+当前 Rule 单位检查将单位字符串视为精确语义符号；`1` 表示无量纲。加减与比较要求单位相容，
+乘除累计并消去单位幂，派生输出必须匹配声明单位。不从单位标签猜测币种换算、比例缩放或复合单位表达式。
+裸数值常量在加减/比较中沿用测量上下文，在乘除中作为无量纲系数。需要换算时先提供已归一化且明确命名的测量。
+Policy 的日期必须为真实 `YYYY-MM-DD`；适用维度来自所属 Rule 包的 contextDimensions，或 Rule 输入对象中
+被 applicability 显式选用的类型化属性。Policy 必须绑定全部 applicability，未知维度或错误值类型拒绝编译。
+
 ## 7. Provider、Planner 与缓存
 
 接入层实现 ReadProvider 与独立 ActionExecutor，其公开输入输出使用 core 定义的中立类型。增加协议实现通过 app 注册，不改公共 Compiler/core。adapter 必须遵守授权 scope、预算、完整性与错误语义，不能把业务规则放入协议转换。ReadProvider 的能力声明至少覆盖支持的目标类型、过滤、投影、批量、快照和完整性；Planner 只能生成 adapter 声明支持的操作。SQL 必须由受限结构生成，值参数化，标识符仅从已验证 Mapping 白名单选择。初版不开放任意 raw SQL Mapping。
@@ -290,7 +299,7 @@ Studio 模型保存与来源注册属于控制面写入，按管理权限与并�
 
 Studio 使用独立管理权限读取模型与来源元数据；样本数据另行鉴权。图谱节点、关系、搜索计数和影响分析均先按当前权限过滤。静态页面可见不表示其管理接口可用；服务端使用不可伪造的随机会话令牌、只存摘要、短期 CSRF 令牌及同源 Origin 检查。所有控制面写入必须通过该会话与 CSRF/Origin 校验，不能用只读 Bearer 身份绕过。生产 profile 不提供本地 demo 身份。
 
-Studio 维护一份可编辑模型文档。保存时 Compiler 校验通过后写入 revision，并发布/激活为当前环境的查询版本；试读与 `POST /v0.1/query`、`/v0.1/claims/evaluate` 读取同一生效模型。保存不授予业务系统写入权限。样本试读使用已保存 Mapping 与 `sample-viewer` 权限，经 adapter 按租户与行预算读取；它不构成业务 Query 或 Action。
+Studio 维护一份可编辑模型文档。保存时 Compiler 校验通过后，在同一事务内写入 revision、不可变发布记录并激活当前环境的查询版本；任一步失败全部回滚，发布只使用该保存快照；试读与 `POST /v0.1/query`、`/v0.1/claims/evaluate` 读取同一生效模型。保存不授予业务系统写入权限。样本试读使用已保存 Mapping 与 `sample-viewer` 权限，经 adapter 按租户与行预算读取；它不构成业务 Query 或 Action。
 
 模型在 PostgreSQL 中按 revision 保存，更新携带 expectedRevision，冲突不覆盖。UI、文件导入和导出复用同一规范化模型，不静默丢弃编辑器未呈现的字段；图坐标等视图偏好独立存储。
 
@@ -364,3 +373,11 @@ Chat 网关提供 `list_semantics({offset?,limit?})`：offset 为非负整数，
 `present_answer.kind=explanation` 仅引用本轮 `list_semantics/search_semantics/describe_semantic` 的证据；缺失/伪造引用或混入实例事实证据被拒绝。兼容旧 host 对纯定义证据提交的 `answer`，服务器将其降为 `explanation`，`textOrigin=AI`，绝不标为引擎事实。当前数值/比较请求约束仍然适用；不能靠更换 kind 绕过计算。定量结果和规则结论继续由引擎生成，选择式澄清行为不变。
 
 解释文字允许模型基于声明定义组织和提出查询示例，不承诺自然语言归纳本身具有形式化正确性。浏览器明确标识其非查询结果，展示原定义的名称、语义 ID、口径、单位和详情表格；实际数据可用性、数值和 truth 必须另行读取。此区别不改变 UNKNOWN/FALSE/来源故障语义。
+
+### 审查修复的兼容性（2026-09-22）
+
+上述校验修复执行 v0.1 已有语义约束，不赋予历史无效定义新含义。以前侥幸通过的异单位公式、空/重复身份、
+不完整 grain、错误包依赖和无效 Policy 必须修正后重新编译；已有合法示例的语义不变。
+应用查询在开始时固定租户的来源绑定快照，SourceActivity/集合证据记录 `environmentBindingDigest`。
+PlanRef 同时携带该字段；绑定变更或旧 PlanRef 未携带应用要求的摘要时 execute 返回 VERSION_INVALID，需重新 prepare。
+宿主自管 Provider 的 Python SDK 未新增来源管理权限，继续由宿主固定物理绑定。

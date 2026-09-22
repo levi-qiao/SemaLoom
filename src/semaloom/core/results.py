@@ -85,6 +85,7 @@ class SourceActivity(_Frozen):
     observed_at: str | None = None
     source_version: str | None = None
     authorization_ref: str | None = None
+    environment_binding_digest: str | None = None
 
 
 class EvidenceEnvelope(_Frozen):

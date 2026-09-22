@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Self, cast
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, model_validator
 
+from semaloom.adapters.spec_import import fetch_spec
 from semaloom.app.authentication import AuthenticationError, bearer_token
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.provider import IdentityScalar
@@ -24,7 +26,7 @@ from semaloom.runtime.analysis import AnalysisError, execute, prepare
 from semaloom.runtime.auth import RequestActor, authorize_query
 from semaloom.runtime.discovery import SemanticDiscovery
 from semaloom.runtime.eval import EvaluationError, evaluate_claim_with_evidence
-from semaloom.runtime.query import QueryService
+from semaloom.runtime.registry import StaleRevision
 from semaloom.runtime.source_introspection import introspect_source, peek_source_rows
 from semaloom.runtime.source_registry import SourceRevisionConflict
 from semaloom.runtime.source_validation import (
@@ -533,6 +535,7 @@ def studio_sample(
     if not body.mapping_id and not body.object_id and not body.metric_id:
         raise HTTPException(status_code=422, detail="MAPPING_OR_OBJECT_REQUIRED")
     bundle = studio_bundle(request, actor, body.draft_id)
+    query = request.app.state.services.query_for_bundle(bundle, actor.tenant)
     mapping_id = body.mapping_id
     if mapping_id is None and body.metric_id:
         match = next((item for item in bundle.mappings if item.target == body.metric_id), None)
@@ -542,7 +545,7 @@ def studio_sample(
     if mapping_id:
         payload = studio_mapping_preview(
             bundle,
-            request.app.state.services.provider,
+            query.provider,
             mapping_id=mapping_id,
             tenant=actor.tenant,
             identity=body.identity,
@@ -557,7 +560,7 @@ def studio_sample(
         raise HTTPException(status_code=404, detail="NOT_FOUND")
     if set(body.identity) != set(object_type.identity_keys):
         raise HTTPException(status_code=422, detail="INVALID_IDENTITY")
-    envelope = QueryService(bundle, request.app.state.services.provider).execute(
+    envelope = query.execute(
         QueryRequest(
             api_version="semaloom/v0.1",
             select=(
@@ -694,6 +697,7 @@ def studio_source_rows(
             body.schema_name,
             actor.tenant,
             body.limit,
+            tenant_column=str(profile.settings.get("tenantColumn", "tenant_id")),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -760,22 +764,19 @@ def studio_fetch_spec(
         auth = httpx.BasicAuth(body.username, body.password or "")
 
     try:
-        response = httpx.get(
+        return fetch_spec(
             body.url,
+            allowed_origins=tuple(
+                value.strip()
+                for value in os.getenv("SEMALOOM_SPEC_ALLOWED_ORIGINS", "").split(",")
+                if value.strip()
+            ),
             headers=headers,
             params=params,
             auth=auth,
-            timeout=10.0,
-            follow_redirects=True,
         )
-        if response.status_code >= 400:
-            raise HTTPException(status_code=422, detail=f"FETCH_FAILED_HTTP_{response.status_code}")
-        try:
-            return {"spec": response.json(), "format": "json"}
-        except Exception:
-            return {"raw": response.text, "format": "text"}
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=422, detail=f"REQUEST_ERROR: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/studio/drafts/{draft_id}")
@@ -814,14 +815,15 @@ def studio_save_draft(
     require_role(actor, "modeler")
     services = request.app.state.services
     try:
-        snapshot: DraftSnapshot = services.studio_drafts.save(
+        snapshot, live = services.studio_releases.save_and_activate(
             actor.tenant,
             actor.subject,
             draft_id,
+            services.environment,
             body.documents,
             body.expected_revision,
         )
-    except RevisionConflict as exc:
+    except (RevisionConflict, StaleRevision) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except InvalidDraft as exc:
         raise HTTPException(
@@ -831,9 +833,6 @@ def studio_save_draft(
                 "diagnostics": [item.model_dump() for item in exc.diagnostics],
             },
         ) from exc
-    live = services.studio_releases.apply_live(
-        actor.tenant, actor.subject, draft_id, services.environment
-    )
     return {
         **snapshot.to_dict(),
         "activeDigest": live["digest"],
