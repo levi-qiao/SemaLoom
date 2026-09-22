@@ -6,7 +6,9 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
+from threading import RLock
 from typing import Any
+from weakref import finalize
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
@@ -29,6 +31,18 @@ class PostgresReadProvider:
         self._engines = engines
         self._url_resolver = url_resolver
         self._dynamic_engines: dict[tuple[str, str, str], Engine] = {}
+        self._pool_lock = RLock()
+        self._pool_finalizer = finalize(
+            self, _dispose_dynamic_engines, self._dynamic_engines, self._pool_lock
+        )
+
+    def bind_sources(self, tenant: str, urls: dict[str, str]) -> PostgresReadProvider:
+        """Freeze destinations in a snapshot that owns its temporary pools."""
+        destinations = dict(urls)
+        return PostgresReadProvider(
+            {},
+            lambda caller, source: destinations.get(source) if caller == tenant else None,
+        )
 
     def fetch_metric(
         self,
@@ -246,17 +260,16 @@ class PostgresReadProvider:
             url = self._url_resolver(tenant, source_id)
             if url is not None:
                 key = (tenant, source_id, url)
-                engine = self._dynamic_engines.get(key)
-                if engine is None:
-                    for stale in [
-                        item
-                        for item in self._dynamic_engines
-                        if item[:2] == (tenant, source_id) and item != key
-                    ]:
-                        self._dynamic_engines.pop(stale).dispose()
-                    engine = engine_from_url(url)
-                    self._dynamic_engines[key] = engine
-                return engine
+                with self._pool_lock:
+                    engine = self._dynamic_engines.get(key)
+                    if engine is None:
+                        # Older requests can still hold the old binding. Never dispose
+                        # their pool during a configuration change.
+                        if len(self._dynamic_engines) >= 64:
+                            raise KeyError("source connection budget exceeded")
+                        engine = engine_from_url(url)
+                        self._dynamic_engines[key] = engine
+                    return engine
         try:
             return self._engines[source_id]
         except KeyError as exc:
@@ -309,9 +322,17 @@ class PostgresReadProvider:
             return [dict(row) for row in conn.execute(statement, params).mappings().all()]
 
     def close(self) -> None:
-        for engine in {*self._engines.values(), *self._dynamic_engines.values()}:
+        for engine in set(self._engines.values()):
             engine.dispose()
-        self._dynamic_engines.clear()
+        _dispose_dynamic_engines(self._dynamic_engines, self._pool_lock)
+
+
+def _dispose_dynamic_engines(engines: dict[tuple[str, str, str], Engine], lock: RLock) -> None:
+    with lock:
+        owned = tuple(engines.values())
+        engines.clear()
+    for engine in owned:
+        engine.dispose()
 
 
 def engine_from_url(url: str) -> Engine:

@@ -342,7 +342,7 @@ export function MappingEditor({
               )) : (
                 <tr>
                   <td colSpan={Math.max(columns.length, 1)}>
-                    {rowsReason === "SAMPLE_UNAVAILABLE" || rowsReason === "SOURCE_UNAVAILABLE"
+                    {rowsReason === "TENANT_SCOPE_REQUIRED" ? t("mapping.tenantScopeRequired") : rowsReason === "SAMPLE_UNAVAILABLE" || rowsReason === "SOURCE_UNAVAILABLE"
                       ? t("mapping.noSampleRows")
                       : t("mapping.emptySampleRows")}
                   </td>

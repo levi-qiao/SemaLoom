@@ -6,7 +6,7 @@ SemaLoom 描述企业业务的含义、事实来源、确定性判断与受控�
 
 **ObjectType（对象类型）**：一类具有稳定身份的业务实体，例如纳税主体或采购订单。Object 是该类型的实例。
 
-**ObjectIdentity（对象身份）**：在租户及对象类型内唯一标识一个对象的业务键集合；同名字段不构成相同身份。
+**ObjectIdentity（对象身份）**：身份键必须非空、不重复，点查 Metric 的 grain 必须包含完整身份。在租户及对象类型内唯一标识一个对象的业务键集合；同名字段不构成相同身份。
 
 **Property（属性）**：对象的描述性或状态性特征。带 `unit` 的数值属性是测量槽，对应表中的金额/数量列，不是另建一层科目清单。测量槽可选声明 Kimball **可加性**（`FULL` / `SEMI` / `NONE`，默认 `FULL`）：库存与余额沿时间不可 SUM，比率不可 SUM/AVG。见 [ADR-0013](docs/adr/0013-measure-additivity.md)。STRING/INTEGER/BOOLEAN 属性可选用闭集 **取值字典**（`values`：存储 id、显示名、别名），也可由接入层从字典表或观测列读取标签；Chat 把未说出的维值变成选择题，不猜测、不把自由文本当筛选。见 [ADR-0014](docs/adr/0014-ontology-dictionaries.md)。
 

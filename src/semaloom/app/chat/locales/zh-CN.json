@@ -10,5 +10,7 @@
   "objectScope.propertiesFallback": "业务范围",
   "duplicateUnit.prompt": "当前范围里同一对象有多条记录，请再选口径或期间",
   "duplicateUnit.reason": "不选定的话无法确定要看哪一条，不能把多条混成一个数。",
-  "answer.completed": "已按发布口径完成计算。"
+  "answer.completed": "已按发布口径完成计算。",
+  "claimPeriod.prompt": "要按哪个业务期间核验？",
+  "claimPeriod.reason": "这条规则还需要一个生效期间。"
 }

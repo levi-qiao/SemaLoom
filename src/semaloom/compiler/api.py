@@ -17,7 +17,7 @@ from semaloom.core.bundle import CompiledBundle
 from semaloom.core.compilation import MappingCompiler
 from semaloom.core.diagnostics import Diagnostic
 from semaloom.core.digest import sha256_digest
-from semaloom.core.expr import collect_refs, expression_type
+from semaloom.core.expr import collect_refs, expression_type, expression_unit, unit_dimensions
 from semaloom.core.ids import (
     API_VERSION,
     BUNDLE_FORMAT,
@@ -111,7 +111,34 @@ def compile_paths(
 ) -> CompileResult:
     documents: list[tuple[str, dict[str, Any]]] = []
     for root in roots:
-        for path, data in load_yaml_documents(root):
+        if not root.is_dir():
+            return CompileResult(
+                ok=False,
+                bundle=None,
+                online_validation="NOT_RUN",
+                diagnostics=(
+                    Diagnostic(
+                        code="INVALID_PACK_PATH",
+                        path=str(root),
+                        message="pack directory does not exist",
+                    ),
+                ),
+            )
+        loaded = load_yaml_documents(root)
+        if not loaded:
+            return CompileResult(
+                ok=False,
+                bundle=None,
+                online_validation="NOT_RUN",
+                diagnostics=(
+                    Diagnostic(
+                        code="EMPTY_PACK",
+                        path=str(root),
+                        message="pack directory contains no definitions",
+                    ),
+                ),
+            )
+        for path, data in loaded:
             documents.append((str(path), data))
     return compile_documents(
         documents, mapping_compiler=mapping_compiler, catalog_snapshot=catalog_snapshot
@@ -126,6 +153,12 @@ def compile_documents(
 ) -> CompileResult:
     diagnostics: list[Diagnostic] = []
     parsed: list[Any] = []
+    if not documents:
+        diagnostics.append(
+            Diagnostic(
+                code="EMPTY_PACK", path="<documents>", message="at least one definition is required"
+            )
+        )
     normalized: list[tuple[str, dict[str, Any]]] = _normalize_input(documents)
 
     for path, raw in normalized:
@@ -205,7 +238,7 @@ def compile_documents(
     _check_object_metrics(objects, metrics, packs, diagnostics)
     _check_links(objects, links, diagnostics)
     _check_rules(metrics, objects, rules, diagnostics)
-    _check_policies(rules, policies, diagnostics)
+    _check_policies(rules, policies, packs, objects, metrics, diagnostics)
     _check_actions(objects, rules, actions, diagnostics)
     _check_action_bindings(actions, bindings, diagnostics)
     _check_mappings(metrics, objects, mappings, diagnostics)
@@ -563,6 +596,14 @@ def _check_packs(
                         message=f"missing dependency {dep.id}",
                     )
                 )
+            elif by_id[dep.id].version != dep.version:
+                diagnostics.append(
+                    Diagnostic(
+                        code="DEPENDENCY_VERSION_MISMATCH",
+                        path=pack.id,
+                        message=f"dependency {dep.id} requires version {dep.version}",
+                    )
+                )
     sorter: TopologicalSorter[str] = TopologicalSorter()
     for pack in packs:
         sorter.add(pack.id, *[dep.id for dep in pack.dependencies if dep.id in by_id])
@@ -592,6 +633,44 @@ def _check_packs(
                     message=f"no pack owns namespace {ns}",
                 )
             )
+            continue
+        allowed = {owner.id, *(dep.id for dep in owner.dependencies)}
+        for reference in _semantic_references(item):
+            target_owner = owned.get(namespace_of(reference))
+            if target_owner is not None and target_owner.id not in allowed:
+                diagnostics.append(
+                    Diagnostic(
+                        code="UNDECLARED_CROSS_PACK_REF",
+                        path=item.id,
+                        message=f"reference {reference} requires dependency {target_owner.id}",
+                    )
+                )
+
+
+def _semantic_references(item: Any) -> tuple[str, ...]:
+    if isinstance(item, MetricDef):
+        return (item.object_type, *item.derived_from)
+    if isinstance(item, LinkDef):
+        return (item.source, item.target)
+    if isinstance(item, RuleDef):
+        return tuple(
+            value
+            for value in (
+                item.claim,
+                item.output_metric,
+                *(spec.metric or spec.object_type for spec in item.inputs),
+            )
+            if value is not None
+        )
+    if isinstance(item, PolicyDef):
+        return (item.rule,)
+    if isinstance(item, ActionDef):
+        return (item.target_object, *item.preconditions)
+    if isinstance(item, MappingDef):
+        return (item.target, item.object_type)
+    if isinstance(item, ActionBindingDef):
+        return (item.action,)
+    return ()
 
 
 def _index(items: Sequence[Any]) -> dict[str, Any]:
@@ -710,9 +789,17 @@ def _check_object_metrics(
                         ),
                     )
                 )
-        if not metric.grain:
+        if (
+            not metric.grain
+            or len(metric.grain) != len(set(metric.grain))
+            or not set(obj.identity_keys) <= set(metric.grain)
+        ):
             diagnostics.append(
-                Diagnostic(code="INCOMPLETE_GRAIN", path=metric.id, message="grain is required")
+                Diagnostic(
+                    code="INCOMPLETE_GRAIN",
+                    path=metric.id,
+                    message="grain must be unique and include the complete object identity",
+                )
             )
         if not metric.unit:
             diagnostics.append(
@@ -890,6 +977,7 @@ def _check_rules(
         deps: set[str] = set()
         input_names = {item.name for item in rule.inputs}
         input_types: dict[str, str] = {}
+        input_units: dict[str, str | None] = {}
         if len(input_names) != len(rule.inputs):
             diagnostics.append(
                 Diagnostic(
@@ -913,6 +1001,7 @@ def _check_rules(
                 definition = next((m for m in metrics if m.id == spec.metric), None)
                 if definition is not None:
                     input_types[spec.name] = definition.value_type or "DECIMAL"
+                    input_units[spec.name] = definition.unit
             if spec.property is not None:
                 obj = next((o for o in objects if o.id == spec.object_type), None)
                 prop = (
@@ -930,6 +1019,7 @@ def _check_rules(
                     )
                 else:
                     input_types[spec.name] = prop.value_type
+                    input_units[spec.name] = prop.unit
             if spec.metric is None and spec.property is None:
                 diagnostics.append(
                     Diagnostic(
@@ -997,6 +1087,18 @@ def _check_rules(
             diagnostics.append(
                 Diagnostic(code="TYPE_MISMATCH", path=f"{rule.id}.expression", message=str(exc))
             )
+        if input_names <= input_units.keys() and set(collect_refs(rule.expression)) <= input_names:
+            try:
+                result_unit = expression_unit(rule.expression, input_units)
+                output_metric = next((m for m in metrics if m.id == rule.output_metric), None)
+                if (
+                    output_metric
+                    and result_unit is not None
+                    and result_unit != unit_dimensions(output_metric.unit)
+                ):
+                    raise ValueError("expression unit does not match the output metric")
+            except ValueError as exc:
+                diagnostics.append(Diagnostic(code="UNIT_MISMATCH", path=rule.id, message=str(exc)))
         rule_deps[rule.id] = deps
     _reject_rule_cycles(rules, metrics, diagnostics)
 
@@ -1030,11 +1132,54 @@ def _reject_rule_cycles(
 
 
 def _check_policies(
-    rules: Sequence[RuleDef], policies: Sequence[PolicyDef], diagnostics: list[Diagnostic]
+    rules: Sequence[RuleDef],
+    policies: Sequence[PolicyDef],
+    packs: Sequence[DomainPackDef],
+    objects: Sequence[ObjectTypeDef],
+    metrics: Sequence[MetricDef],
+    diagnostics: list[Diagnostic],
 ) -> None:
     rule_ids = {item.id for item in rules}
     grouped: dict[tuple[str, tuple[tuple[str, str], ...]], list[PolicyDef]] = defaultdict(list)
     for policy in policies:
+        rule = next((r for r in rules if r.id == policy.rule), None)
+        owner = next((p for p in packs if p.namespace == namespace_of(policy.rule)), None)
+        declared = {d.id: d.value_type for d in owner.context_dimensions} if owner else {}
+        # Applicability may name typed properties on the rule's input objects.
+        input_objects = {i.object_type for i in rule.inputs} if rule else set()
+        if rule:
+            input_objects.update(
+                m.object_type for m in metrics if any(i.metric == m.id for i in rule.inputs)
+            )
+            for obj in objects:
+                if obj.id in input_objects:
+                    for prop in obj.properties:
+                        if prop.id in rule.applicability:
+                            declared.setdefault(prop.id, prop.value_type)
+        for dimension, value in policy.dimensions.items():
+            if dimension not in declared:
+                diagnostics.append(
+                    Diagnostic(
+                        code="UNDECLARED_DIMENSION",
+                        path=policy.id,
+                        message=f"undeclared policy dimension {dimension}",
+                    )
+                )
+            else:
+                try:
+                    scalar_value(value, declared[dimension])
+                except ValueError as exc:
+                    diagnostics.append(
+                        Diagnostic(code="TYPE_MISMATCH", path=policy.id, message=str(exc))
+                    )
+        if rule and not set(rule.applicability) <= policy.dimensions.keys():
+            diagnostics.append(
+                Diagnostic(
+                    code="INVALID_DEFINITION",
+                    path=policy.id,
+                    message="policy must bind rule applicability",
+                )
+            )
         if policy.rule not in rule_ids:
             diagnostics.append(
                 Diagnostic(code="DANGLING_REF", path=f"{policy.id}.rule", message=policy.rule)

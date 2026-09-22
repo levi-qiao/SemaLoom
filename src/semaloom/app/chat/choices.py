@@ -1363,8 +1363,8 @@ def prepare_claim_turn(
             question_id="q-claim-period-" + uuid.uuid4().hex,
             revision=1,
             slot="claimPeriod",
-            prompt="要按哪个业务期间核验？",
-            reason="这条规则还需要一个生效期间。",
+            prompt=locale_text("zh-CN", "claimPeriod.prompt"),
+            reason=locale_text("zh-CN", "claimPeriod.reason"),
             options=with_choice_exits(()),
         )
         return {

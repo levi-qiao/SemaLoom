@@ -264,7 +264,7 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 | T08B | 未关闭 | [pilot-plan](pilot-plan.md)；A47–A48 未通过 |
 | T09A | 切片已验，联合未关闭 | G1 图谱/目录/检查器、深链接及小屏已验；密集图和 200% 缩放待补证据 |
 | T09B | 切片已验，联合未关闭 | 实体/属性/Mapping/可选指标词条持久化已验；结构化 Rule 编辑、导入导出等需联合回归 |
-| T09C | 切片已验，联合未关闭 | G3 独立审核/激活及本地会话已验；对象/字段权限、完整 A64–A69 和最新发行物联合验收仍开 |
+| T09C | 切片已验，联合未关闭 | 本地会话与保存即激活切片已验（ADR-0008 修订已删除独立审核路径）；对象/字段权限、完整 A64–A69 和最新发行物联合验收仍开 |
 
 检查命令见仓库根 README；每次交付的实测结果记录在对应 `.agents/*/handoff.md`。
 
@@ -289,3 +289,10 @@ T09C 完成且 A64–A69 全部通过后才可称 Studio 完成；T08A 在此基
 ### 当前维护：可信传输验收（2026-09-21）
 
 A58 不再以 xfail 记录：非 local-dev profile 使用 PyJWT 校验签名、issuer、audience、expiry 与必需身份 claims，缺配置或 demo authenticator 均启动失败。官方 MCP Python SDK 的 stateless Streamable HTTP 挂载在 `/mcp/`，与 REST 复用同一个 bearer authenticator，当前提供 semantic query、claim evaluation 与 semantic explain。真实 SDK client、匿名拒绝和生产 JWT 反例均为普通强制测试；T06 的 Action MCP、撤销目录及历史解释仍保持开放。
+
+### 当前维护：整体审查修复（2026-09-22）
+
+范围：T01 编译约束、T02 请求绑定与来源隔离、T09 原子保存、T08A 安全初始化及准确使用说明。
+修复单位/身份/粒度/包依赖/Policy 校验、租户预览、出站文档读取、来源快照与发布事务；同步首次使用与英文澄清。
+验收归属 A02/A04/A12/A22/A24/A28/A29/A49/A65–A67；反例与检查记录在 `.agents/review-fixes/handoff.md`。
+不关闭 Action 恢复、生产权限撤销、完整联机发布证明与 Studio 联合验收 gate。

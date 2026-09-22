@@ -26,9 +26,16 @@ from semaloom.runtime.auth import RequestActor, authorize_query
 
 
 class QueryService:
-    def __init__(self, bundle: CompiledBundle, provider: ReadProvider) -> None:
+    def __init__(
+        self,
+        bundle: CompiledBundle,
+        provider: ReadProvider,
+        *,
+        environment_binding_digest: str | None = None,
+    ) -> None:
         self.bundle = bundle
         self.provider = provider
+        self.environment_binding_digest = environment_binding_digest
 
     def execute(self, request: QueryRequest, actor: RequestActor) -> EvidenceEnvelope:
         request_id = uuid.uuid4().hex
@@ -144,10 +151,19 @@ class QueryService:
             request_id=request_id,
             release_digest=self.bundle.digest,
             observations=tuple(observations),
-            source_activities=tuple(activities),
+            source_activities=tuple(
+                item.model_copy(
+                    update={"environment_binding_digest": self.environment_binding_digest}
+                )
+                for item in activities
+            ),
             diagnostics=tuple(diagnostics),
             status=status,
-            extras={"decisionId": decision.decision_id, "tenant": actor.tenant},
+            extras={
+                "decisionId": decision.decision_id,
+                "tenant": actor.tenant,
+                "environmentBindingDigest": self.environment_binding_digest,
+            },
         )
 
     def _check_metric_period(

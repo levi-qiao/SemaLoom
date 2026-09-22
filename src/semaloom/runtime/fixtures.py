@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 
 from semaloom.adapters.postgres import engine_from_url
 from semaloom.runtime.source_registry import SourceProfileService
@@ -35,7 +35,23 @@ def engines(urls: dict[str, str] | None = None) -> dict[str, Engine]:
 
 
 def load_synthetic(urls: dict[str, str] | None = None) -> None:
-    pool = engines(urls)
+    targets = configured_urls() if urls is None else urls
+    # Check every target before the first connection or destructive statement.
+    for key, raw in targets.items():
+        url = make_url(raw)
+        suffix = key.removesuffix("_pg")
+        allowed = {f"semaloom_{suffix}", f"semaloom_g4_{suffix}", "q3_e2e"}
+        if (
+            key not in LOCAL_URLS
+            or url.get_backend_name() != "postgresql"
+            or url.host not in {"127.0.0.1", "localhost", "::1"}
+            or url.database not in allowed
+            or url.query
+        ):
+            raise ValueError(f"UNSAFE_FIXTURE_TARGET: {key}")
+    if set(targets) != set(LOCAL_URLS):
+        raise ValueError("UNSAFE_FIXTURE_TARGET: incomplete fixture targets")
+    pool = engines(targets)
     _load_tax(pool["tax_pg"])
     _load_orders(pool["orders_pg"])
     _load_suppliers(pool["suppliers_pg"])

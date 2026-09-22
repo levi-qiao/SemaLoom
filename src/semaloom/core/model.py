@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from semaloom.core.expr import Expr, parse_expr
+from semaloom.core.values import scalar_value
 from semaloom.core.wire import wire_config
 
 ValueType = Literal["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME"]
@@ -73,6 +74,13 @@ class ObjectTypeDef(_Doc):
     properties: tuple[EmbeddedProperty, ...]
     period: ObjectPeriod | None = None
     population: PopulationSpec | None = None
+
+    @field_validator("identity_keys")
+    @classmethod
+    def valid_identity(cls, keys: tuple[str, ...]) -> tuple[str, ...]:
+        if not keys or len(keys) != len(set(keys)):
+            raise ValueError("identityKeys must be nonempty and unique")
+        return keys
 
 
 class MetricDef(_Doc):
@@ -141,6 +149,13 @@ class PolicyInterval(BaseModel):
 
     effective_from: str
     effective_to: str | None = None
+
+    @field_validator("effective_from", "effective_to")
+    @classmethod
+    def valid_date(cls, value: str | None) -> str | None:
+        if value is not None:
+            scalar_value(value, "DATE")
+        return value
 
 
 class PolicyDef(_Doc):

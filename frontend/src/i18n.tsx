@@ -4,6 +4,24 @@ export type Locale = "zh-CN" | "en";
 type Values = Record<string, string | number>;
 
 export const zh = {
+  "chatRuntime.clarification.reason": "补充影响答案的业务条件后继续。",
+  "chatRuntime.objectScope.prompt": "请先缩小“{object}”的查询范围",
+  "chatRuntime.objectScope.reason": "当前查询匹配到多条记录。请先补充一个本体字段：{properties}。",
+  "chatRuntime.objectScope.option": "补充筛选条件",
+  "chatRuntime.objectScope.optionExplanation": "可填写 {properties} 等业务条件。",
+  "chatRuntime.objectScope.abort": "暂不查询",
+  "chatRuntime.objectScope.abortExplanation": "停止本次查询，不展示未筛选的对象记录",
+  "chatRuntime.objectScope.modelMessage": "请先补充本体中声明的业务筛选字段，再读取对象记录。",
+  "chatRuntime.objectScope.propertiesFallback": "业务范围",
+  "chatRuntime.duplicateUnit.prompt": "当前范围里同一对象有多条记录，请再选口径或期间",
+  "chatRuntime.duplicateUnit.reason": "不选定的话无法确定要看哪一条，不能把多条混成一个数。",
+  "chatRuntime.answer.completed": "已按发布口径完成计算。",
+  "chatRuntime.claimPeriod.prompt": "要按哪个业务期间核验？",
+  "chatRuntime.claimPeriod.reason": "这条规则还需要一个生效期间。",
+  "api.originNotAllowed": "该地址尚未获准访问，请联系部署管理员配置允许的来源，或粘贴文档。",
+  "api.redirectNotAllowed": "文档地址发生跳转，请填写获准访问的最终地址。",
+  "api.specTooLarge": "文档过大，请精简后重试。",
+  "mapping.tenantScopeRequired": "无法确认样本的数据范围，请联系来源管理员配置租户字段。",
   // Navigation & Views
   "language.label": "语言",
   "language.zh": "中文",
@@ -623,6 +641,24 @@ export const zh = {
 };
 
 export const en: Record<keyof typeof zh, string> = {
+  "chatRuntime.clarification.reason": "Add the business conditions that affect the answer to continue.",
+  "chatRuntime.objectScope.prompt": "Narrow the search scope for “{object}”",
+  "chatRuntime.objectScope.reason": "The query matches multiple records. Add one ontology field first: {properties}.",
+  "chatRuntime.objectScope.option": "Add search conditions",
+  "chatRuntime.objectScope.optionExplanation": "Provide a business condition such as {properties}.",
+  "chatRuntime.objectScope.abort": "Stop this search",
+  "chatRuntime.objectScope.abortExplanation": "Stop without displaying unfiltered object records",
+  "chatRuntime.objectScope.modelMessage": "Add a business filter declared by the ontology before reading object records.",
+  "chatRuntime.objectScope.propertiesFallback": "business scope",
+  "chatRuntime.duplicateUnit.prompt": "This scope has more than one record for the same object. Choose a perspective or period",
+  "chatRuntime.duplicateUnit.reason": "The engine cannot mix those records into one number. Add the missing business condition.",
+  "chatRuntime.answer.completed": "Calculated using the published semantic definition.",
+  "chatRuntime.claimPeriod.prompt": "Which business period should be evaluated?",
+  "chatRuntime.claimPeriod.reason": "This rule requires an effective business period.",
+  "api.originNotAllowed": "This origin is not approved. Ask the deployment administrator to allow it, or paste the document.",
+  "api.redirectNotAllowed": "The document URL redirects. Enter its approved final URL.",
+  "api.specTooLarge": "The document is too large. Reduce its size and retry.",
+  "mapping.tenantScopeRequired": "The sample scope cannot be verified. Ask a source administrator to configure the tenant column.",
   // Navigation & Views
   "language.label": "Language",
   "language.zh": "中文",

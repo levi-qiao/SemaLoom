@@ -351,6 +351,7 @@ class PlanRef(_Frozen):
     plan_id: str
     release_digest: str
     query: SemanticQuery
+    environment_binding_digest: str | None = None
     compiled_digest: str
 
 

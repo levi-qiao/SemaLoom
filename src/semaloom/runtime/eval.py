@@ -9,7 +9,7 @@ from typing import Any, Literal, cast
 
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.diagnostics import Diagnostic
-from semaloom.core.expr import Expr
+from semaloom.core.expr import Expr, expression_unit
 from semaloom.core.model import PolicyDef, RuleDef
 from semaloom.core.provider import IdentityScalar
 from semaloom.core.results import (
@@ -101,6 +101,17 @@ def evaluate_rule_value(
             reasons.append("INVALID_INPUT")
     if reasons:
         return None, tuple(dict.fromkeys(reasons)), tuple(diagnostics)
+    try:
+        expression_unit(
+            rule.expression,
+            {
+                spec.name: observations[spec.name].unit if spec.name in observations else None
+                for spec in rule.inputs
+            },
+        )
+    except ValueError as exc:
+        diagnostics.append(Diagnostic(code="UNIT_MISMATCH", path=rule.id, message=str(exc)))
+        return None, ("RULE_EVALUATION_ERROR",), tuple(diagnostics)
     try:
         result = _eval(rule.expression, values)
         return result, ("MISSING_INPUT",) if result is None else (), tuple(diagnostics)
@@ -270,7 +281,9 @@ def _rule_inputs(
         if spec.property and spec.object_type:
             obj = next(item for item in bundle.object_types if item.id == spec.object_type)
             prop = next(item for item in obj.properties if item.id == spec.property)
-            observation = observation.model_copy(update={"value_type": prop.value_type})
+            observation = observation.model_copy(
+                update={"value_type": prop.value_type, "unit": prop.unit}
+            )
         typed_observations.append(observation)
     normalized = tuple(typed_observations)
     return normalized, envelope

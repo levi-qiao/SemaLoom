@@ -43,7 +43,7 @@ Pilot 前验证身份 issuer/audience/expiry、权限撤销、跨租户查询、
 
 模型查看、草稿编辑、来源管理、样本读取和发布激活分别鉴权。图谱节点、边、搜索计数和影响分析在服务端过滤；浏览器从未收到的资源才能保证不被前端绕过显示。来源连接/试调用由受控 adapter 执行，来源管理员输入目标不等同于普通业务查询可接受 URL。
 
-Studio 同源会话使用安全 cookie 与 CSRF/Origin 检查，退出和撤销使敏感界面缓存失效；秘密不回显、不写浏览器持久存储。草稿保存带 expectedRevision，发布批准绑定精确候选及环境；更改使旧证明失效。草稿校验可读取授权样本，但不能执行业务 Action。T09C 完成浏览器端到端安全验收。
+Studio 同源会话使用安全 cookie 与 CSRF/Origin 检查，退出和撤销使敏感界面缓存失效；秘密不回显、不写浏览器持久存储。当前 Studio 保存带 expectedRevision，保存、不可变发布记录和环境激活在同一事务内完成；没有独立候选批准流程，也不生成生产联机激活证明。独立批准和完整环境验证仍为生产 gate。草稿校验可读取授权样本，但不能执行业务 Action。T09C 完成浏览器端到端安全验收。
 
 ## Reporting
 
@@ -61,3 +61,20 @@ Studio 同源会话使用安全 cookie 与 CSRF/Origin 检查，退出和撤销�
 Chat 历史保存在现有 metadata PostgreSQL，按 tenant + actor 隔离，生产 retention 尚未实现。切换主体/退出/版本变化后禁止继续释放旧运行结果；取消终止 task-owned Node。事实卡直接来自服务器引擎，不以模型文本作为审计证据。原有生产 profile 限制仍有效。
 
 Chat 浏览器 lineage 遵循既有 modeler/model-viewer/source-admin 模型元数据可见权限，并同时要求业务分析权限；普通 analyst 不返回表列，历史响应重新过滤。lineage 只保存实际引用 Mapping 的受限摘要，不含连接设置，不发送给模型。集合分析在租户范围内完整枚举，拒绝截断、重复单位及操作错误；不通过自由 SQL 绕开权限。
+
+## Review hardening boundaries
+
+- Studio source-row previews require a verified tenant column independently of the displayed column limit.
+  The default is `tenant_id`; a source administrator may set `settings.tenantColumn` on the source profile.
+  If that column is absent from the inspected catalog, previews fail closed rather than read an unscoped table.
+- Remote API specification imports require an exact deployment-configured origin in the comma-separated
+  `SEMALOOM_SPEC_ALLOWED_ORIGINS`. The default permits no remote fetches; pasted documents still work.
+  Approved origins may be private enterprise endpoints. Deployment owners must control their DNS/network
+  routing. Redirects and URL userinfo are rejected; response bodies are limited to 1 MiB and request errors
+  do not echo credentials or URLs. Environment HTTP proxies are not inherited for this download.
+- `load-fixtures` checks every destination before connecting: only loopback PostgreSQL and the known
+  synthetic database names for each fixture role (including G4 and the isolated `q3_e2e` harness) are accepted.
+  There is no force override for business databases.
+- Request source binding snapshots contain destinations held privately by adapters. Public evidence contains
+  only a digest of source IDs/revisions, binding references and non-secret endpoint identities. Passwords
+  are excluded; this is a binding identity, not a claim of a global source snapshot or online approval.

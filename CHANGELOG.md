@@ -5,6 +5,20 @@ versioning for published releases. During `0.x`, incompatible changes are docume
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject incompatible Rule units, output relabeling, invalid identities/grain, undeclared or
+  wrong-version pack references, and invalid Policy dates/dimensions. Invalid old definitions
+  must be corrected and recompiled; valid v0.1 definitions retain their meaning.
+- Enforce tenant scope on wide-table previews, restrict API document downloads to configured
+  origins, and reject unsafe fixture database targets before connecting.
+- Pin source bindings per application request and bind prepared analysis to their digest.
+  Re-prepare old plans or plans made before a source binding change.
+- Save Studio revisions and activate the exact saved release atomically, including publication history.
+- Fail missing/empty pack paths, correct quickstart bindings and obsolete approval claims,
+  and localize business-period clarification and new source/import errors.
+
+
 ### Repository maintenance
 
 - Remove the unreachable draft editor, duplicate frontend types/helpers and the compiler digest

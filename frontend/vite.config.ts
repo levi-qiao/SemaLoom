@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 // Ship notices for the packages actually included in the browser bundle.
@@ -44,8 +44,26 @@ function bundledLicenses(): Plugin {
   };
 }
 
+// The Python wheel consumes generated copies; application copy is authored in i18n.tsx.
+function chatLocales(): Plugin {
+  return {
+    name: "chat-locales",
+    buildStart() {
+      const source = readFileSync(new URL("./src/i18n.tsx", import.meta.url), "utf8");
+      const [zh, en] = source.split("export const en:");
+      for (const [locale, block] of [["zh-CN", zh], ["en", en]]) {
+        const messages = Object.fromEntries([...block.matchAll(/"chatRuntime\.([^"\n]+)": ("(?:\\.|[^"\\])*"),/g)]
+          .map(match => [match[1], JSON.parse(match[2])]));
+        if (!Object.keys(messages).length) throw new Error(`Missing Chat messages: ${locale}`);
+        writeFileSync(new URL(`../src/semaloom/app/chat/locales/${locale}.json`, import.meta.url),
+          JSON.stringify(messages, null, 2) + "\n");
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), bundledLicenses()],
+  plugins: [react(), bundledLicenses(), chatLocales()],
   base: "/studio/",
   build: {
     outDir: "../src/semaloom/app/static",

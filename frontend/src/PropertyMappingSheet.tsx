@@ -579,7 +579,7 @@ export function PropertyMappingSheet({
                   )) : (
                     <tr>
                       <td colSpan={Math.max(focusedColumns.length, 1)}>
-                        {rowsReason === "SAMPLE_UNAVAILABLE" || rowsReason === "SOURCE_UNAVAILABLE"
+                        {rowsReason === "TENANT_SCOPE_REQUIRED" ? t("mapping.tenantScopeRequired") : rowsReason === "SAMPLE_UNAVAILABLE" || rowsReason === "SOURCE_UNAVAILABLE"
                           ? t("mapping.noSampleRows")
                           : rowsReason === "TABLE_NOT_IN_CATALOG"
                             ? t("mapping.tableNotInCatalog")

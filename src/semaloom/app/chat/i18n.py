@@ -106,6 +106,9 @@ def localize_question(question: dict[str, object] | None, locale: str) -> dict[s
             "A rule evaluation must identify one object.",
         ),
     }
+    if slot == "claimPeriod":
+        result["prompt"] = text(locale, "claimPeriod.prompt")
+        result["reason"] = text(locale, "claimPeriod.reason")
     if slot in prompts:
         result["prompt"], result["reason"] = prompts[slot]
     options: list[dict[str, object]] = []
