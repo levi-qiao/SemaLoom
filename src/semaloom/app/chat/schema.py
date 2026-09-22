@@ -24,21 +24,32 @@ def model_schema(schema: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("UNSUPPORTED_MODEL_SCHEMA_REFERENCE")
             target = definitions[ref.removeprefix("#/$defs/")]
             if stack.count(ref) >= 3:
-                # Bounded model projection of recursive boolean filters. The canonical
-                # Python contract independently validates its larger execution budget.
-                if ref != "#/$defs/FilterGroup":
-                    raise ValueError("UNSUPPORTED_MODEL_SCHEMA_REFERENCE")
-                target = {
-                    **target,
-                    "properties": {
-                        **target["properties"],
-                        "args": {
-                            "type": "array",
-                            "minItems": 1,
-                            "items": {"$ref": "#/$defs/FilterAtom"},
+                # Bounded model projection of recursive filters and formulas. The
+                # canonical Python contract independently validates the execution budget.
+                if ref == "#/$defs/FilterGroup":
+                    target = {
+                        **target,
+                        "properties": {
+                            **target["properties"],
+                            "args": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {"$ref": "#/$defs/FilterAtom"},
+                            },
                         },
-                    },
-                }
+                    }
+                elif ref == "#/$defs/Formula":
+                    measure = {"$ref": "#/$defs/MeasureTerm"}
+                    target = {
+                        **target,
+                        "properties": {
+                            **target["properties"],
+                            "left": measure,
+                            "right": {"anyOf": [measure, {"type": "null"}]},
+                        },
+                    }
+                else:
+                    raise ValueError("UNSUPPORTED_MODEL_SCHEMA_REFERENCE")
             value = {**target, **{k: v for k, v in value.items() if k != "$ref"}}
             stack = (*stack, ref)
         result = {k: expand(v, stack) for k, v in value.items() if k != "$defs"}

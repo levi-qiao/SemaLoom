@@ -129,6 +129,11 @@
     propertyColumns:
       name: name
       region: region
+    valueLabels:
+      region:
+        table: proc_region
+        idColumn: code
+        labelColumn: name
 
 - apiVersion: semaloom/v0.1
   kind: ActionBinding

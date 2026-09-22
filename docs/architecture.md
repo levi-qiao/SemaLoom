@@ -187,7 +187,7 @@ PoC、开源准备与真实 pilot 分别由 [PLAN](PLAN.md) 的 gate 验收；�
 
 事实在表：integration 一张事实表一条 Mapping。业务层补充对象、关系、判断和少量指标词条（别名、口径、科目筛选），不穷举来源科目或公式；grain/单位从对象与 Mapping 继承，见 [ADR-0012](adr/0012-facts-and-business-vocabulary.md)。连接凭据仍由环境绑定管理。新增同协议企业模型不修改 core/runtime/harness。新协议需要 adapter，不能承诺仅画本体即可自动理解任何来源。
 
-Chat 的确定性 intent adapter 只处理少量明确语言，并输出 role/ID 驱动的类型化约束与分组提示；通用编排不包含年度、月份或行业命名槽。开放业务维度由当前 release 提供候选，Agent/Jev 只能在候选中选择，Python 再验证。Pi worker 通过单一 `SemanticDecisionProvider` seam 使用 Jev；本地或其他模型 adapter 只能替换候选分类/排序实现，不能获得新的执行权限。schema 模块把 canonical JSON Schema 的本地引用展开为模型可理解的嵌套对象，不接受字符串冒充对象，不削弱 Python 校验。集合结果说明由 Python 引擎值生成，pi 原生 afterToolCall 在 answerReady 后结束；其他问答仍走 present_answer。准确性边界及审计证据见 [分析验证](analysis-quality.md)。
+Chat 的确定性 intent adapter 只根据本体标签、别名和类型唯一的范围属性输出约束与分组；分组认不出时澄清。公式是 `VALUE` / `RATIO` / `DIFFERENCE`，见 [ADR-0017](adr/0017-compositional-analysis.md)。通用编排不包含年度、月份或行业命名槽。开放业务维度由当前 release 提供候选，Agent/Jev 只能在候选中选择，Python 再验证。Pi worker 通过单一 `SemanticDecisionProvider` seam 使用 Jev；本地或其他模型 adapter 只能替换候选分类/排序实现，不能获得新的执行权限。schema 模块把 canonical JSON Schema 的本地引用展开为模型可理解的嵌套对象，不接受字符串冒充对象，不削弱 Python 校验。集合结果说明由 Python 引擎值生成，pi 原生 afterToolCall 在 answerReady 后结束；其他问答仍走 present_answer。准确性边界及审计证据见 [分析验证](analysis-quality.md)。
 
 交互与结果呈现各有一个服务器拥有的深模块：`ChoiceQuestion` 从稳定 ChoiceKind 推导下拉或卡片，`project_browser_answer` 从 QueryResult 的标量/聚合 grain 与 timeGrain 推导 KPI、趋势、分布或表格。Pi 不选择组件、不提供字典值、不重算金额；本体也不保存组件和布局。逐条 EvidenceTable 只进入审计层，不能代替聚合结果绘图。
 

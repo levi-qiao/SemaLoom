@@ -83,9 +83,13 @@ def localize_question(question: dict[str, object] | None, locale: str) -> dict[s
             "How should this metric be calculated?",
             "Totals, averages, and other operations have different meanings.",
         ),
-        "comparison": (
-            "Which comparison do you mean?",
-            "These comparisons use different denominators.",
+        "formula": (
+            "Which calculation do you mean?",
+            "These calculations use different denominators.",
+        ),
+        "group": (
+            "Which property should group the result?",
+            "The grouping property comes from the published ontology.",
         ),
         "dimension": (
             "Choose a business value",
@@ -111,9 +115,9 @@ def localize_question(question: dict[str, object] | None, locale: str) -> dict[s
         "MIN": "Minimum",
         "MAX": "Maximum",
         "COUNT": "Observed count",
-        "SHARE_OF_TOTAL": "Share of total",
-        "RELATIVE_TO_MEAN": "Relative to mean",
-        "STRICT_PEER": "Strict peer comparison",
+        "subject-ratio": "Share of the total",
+        "mean-delta": "Difference from the mean",
+        "peer-fraction": "Share of peers strictly outperformed",
     }
     raw_options = result.get("options")
     for raw in raw_options if isinstance(raw_options, list) else []:

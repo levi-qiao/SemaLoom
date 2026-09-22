@@ -7,8 +7,8 @@
 1. **Population 不认识年份。** `Metric.population` 只声明 `unitProperty`、有序的 `scopeProperties` 与口径说明。范围属性可以是年度、账期、营业日、班次、版本、场景或未来领域定义的其他属性，值类型不受 core 特判。
 2. **缺范围走同一个深模块。** Runtime 按已发布 Metric、当前租户和具体范围属性读取该指标确有非空观测的类型化候选，统一生成 `DIMENSION_VALUE`。`YEAR` ChoiceKind 与 `analysis_years` 不再是公共接口；客户端不根据槽名识别业务。
 3. **Agent 选择声明，Python 验证执行。** 确定性语言适配器与 Agent/Jev 都只产生 `semantic role / semantic ID + typed value + operator/grouping` 提示；通用编排不接收 `year`、`month`、`perspective` 等命名槽。模型只在 Compiler 提供的有限语义 ID、范围属性、粒度和候选值中分类或打分；不得生成物理字段、SQL、日历表达式或权限。Compiler/Runtime 重新校验属性归属、类型、范围、授权和 adapter 能力。
-4. **期间键与时间运算分离。** 已按期间存储的 INTEGER/STRING 属性直接按类型化值筛选或分组。属性可用开放、可组合的 `semanticRoles` 声明用途；当前可替换语言适配器把四位年份文本输出为 `time.year` 类型化约束，把趋势/前期比较输出为 `time.sequence` 分组提示。Core 与 Chat 编排只消费通用提示，不按字段名、位置或行业猜角色。DATE/DATETIME 的截断由 adapter 实现，且 adapter 必须对白名单粒度做能力校验。
-5. **上一期间来自已授权观测序列。** `PERIOD_OVER_PERIOD` 只在唯一且声明 `time.sequence` 的范围属性上查找当前值的前一个已观测候选，不再执行“整数年份减一”。没有前序值时返回缺少上一期间，不伪造自然年含义。
+4. **期间键与时间运算分离。** 已按期间存储的 INTEGER/STRING 属性直接按类型化值筛选或分组。四位年份绑定到唯一的整数范围属性，不要求 `time.year` 角色；多个整数范围同时兼容时不猜测，也不把年份写入非整数范围。趋势分组使用唯一的范围属性，而不是 core 里的 `timeGrain=YEAR` 槽。`semanticRoles` 仍可声明用途，但不是绑定的前提。DATE/DATETIME 的截断由 adapter 实现，且 adapter 必须对白名单粒度做能力校验。
+5. **上一期间来自已授权观测序列。** `previousObserved` 在被等值约束的范围属性上查找当前值的前一个已观测候选，不再执行“整数年份减一”，也不再要求 `time.sequence` 或 `PERIOD_OVER_PERIOD`。没有前序值时返回缺少上一期间，不伪造自然年含义。序列必须读全已授权观测，选择题的条数上限不能截断这次计算。见 [ADR-0017](0017-compositional-analysis.md)。
 
 ## 影响
 

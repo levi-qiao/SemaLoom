@@ -10,6 +10,7 @@ from semaloom.app.chat.formatting import natural_number
 from semaloom.app.chat.i18n import semantic_label
 from semaloom.core.bundle import CompiledBundle
 from semaloom.core.semantic_query import FilterAtom, FilterGroup, QueryResult, SemanticQuery
+from semaloom.runtime.vocabulary import display_label, find_property
 
 OPERATIONS = {
     "mean": "平均值",
@@ -17,12 +18,6 @@ OPERATIONS = {
     "min": "最小值",
     "max": "最大值",
     "count": "有效观测数量",
-}
-COMPARISONS = {
-    "shareOfTotal": "占集合总额比例",
-    "percentAboveMean": "相对集合均值增幅",
-    "outperforms": "严格优于同行比例",
-    "periodOverPeriod": "较上年同期",
 }
 REASON_TEXT = {
     "EMPTY_POPULATION": "当前筛选范围没有匹配记录",
@@ -87,6 +82,10 @@ CAPABILITY_MESSAGES: dict[str, str] = {
     "INVALID_GROUP_BY_FIELD": (
         "分组字段不是当前本体声明的业务属性，请改用目录中的 ObjectType.property。"
     ),
+    "DUPLICATE_OR_MISSING_STATISTICAL_UNIT": (
+        "当前范围里同一对象有多条记录，需要再选定口径或期间后才能计算。"
+        "请补充要看的口径、期间或对象，不要把多条记录混成一个数。"
+    ),
 }
 
 CAPABILITY_MESSAGES_EN: dict[str, str] = {
@@ -126,6 +125,10 @@ CAPABILITY_MESSAGES_EN: dict[str, str] = {
         "Grouping requires a business property on the linked object; a Link ID is not a field."
     ),
     "INVALID_GROUP_BY_FIELD": "The group field is not an ontology-declared business property.",
+    "DUPLICATE_OR_MISSING_STATISTICAL_UNIT": (
+        "The current scope has more than one record for the same object. "
+        "Choose a perspective, period, or object before calculating."
+    ),
 }
 
 
@@ -135,21 +138,29 @@ def capability_message(capability: str | None, locale: str = "zh-CN") -> str:
     if locale.startswith("en"):
         return CAPABILITY_MESSAGES_EN.get(
             code,
-            f"This analysis capability is not supported ({code}). "
-            "Use a supported collection query, object lookup, or declared rule.",
+            "This question still needs a business condition. "
+            "Choose a metric, period, or perspective, or add a short clarification.",
         )
     return CAPABILITY_MESSAGES.get(
         code,
-        f"当前不支持该分析能力（{code}）。请改用同表集合统计、对象点查或已定义规则。",
+        "这个问题还需要补充业务条件才能计算。请选择指标、期间或口径，或用一句话说明要看哪一种。",
     )
 
 
-def _filter_description(node: FilterAtom | FilterGroup | None, labels: dict[str, str]) -> str:
+def _filter_description(
+    node: FilterAtom | FilterGroup | None,
+    labels: dict[str, str],
+    bundle: CompiledBundle | None = None,
+) -> str:
     if node is None:
         return "当前可查询范围"
     if isinstance(node, FilterAtom):
         value = node.value.value
-        rendered = "、".join(str(v) for v in value) if isinstance(value, tuple) else str(value)
+        prop = find_property(bundle, node.field) if bundle is not None else None
+        if isinstance(value, tuple):
+            rendered = "、".join(display_label(prop, item) for item in value)
+        else:
+            rendered = display_label(prop, value)
         operator = {
             "EQ": "为",
             "NE": "不为",
@@ -160,7 +171,7 @@ def _filter_description(node: FilterAtom | FilterGroup | None, labels: dict[str,
             "LE": "不大于",
         }.get(node.op, node.op)
         return f"{labels.get(node.field, node.field)}{operator}{rendered}"
-    parts = [_filter_description(arg, labels) for arg in node.args]
+    parts = [_filter_description(arg, labels, bundle) for arg in node.args]
     if node.kind == "NOT":
         return "不满足：" + "；".join(parts)
     return ("；" if node.kind == "AND" else "，或").join(parts)
@@ -239,29 +250,24 @@ def semantic_summary(
             metric_label = labels.get(value["metric"], value["metric"])
             rows.append(f"{metric_label}，{operation}：{display_value} {value['unit']}。")
 
-    comparison = result.scope.get("comparison")
-    if comparison:
-        if comparison.get("value") is None:
-            rows.append("比较无法确定：" + _reason_text(comparison.get("reason"), "zh-CN") + "。")
+    calculation = result.scope.get("calculation")
+    if isinstance(calculation, dict) and calculation:
+        if calculation.get("value") is None:
+            rows.append("计算无法确定：" + _reason_text(calculation.get("reason"), "zh-CN") + "。")
         else:
-            op_label = COMPARISONS.get(comparison["operation"], comparison["operation"])
-            rows.append(
-                f"**比较分析**：{op_label} `{comparison['value']}%`"
-                f"（分子 {comparison['numerator']}，分母 {comparison['denominator']}）。"
-            )
-            if comparison.get("currentPeriod") is not None:
+            rows.append(f"计算结果：{natural_number(calculation['value'])}。")
+            if calculation.get("numerator") is not None:
                 rows.append(
-                    f"本期 {comparison['currentPeriod']} `{comparison.get('currentValue')}`，"
-                    f"上一期间 {comparison.get('priorPeriod')} `{comparison.get('priorValue')}`。"
+                    f"分子 `{calculation['numerator']}`，分母 `{calculation.get('denominator')}`。"
                 )
-            if query.comparison and query.comparison.op == "STRICT_PEER":
-                rows.append(
-                    "按越小越好比较。"
-                    if query.comparison.direction == "lower"
-                    else "按越大越好比较。"
-                )
+            if calculation.get("priorPeriod") is not None:
+                rows.append(f"上一观测期间 {calculation.get('priorPeriod')}。")
+            if calculation.get("peerRelation") == "GT":
+                rows.append("按越小越好比较。")
+            elif calculation.get("peerRelation") == "LT":
+                rows.append("按越大越好比较。")
 
-    scope_lines = ["- 筛选范围：" + _filter_description(query.filters, labels) + "。"]
+    scope_lines = ["- 筛选范围：" + _filter_description(query.filters, labels, bundle) + "。"]
     scopes = result.scope.get("metrics", {})
     for ref in query.metrics:
         scope = scopes.get(ref.id, result.scope)
@@ -340,17 +346,14 @@ def _semantic_summary_en(
             f"- **{label}{suffix}** — {operation.get(value['aggregation'], value['aggregation'])}: "
             f"{shown} {value['unit']}"
         )
-    comparison = result.scope.get("comparison")
-    if comparison:
-        if comparison.get("value") is None:
+    calculation = result.scope.get("calculation")
+    if isinstance(calculation, dict) and calculation:
+        if calculation.get("value") is None:
             lines.append(
-                f"- Comparison unavailable: {_reason_text(comparison.get('reason'), 'en')}."
+                f"- Calculation unavailable: {_reason_text(calculation.get('reason'), 'en')}."
             )
         else:
-            lines.append(
-                f"- Comparison: {comparison['value']}% "
-                f"(numerator {comparison['numerator']}, denominator {comparison['denominator']})."
-            )
+            lines.append(f"- Calculation: {natural_number(calculation['value'])}.")
     scopes = result.scope.get("metrics", {})
     lines.extend(["", "#### Scope"])
     for ref in query.metrics:

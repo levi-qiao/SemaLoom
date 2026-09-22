@@ -31,7 +31,6 @@
     - id: taxYear
       label: 税款所属期
       valueType: INTEGER
-      semanticRoles: [time.year, time.sequence]
     - id: perspective
       label: 口径
       valueType: STRING

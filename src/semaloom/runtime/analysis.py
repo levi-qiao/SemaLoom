@@ -21,6 +21,7 @@ from semaloom.core.semantic_query import (
     TypedValue,
     conflicting_equalities,
     field_constrained,
+    formula_needs_subject,
     with_choice_exits,
 )
 from semaloom.core.semantic_query import (
@@ -28,6 +29,7 @@ from semaloom.core.semantic_query import (
 )
 from semaloom.runtime.auth import RequestActor, authorize_query
 from semaloom.runtime.query import QueryService
+from semaloom.runtime.vocabulary import display_label
 
 _AGG_LABELS: dict[AggregationOp, str] = {
     "SUM": "合计",
@@ -126,8 +128,8 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
                 question_id="q-metric-" + service.bundle.digest[:8],
                 revision=1,
                 slot="metric",
-                prompt="你说的指标是哪种口径？",
-                reason="缺少影响结果的指标选择。",
+                prompt="请选择要看的指标。",
+                reason="这项还对应多个指标，选定后继续。",
                 options=with_choice_exits(options),
             ),
         )
@@ -162,8 +164,12 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
                 question_id="q-scope-" + metric.id.replace(".", "_") + "-" + missing_scope,
                 revision=1,
                 slot="scope:" + missing_scope,
-                prompt=f"请选择{prop.label or prop.id}。",
-                reason="缺少确定统计范围所需的业务维度。",
+                prompt=(
+                    f"要看{metric.label}，请选择{prop.label or prop.id}。"
+                    if metric.label
+                    else f"请选择{prop.label or prop.id}。"
+                ),
+                reason="选定后继续计算。",
                 options=with_choice_exits(options),
             ),
         )
@@ -196,9 +202,9 @@ def _prepare(service: QueryService, query: SemanticQuery, actor: RequestActor) -
                 ),
             ),
         )
-    if query.comparison and query.comparison.op != "PERIOD_OVER_PERIOD":
+    if query.formula and formula_needs_subject(query.formula):
         subjects = _backend(service, "analysis_subjects")(service.bundle, query, actor.tenant)
-        if not query.comparison.subject or len(subjects) > 1:
+        if query.formula.subject is None or len(subjects) > 1:
             subject_options = tuple(
                 ChoiceOption(
                     id="opt_subject_" + str(index),
@@ -257,8 +263,7 @@ def _property(service: QueryService, metric: MetricDef, field: str) -> EmbeddedP
 
 
 def _value_label(prop: EmbeddedProperty, value: str | int | bool) -> str:
-    authored = next((item.label for item in prop.values if item.id == str(value)), None)
-    return authored or str(value)
+    return display_label(prop, value)
 
 
 def _metric(service: QueryService, metric_id: str) -> MetricDef:

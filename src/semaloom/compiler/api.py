@@ -845,6 +845,24 @@ def _check_links(
                         message="linked identity fields must have the same value type",
                     )
                 )
+        if not link.collection:
+            continue
+        if len(link.identity) != 1:
+            diagnostics.append(
+                Diagnostic(
+                    code="COLLECTION_LINK_UNSUPPORTED",
+                    path=link.id,
+                    message=f"{link.id} unsupported identity",
+                )
+            )
+        elif link.cardinality != "ONE":
+            diagnostics.append(
+                Diagnostic(
+                    code="COLLECTION_LINK_UNSUPPORTED",
+                    path=link.id,
+                    message=f"{link.id} missing fanout policy",
+                )
+            )
 
 
 def _check_rules(

@@ -8,5 +8,7 @@
   "objectScope.abortExplanation": "Stop without displaying unfiltered object records",
   "objectScope.modelMessage": "Add a business filter declared by the ontology before reading object records.",
   "objectScope.propertiesFallback": "business scope",
+  "duplicateUnit.prompt": "This scope has more than one record for the same object. Choose a perspective or period",
+  "duplicateUnit.reason": "The engine cannot mix those records into one number. Add the missing business condition.",
   "answer.completed": "Calculated using the published semantic definition."
 }

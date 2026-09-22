@@ -32,7 +32,7 @@
 
 ## 首版能力与拒绝
 
-**Q0 冻结目标，不是已交付清单。** 计划中的同源 PostgreSQL 算子为：EQ/NE/LT/LE/GT/GE/IN/BETWEEN 与 AND/OR/NOT；YEAR/MONTH 与业务维度分组；SUM/MIN/MAX/COUNT/AVG（AVG 遵守缺失政策）；ORDER/LIMIT；Top N；SHARE_OF_TOTAL、RELATIVE_TO_MEAN、STRICT_PEER；以及已声明且基数合法的同源 Link **集合 JOIN**。50 只限制证据分页。
+**Q0 冻结目标，不是已交付清单。** 计划中的同源 PostgreSQL 算子为：EQ/NE/LT/LE/GT/GE/IN/BETWEEN 与 AND/OR/NOT；业务维度分组；SUM/MIN/MAX/COUNT/AVG（AVG 遵守缺失政策）；ORDER/LIMIT；Top N；以及 `VALUE` / `RATIO` / `DIFFERENCE` 组合。占比、相对均值、同行计数和上一观测期都由这些组合表达，不再作为请求枚举，见 [ADR-0017](0017-compositional-analysis.md)。已声明且基数合法的同源 Link 可做集合 JOIN。50 只限制证据分页。
 
 实际已交付：同源同事实表集合分析，以及已声明 FORWARD ONE、同一 PostgreSQL 来源的 Link 集合 LEFT JOIN（按关联对象属性分组/筛选）。一对多、跨源 SQL JOIN、多跳与多指标联合排序/比较仍返回明确 `UNSUPPORTED`。以 [能力边界](../capabilities.md) 与下文「主责复验修订」为准。
 

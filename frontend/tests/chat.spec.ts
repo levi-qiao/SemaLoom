@@ -31,7 +31,7 @@ test('choice cards submit on click and other accepts inline text', async ({page}
   const cid = 'c'.repeat(32);
   const question = {
     questionId: 'q1', revision: 1, slot: 'metric',
-    prompt: '你说的指标是哪种口径？', reason: '本体中该业务词对应多个指标',
+    prompt: '请选择要看的指标。', reason: '这句话对应多项，选定后结果会不同。',
     options: [
       {id: 'opt_a', label: '申报营业收入', explanation: '申报表中的营业收入', choice: {kind: 'METRIC', id: 'finance.declaredRevenue'}},
       {id: 'opt_other_input', label: '其他', explanation: '自行说明', choice: {kind: 'OTHER', id: 'free_text'}},
@@ -72,7 +72,7 @@ test('choice submit delivers engine unsupported text instead of a generic error 
   const cid = 'd'.repeat(32);
   const question = {
     questionId: 'q-link', revision: 1, slot: 'metric',
-    prompt: '你说的指标是哪种口径？', reason: '本体中该业务词对应多个指标',
+    prompt: '请选择要看的指标。', reason: '这句话对应多项，选定后结果会不同。',
     options: [
       {id: 'opt_a', label: '申报营业收入', explanation: '申报表中的营业收入', choice: {kind: 'METRIC', id: 'finance.declaredRevenue'}},
       {id: 'opt_abort_unclear', label: '都不符合 / 暂不清楚', explanation: '停止', choice: {kind: 'ABORT', id: 'unclear'}},

@@ -65,10 +65,78 @@ def test_comparison_denominator_is_explicit(
         ACTOR,
         comparison={"identity": {"caseId": "C2"}, "operation": operation},
     )
-    comparison = result.scope["comparison"]
-    assert Decimal(comparison["numerator"]) == Decimal(numerator)
-    assert Decimal(comparison["denominator"]) == Decimal(denominator)
-    assert Decimal(comparison["value"]) == Decimal(numerator) / Decimal(denominator) * 100
+    calculation = result.scope["calculation"]
+    assert Decimal(calculation["numerator"]) == Decimal(numerator)
+    assert Decimal(calculation["denominator"]) == Decimal(denominator)
+    assert Decimal(calculation["value"]) == Decimal(numerator) / Decimal(denominator)
+    assert result.values[0]["unit"] == ""
+    assert result.values[0]["valueType"] == "DECIMAL"
+    assert calculation["formula"]
+    assert result.mapping_fields
+    assert result.mapping_fields[0]["mappingId"]
+    assert result.source_activities[0]["formula"] == calculation["formula"]
+
+
+def test_formula_rejects_difference_between_money_and_count(population_query: Any) -> None:
+    from semaloom.core.semantic_query import AnalysisError, Formula, MeasureTerm
+
+    metric = "finance.review.declared_profit"
+    query = analysis_query().model_copy(
+        update={
+            "formula": Formula(
+                op="DIFFERENCE",
+                left=MeasureTerm(metric=metric, aggregation="SUM"),
+                right=MeasureTerm(metric=metric, aggregation="COUNT"),
+            )
+        }
+    )
+    with pytest.raises(AnalysisError, match="UNIT_MISMATCH"):
+        prepare(population_query, query, ACTOR)
+
+
+def test_previous_observed_preserves_other_filters(population_query: Any) -> None:
+    from semaloom.core.semantic_query import Formula, MeasureTerm
+
+    with population_query.provider._engines["sample_pg"].begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sample_financial_review "
+                "(tenant_id, id, company_id, tax_year, declared_profit) VALUES "
+                "('tenant-a', 'C1-latest', 'C1', 2026, 200), "
+                "('tenant-a', 'other', 'other', 2025, 999)"
+            )
+        )
+    query = analysis_query(year=2026, filters={"companyId": "C1"}).model_copy(
+        update={
+            "formula": Formula(
+                op="VALUE",
+                left=MeasureTerm(
+                    metric="finance.review.declared_profit",
+                    aggregation="SUM",
+                    previous_observed=True,
+                ),
+            )
+        }
+    )
+    result = run_analysis(population_query, ACTOR, query=query)
+    assert result.scope["calculation"]["priorPeriod"] == 2024
+    assert Decimal(result.values[0]["value"]) == Decimal("100.01")
+
+
+def test_formula_operand_is_checked_before_ready(population_query: Any) -> None:
+    from semaloom.core.semantic_query import Formula, MeasureTerm, SubjectSelector
+
+    metric = "finance.review.declared_profit"
+    query = analysis_query().model_copy(
+        update={
+            "formula": Formula(
+                op="VALUE",
+                left=MeasureTerm(metric=metric, aggregation="SUM", value_relation="LT"),
+                subject=SubjectSelector(identity={"caseId": "C2"}),
+            )
+        }
+    )
+    assert prepare(population_query, query, ACTOR).status == "UNSUPPORTED"
 
 
 def test_missing_is_not_zero_and_exclusion_is_explicit(population_query: Any) -> None:
@@ -165,11 +233,11 @@ def test_chat_tool_and_browser_lineage_separation(population_query: Any) -> None
 @pytest.mark.parametrize(
     ("values", "operation", "direction", "expected", "reason"),
     [
-        (["10", "10", "5"], "outperforms", "higher", "50", None),
+        (["10", "10", "5"], "outperforms", "higher", "0.5", None),
         (["10", "10", "5"], "outperforms", "lower", "0", None),
         (["0", "0", "0"], "shareOfTotal", "higher", None, "ZERO_DENOMINATOR"),
-        (["-10", "20", "30"], "shareOfTotal", "higher", None, "NEGATIVE_VALUES_NOT_A_SHARE"),
-        (["-10", "-20", "-30"], "percentAboveMean", "higher", None, "NON_POSITIVE_MEAN"),
+        (["-10", "20", "30"], "shareOfTotal", "higher", "-0.25", None),
+        (["-10", "-20", "-30"], "percentAboveMean", "higher", "-0.5", None),
     ],
 )
 def test_ties_negative_and_zero_denominators(
@@ -195,8 +263,8 @@ def test_ties_negative_and_zero_denominators(
             "direction": direction,
         },
     )
-    assert result.scope["comparison"]["reason"] == reason
-    actual = result.scope["comparison"]["value"]
+    assert result.scope["calculation"]["reason"] == reason
+    actual = result.scope["calculation"]["value"]
     assert (Decimal(actual) if actual is not None else None) == (
         Decimal(expected) if expected is not None else None
     )
@@ -280,7 +348,7 @@ def test_subject_filter_resolves_in_full_cohort_without_changing_denominator(
     )
     assert result.scope["populationCount"] == 3
     assert result.scope["subjectIdentity"] == "C3"
-    assert Decimal(result.scope["comparison"]["denominator"]) == Decimal("300.03")
+    assert Decimal(result.scope["calculation"]["denominator"]) == Decimal("300.03")
     with pytest.raises(ValueError, match="AMBIGUOUS_COMPARISON_SUBJECT"):
         run_analysis(
             population_query,
@@ -327,4 +395,438 @@ def test_lower_is_better_narrative_matches_comparison_not_raw_value_order(
     executed = execute(population_query, prepared.plan, ACTOR)
     narrative = semantic_summary(population_query.bundle, semantic, executed)
     assert "越小越好" in narrative and "越大越好" not in narrative
-    assert executed.scope["comparison"]["value"] in narrative
+    assert executed.scope["calculation"]["value"] in narrative
+
+
+def test_domains_inherit_grain_and_compose_previous_period() -> None:
+    """Tax year binds without a time role; procurement string periods shift by observation."""
+    from decimal import Decimal
+    from pathlib import Path
+
+    from sqlalchemy import create_engine, text
+
+    from semaloom.adapters.postgres import PostgresReadProvider
+    from semaloom.app.chat.choices import prepare_turn, query_from_intent
+    from semaloom.app.chat.intent import TurnIntent
+    from semaloom.core.semantic_query import (
+        FilterAtom,
+        Formula,
+        MeasureTerm,
+        MetricRef,
+        SemanticQuery,
+        TypedValue,
+    )
+    from semaloom.runtime.fixtures import engines
+    from semaloom.runtime.query import QueryService
+    from semaloom.sdk import compile_paths
+
+    root = Path(__file__).resolve().parents[1]
+    tax = compile_paths([root / "examples/tax"]).bundle
+    procurement = compile_paths([root / "examples/procurement"]).bundle
+    assert tax is not None and procurement is not None
+    year = next(
+        prop
+        for obj in tax.object_types
+        if obj.id == "tax.Taxpayer"
+        for prop in obj.properties
+        if prop.id == "taxYear"
+    )
+    assert year.semantic_roles == ()
+    reported = next(metric for metric in tax.metrics if metric.id == "tax.reportedIncome")
+    assert reported.select["measureCode"] == "reportedIncome"
+    assert reported.unit == "CNY"
+    assert reported.additivity == "FULL"
+    assert "taxpayerId" in reported.grain
+    amount = next(
+        metric for metric in procurement.metrics if metric.id == "procurement.orderAmount"
+    )
+    assert amount.unit == "CNY" and amount.additivity == "FULL" and "orderId" in amount.grain
+    period = next(
+        prop
+        for obj in procurement.object_types
+        if obj.id == "procurement.Contract"
+        for prop in obj.properties
+        if prop.id == "accountingPeriod"
+    )
+    assert period.semantic_roles == ()
+    intent = TurnIntent.read("2024年申报收入合计", tax)
+    assert query_from_intent(intent, tax).filters is not None
+
+    tax_engine = engines()["tax_pg"]
+    order_engine = engines()["orders_pg"]
+    with tax_engine.connect() as tax_conn, order_engine.connect() as order_conn:
+        tax_conn.execute(text("DROP SCHEMA IF EXISTS domain_compose CASCADE"))
+        order_conn.execute(text("DROP SCHEMA IF EXISTS domain_compose CASCADE"))
+        tax_conn.execute(text("CREATE SCHEMA domain_compose"))
+        tax_conn.execute(text("SET search_path TO domain_compose"))
+        order_conn.execute(text("CREATE SCHEMA domain_compose"))
+        order_conn.execute(text("SET search_path TO domain_compose"))
+        tax_conn.execute(
+            text(
+                """CREATE TABLE tax_metric (
+                tenant_id TEXT, taxpayer_id TEXT, tax_year INTEGER,
+                perspective TEXT, metric TEXT, amount NUMERIC)"""
+            )
+        )
+        tax_conn.execute(
+            text(
+                """INSERT INTO tax_metric VALUES
+                ('tenant-a','TAXPAYER-A',2024,'TAX_RETURN','reportedIncome',110.10),
+                ('tenant-a','TAXPAYER-B',2024,'TAX_RETURN','reportedIncome',80.00),
+                ('tenant-a','TAXPAYER-A',2025,'TAX_RETURN','reportedIncome',200.00),
+                ('tenant-a','TAXPAYER-A',2024,'AUDIT_REPORT','reportedIncome',999)"""
+            )
+        )
+        order_conn.execute(
+            text(
+                """CREATE TABLE proc_contract (
+                tenant_id TEXT, contract_id TEXT, organization_id TEXT, supplier_id TEXT,
+                accounting_period TEXT, category TEXT, status TEXT,
+                contract_value NUMERIC, committed_spend NUMERIC)"""
+            )
+        )
+        order_conn.execute(
+            text(
+                """INSERT INTO proc_contract VALUES
+                ('tenant-a','C1','O1','S1','2024-01','GOODS','ACTIVE',2500,1800),
+                ('tenant-a','C2','O1','S2','2024-01','SERVICE','ACTIVE',1800,1750),
+                ('tenant-a','C3','O2','S3','2024-01','LOGISTICS','CLOSED',900,900),
+                ('tenant-a','C4','O2','S2','2025-01','GOODS','ACTIVE',3200,1600),
+                ('tenant-a','C5','O1','S3','2025-01','SERVICE','EXPIRING',1200,1100),
+                ('tenant-a','C6','O2','S1','2025-01','LOGISTICS','ACTIVE',2100,NULL)"""
+            )
+        )
+        tax_conn.commit()
+        order_conn.commit()
+        tax_read = create_engine(
+            tax_engine.url, connect_args={"options": "-csearch_path=domain_compose"}
+        )
+        order_read = create_engine(
+            order_engine.url, connect_args={"options": "-csearch_path=domain_compose"}
+        )
+        try:
+            tax_service = QueryService(tax, PostgresReadProvider({"tax_pg": tax_read}))
+            procurement_service = QueryService(
+                procurement, PostgresReadProvider({"orders_pg": order_read})
+            )
+            reported_query = SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(MetricRef(id="tax.reportedIncome", aggregation="SUM"),),
+                filters=FilterAtom(
+                    field="taxYear", op="EQ", value=TypedValue(value_type="INTEGER", value=2024)
+                ),
+            )
+            prepared = prepare(tax_service, reported_query, ACTOR)
+            assert prepared.status == "READY" and prepared.plan is not None
+            reported_result = execute(tax_service, prepared.plan, ACTOR)
+            with tax_read.connect() as conn:
+                oracle = conn.execute(
+                    text(
+                        "SELECT SUM(amount) FROM tax_metric WHERE tenant_id='tenant-a' "
+                        "AND tax_year=2024 AND perspective='TAX_RETURN' AND metric='reportedIncome'"
+                    )
+                ).scalar_one()
+            assert Decimal(reported_result.values[0]["value"]) == Decimal(oracle)
+
+            previous = SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(MetricRef(id="procurement.contractValue", aggregation="SUM"),),
+                filters=FilterAtom(
+                    field="accountingPeriod",
+                    op="EQ",
+                    value=TypedValue(value_type="STRING", value="2025-01"),
+                ),
+                formula=Formula(
+                    op="VALUE",
+                    left=MeasureTerm(
+                        metric="procurement.contractValue",
+                        aggregation="SUM",
+                        previous_observed=True,
+                    ),
+                ),
+            )
+            prepared = prepare(procurement_service, previous, ACTOR)
+            assert prepared.status == "READY" and prepared.plan is not None
+            shifted = execute(procurement_service, prepared.plan, ACTOR)
+            with order_read.connect() as conn:
+                prior = conn.execute(
+                    text(
+                        "SELECT SUM(contract_value) FROM proc_contract "
+                        "WHERE tenant_id='tenant-a' AND accounting_period='2024-01'"
+                    )
+                ).scalar_one()
+            assert Decimal(shifted.values[0]["value"]) == Decimal(prior)
+            assert shifted.scope["calculation"]["priorPeriod"] == "2024-01"
+            assert shifted.mapping_fields
+
+            difference = SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(
+                    MetricRef(id="procurement.contractValue", aggregation="SUM"),
+                    MetricRef(id="procurement.committedSpend", aggregation="SUM"),
+                ),
+                filters=FilterAtom(
+                    field="accountingPeriod",
+                    op="EQ",
+                    value=TypedValue(value_type="STRING", value="2024-01"),
+                ),
+                formula=Formula(
+                    op="DIFFERENCE",
+                    left=MeasureTerm(metric="procurement.contractValue", aggregation="SUM"),
+                    right=MeasureTerm(metric="procurement.committedSpend", aggregation="SUM"),
+                ),
+            )
+            prepared = prepare(procurement_service, difference, ACTOR)
+            assert prepared.status == "READY" and prepared.plan is not None
+            diff = execute(procurement_service, prepared.plan, ACTOR)
+            with order_read.connect() as conn:
+                expected = conn.execute(
+                    text(
+                        "SELECT SUM(contract_value) - SUM(committed_spend) FROM proc_contract "
+                        "WHERE tenant_id='tenant-a' AND accounting_period='2024-01'"
+                    )
+                ).scalar_one()
+            assert Decimal(diff.values[0]["value"]) == Decimal(expected)
+            assert "-" in diff.scope["calculation"]["formula"]
+
+            refused = prepare(
+                procurement_service,
+                SemanticQuery(
+                    api_version="semaloom/v0.1",
+                    metrics=(MetricRef(id="procurement.contractUtilization", aggregation="SUM"),),
+                    filters=FilterAtom(
+                        field="accountingPeriod",
+                        op="EQ",
+                        value=TypedValue(value_type="STRING", value="2024-01"),
+                    ),
+                ),
+                ACTOR,
+            )
+            assert refused.status == "UNSUPPORTED"
+            assert refused.capability == "ADDITIVITY_VIOLATION"
+
+            chat = prepare_turn(procurement_service, ACTOR, "2025-01合同总额月环比")
+            assert chat.get("status") == "READY"
+            assert Decimal(chat["result"]["values"][0]["value"]) == Decimal(prior)
+            grouped = prepare_turn(procurement_service, ACTOR, "2025-01按合同类别合计合同总额")
+            assert grouped.get("status") == "READY"
+            grains = {row["grain"].get("category") for row in grouped["result"]["values"]}
+            assert grains == {"GOODS", "SERVICE", "LOGISTICS"}
+            unknown = prepare_turn(procurement_service, ACTOR, "按航线合计合同总额")
+            assert unknown["status"] == "NEEDS_INPUT"
+            assert unknown["question"]["slot"] == "group"
+            assert unknown.get("errorCode") is None
+        finally:
+            tax_read.dispose()
+            order_read.dispose()
+            tax_conn.rollback()
+            order_conn.rollback()
+            tax_conn.execute(text("SET search_path TO public"))
+            order_conn.execute(text("SET search_path TO public"))
+            tax_conn.execute(text("DROP SCHEMA domain_compose CASCADE"))
+            order_conn.execute(text("DROP SCHEMA domain_compose CASCADE"))
+            tax_conn.commit()
+            order_conn.commit()
+
+
+def test_formula_scans_enforce_missing_duplicate_and_full_period_sequence() -> None:
+    """Term scans, not the unshifted request, own missingness, duplicates, and evidence."""
+    from pathlib import Path
+
+    from sqlalchemy import create_engine, text
+
+    from semaloom.adapters.postgres import PostgresReadProvider
+    from semaloom.core.semantic_query import (
+        FilterAtom,
+        Formula,
+        MeasureTerm,
+        MetricRef,
+        SemanticQuery,
+        TypedValue,
+    )
+    from semaloom.runtime.fixtures import engines
+    from semaloom.runtime.query import QueryService
+    from semaloom.sdk import compile_paths
+
+    bundle = compile_paths([Path(__file__).resolve().parents[1] / "examples/procurement"]).bundle
+    assert bundle is not None
+    periods = []
+    year, month = 2020, 1
+    for _ in range(31):
+        periods.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month == 13:
+            month = 1
+            year += 1
+    engine = engines()["orders_pg"]
+    with engine.connect() as conn:
+        conn.execute(text("DROP SCHEMA IF EXISTS formula_scan CASCADE"))
+        conn.execute(text("CREATE SCHEMA formula_scan"))
+        conn.execute(text("SET search_path TO formula_scan"))
+        conn.execute(
+            text(
+                """CREATE TABLE proc_contract (
+                tenant_id TEXT, contract_id TEXT, organization_id TEXT, supplier_id TEXT,
+                accounting_period TEXT, category TEXT, status TEXT,
+                contract_value NUMERIC, committed_spend NUMERIC)"""
+            )
+        )
+        rows: list[dict[str, object]] = [
+            {
+                "id": "C1",
+                "period": "2025-01",
+                "value": Decimal("3200"),
+                "spend": Decimal("1600"),
+            },
+            {"id": "C2", "period": "2025-01", "value": Decimal("2100"), "spend": None},
+            {"id": "D1", "period": "2024-01", "value": Decimal("10"), "spend": Decimal("10")},
+            {"id": "D1", "period": "2024-02", "value": Decimal("20"), "spend": Decimal("20")},
+            {"id": "D1", "period": "2024-02", "value": Decimal("30"), "spend": None},
+            {"id": "E1", "period": "2023-01", "value": Decimal("5"), "spend": Decimal("5")},
+            {"id": "E1", "period": "2023-01", "value": Decimal("6"), "spend": Decimal("6")},
+            {"id": "E1", "period": "2023-02", "value": Decimal("7"), "spend": Decimal("7")},
+        ]
+        for index, period in enumerate(periods, start=1):
+            rows.append(
+                {
+                    "id": "F1",
+                    "period": period,
+                    "value": Decimal(index * 100),
+                    "spend": Decimal(index * 100),
+                }
+            )
+        rows.append({"id": "FNULL", "period": periods[-1], "value": None, "spend": None})
+        conn.execute(
+            text(
+                """INSERT INTO proc_contract VALUES
+                ('tenant-a', :id, 'O1', 'S1', :period, 'GOODS', 'ACTIVE', :value, :spend)"""
+            ),
+            rows,
+        )
+        conn.commit()
+        read = create_engine(engine.url, connect_args={"options": "-csearch_path=formula_scan"})
+        try:
+            service = QueryService(bundle, PostgresReadProvider({"orders_pg": read}))
+
+            def run(query: SemanticQuery):
+                prepared = prepare(service, query, ACTOR)
+                assert prepared.status == "READY" and prepared.plan is not None
+                return execute(service, prepared.plan, ACTOR)
+
+            difference = SemanticQuery(
+                api_version="semaloom/v0.1",
+                metrics=(
+                    MetricRef(id="procurement.contractValue", aggregation="SUM"),
+                    MetricRef(id="procurement.committedSpend", aggregation="SUM"),
+                ),
+                filters=FilterAtom(
+                    field="accountingPeriod",
+                    op="EQ",
+                    value=TypedValue(value_type="STRING", value="2025-01"),
+                ),
+                formula=Formula(
+                    op="DIFFERENCE",
+                    left=MeasureTerm(metric="procurement.contractValue", aggregation="SUM"),
+                    right=MeasureTerm(metric="procurement.committedSpend", aggregation="SUM"),
+                ),
+                missing_policy="reject",
+            )
+            refused = run(difference)
+            with read.connect() as check:
+                nulls = check.execute(
+                    text(
+                        "SELECT COUNT(*) FROM proc_contract WHERE tenant_id='tenant-a' "
+                        "AND accounting_period='2025-01' AND committed_spend IS NULL"
+                    )
+                ).scalar_one()
+            assert nulls == 1
+            assert refused.values == ()
+            assert refused.scope["reason"] == "MISSING_VALUES_REQUIRE_EXPLICIT_EXCLUSION"
+            assert refused.scope["calculation"]["value"] is None
+            assert refused.scope["missingCount"] == 1
+
+            previous = Formula(
+                op="VALUE",
+                left=MeasureTerm(
+                    metric="procurement.contractValue",
+                    aggregation="SUM",
+                    previous_observed=True,
+                ),
+            )
+            current_duplicate = run(
+                SemanticQuery(
+                    api_version="semaloom/v0.1",
+                    metrics=(MetricRef(id="procurement.contractValue", aggregation="SUM"),),
+                    filters=FilterAtom(
+                        field="accountingPeriod",
+                        op="EQ",
+                        value=TypedValue(value_type="STRING", value="2024-02"),
+                    ),
+                    formula=previous,
+                    missing_policy="reject",
+                )
+            )
+            with read.connect() as check:
+                prior_total = check.execute(
+                    text(
+                        "SELECT SUM(contract_value) FROM proc_contract "
+                        "WHERE tenant_id='tenant-a' AND accounting_period='2024-01'"
+                    )
+                ).scalar_one()
+            assert Decimal(current_duplicate.values[0]["value"]) == Decimal(prior_total)
+            assert current_duplicate.scope["populationCount"] == 1
+            assert current_duplicate.scope["missingCount"] == 0
+            assert {Decimal(row[-1]) for row in current_duplicate.evidence.rows} == {
+                Decimal(prior_total)
+            }
+            executed = str(current_duplicate.scope["executedFilters"])
+            assert "2024-01" in executed
+            assert "2024-02" not in executed
+
+            with pytest.raises(ValueError, match="DUPLICATE_OR_MISSING_STATISTICAL_UNIT"):
+                run(
+                    SemanticQuery(
+                        api_version="semaloom/v0.1",
+                        metrics=(MetricRef(id="procurement.contractValue", aggregation="SUM"),),
+                        filters=FilterAtom(
+                            field="accountingPeriod",
+                            op="EQ",
+                            value=TypedValue(value_type="STRING", value="2023-02"),
+                        ),
+                        formula=previous,
+                        missing_policy="reject",
+                    )
+                )
+
+            latest = run(
+                SemanticQuery(
+                    api_version="semaloom/v0.1",
+                    metrics=(MetricRef(id="procurement.contractValue", aggregation="SUM"),),
+                    filters=FilterAtom(
+                        field="accountingPeriod",
+                        op="EQ",
+                        value=TypedValue(value_type="STRING", value=periods[-1]),
+                    ),
+                    formula=previous,
+                    missing_policy="reject",
+                )
+            )
+            with read.connect() as check:
+                expected_prior = check.execute(
+                    text(
+                        "SELECT SUM(contract_value) FROM proc_contract "
+                        "WHERE tenant_id='tenant-a' AND accounting_period=:period"
+                    ),
+                    {"period": periods[-2]},
+                ).scalar_one()
+            assert Decimal(latest.values[0]["value"]) == Decimal(expected_prior)
+            assert latest.scope["calculation"]["priorPeriod"] == periods[-2]
+            assert periods[-2] in str(latest.scope["executedFilters"])
+            assert {Decimal(row[-1]) for row in latest.evidence.rows} == {Decimal(expected_prior)}
+            assert latest.scope["missingCount"] == 0
+        finally:
+            read.dispose()
+            conn.rollback()
+            conn.execute(text("SET search_path TO public"))
+            conn.execute(text("DROP SCHEMA formula_scan CASCADE"))
+            conn.commit()

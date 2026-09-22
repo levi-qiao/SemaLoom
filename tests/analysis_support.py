@@ -6,9 +6,10 @@ from typing import Any
 
 from semaloom.core.semantic_query import (
     AnalysisError,
-    ComparisonExpr,
     FilterAtom,
     FilterGroup,
+    Formula,
+    MeasureTerm,
     MetricRef,
     SemanticQuery,
     SubjectSelector,
@@ -18,11 +19,43 @@ from semaloom.runtime.analysis import execute, prepare
 from semaloom.runtime.auth import RequestActor
 
 _OPS = {"mean": "AVG", "sum": "SUM", "min": "MIN", "max": "MAX", "count": "COUNT"}
-_CMP = {
-    "shareOfTotal": "SHARE_OF_TOTAL",
-    "percentAboveMean": "RELATIVE_TO_MEAN",
-    "outperforms": "STRICT_PEER",
-}
+
+
+def _formula(metric: str, comparison: dict[str, Any]) -> Formula:
+    identity = comparison.get("identity")
+    subject = (
+        SubjectSelector(identity=identity)
+        if identity
+        else SubjectSelector(filters=comparison.get("filters"))
+    )
+    operation = comparison["operation"]
+    if operation == "shareOfTotal":
+        return Formula(
+            op="RATIO",
+            subject=subject,
+            left=MeasureTerm(metric=metric, aggregation="SUM", scope="SUBJECT"),
+            right=MeasureTerm(metric=metric, aggregation="SUM"),
+        )
+    if operation == "percentAboveMean":
+        return Formula(
+            op="RATIO",
+            subject=subject,
+            left=Formula(
+                op="DIFFERENCE",
+                left=MeasureTerm(metric=metric, aggregation="SUM", scope="SUBJECT"),
+                right=MeasureTerm(metric=metric, aggregation="AVG"),
+            ),
+            right=MeasureTerm(metric=metric, aggregation="AVG"),
+        )
+    relation = "GT" if comparison.get("direction", "higher") == "lower" else "LT"
+    return Formula(
+        op="RATIO",
+        subject=subject,
+        left=MeasureTerm(
+            metric=metric, aggregation="COUNT", scope="PEERS", value_relation=relation
+        ),
+        right=MeasureTerm(metric=metric, aggregation="COUNT", scope="PEERS"),
+    )
 
 
 def _typed(value: str | int | bool) -> TypedValue:
@@ -62,25 +95,12 @@ def analysis_query(
     filters_node: FilterAtom | FilterGroup = (
         FilterGroup(kind="AND", args=atoms) if len(atoms) > 1 else year_atom
     )
-    cmp_expr = None
-    if comparison is not None:
-        identity = comparison.get("identity")
-        subject = (
-            SubjectSelector(identity=identity)
-            if identity
-            else SubjectSelector(filters=comparison.get("filters"))
-        )
-        cmp_expr = ComparisonExpr(
-            op=_CMP[comparison["operation"]],
-            metric=metric,
-            subject=subject,
-            direction=comparison.get("direction", "higher"),
-        )
+    formula = _formula(metric, comparison) if comparison is not None else None
     return SemanticQuery(
         api_version="semaloom/v0.1",
         metrics=(MetricRef(id=metric, aggregation=_OPS[operation]),),
         filters=filters_node,
-        comparison=cmp_expr,
+        formula=formula,
         missing_policy=missing_policy,  # type: ignore[arg-type]
         evidence_limit=50,
     )

@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from semaloom.core.bundle import CompiledBundle
-from semaloom.core.model import EmbeddedProperty, ValueType
+from semaloom.core.model import EmbeddedProperty, MetricDef, ValueType
 
 
 @dataclass(frozen=True)
@@ -46,17 +47,15 @@ class TurnIntent:
     role_constraints: tuple[RoleConstraint, ...]
     grouping_role: str | None
     grouping_limit: int | None
-    unsupported_capability: str | None
-    comparison: str | None
+    formula_shape: Literal["previous", "subject_ratio", "mean_delta", "peer"] | None
+    peer_relation: Literal["LT", "GT"] | None
     operation: str | None
     direction: Literal["higher", "lower"]
     exclude_allowed: bool
     metric_ids: frozenset[str]
     candidates: tuple[str, ...]
-    clarify_comparison: bool
-    breakdown: bool
-    group_label: bool
-    group_prefer: str | None
+    clarify_formula: bool
+    clarify_grouping: bool
     claim_ids: frozenset[str]
     claim_candidates: tuple[str, ...]
     dimension_filters: tuple[DimensionValueHit, ...]
@@ -66,21 +65,29 @@ class TurnIntent:
     @classmethod
     def read(cls, message: str, bundle: CompiledBundle) -> TurnIntent:
         text = unicodedata.normalize("NFKC", message).casefold()
-        patterns = {
-            "shareOfTotal": (
-                r"占(?:集合|总体|全部)?.{0,30}总(?:额|量)|总额占比|"
-                r"shareoftotal|share of (?:the )?total"
-            ),
-            "percentAboveMean": (
-                r"比(?:总体|集合)?(?:平均值|均值|平均水平).{0,8}(?:高|低|百分|"
-                r"%)|相对均值|percentabovemean|(?:above|below) (?:the )?(?:mean|average)"
-            ),
-            "outperforms": (
-                r"超过.{0,8}(?:同行|企业)|胜过|优于.{0,8}(?:同行|企业)|"
-                r"outperforms|outperform"
-            ),
-        }
-        comparisons = [op for op, pattern in patterns.items() if re.search(pattern, text)]
+        shapes = [
+            shape
+            for shape, pattern in {
+                "subject_ratio": (
+                    r"占(?:集合|总体|全部)?.{0,30}总(?:额|量)|总额占比|share of (?:the )?total"
+                ),
+                "mean_delta": (
+                    r"比(?:总体|集合)?(?:平均值|均值|平均水平).{0,8}(?:高|低|百分|%)|"
+                    r"相对均值|(?:above|below) (?:the )?(?:mean|average)"
+                ),
+                "peer": r"超过.{0,12}同行|胜过|优于.{0,12}|outperform",
+            }.items()
+            if re.search(pattern, text)
+        ]
+        previous = bool(
+            re.search(
+                r"月环比|逐月|环比|同比|比上年|比去年|较上期|上一期|"
+                r"year.?over.?year|period.?over.?period|month.?over.?month",
+                text,
+            )
+        )
+        if previous:
+            shapes.append("previous")
         deny = bool(
             re.search(
                 (
@@ -99,6 +106,8 @@ class TurnIntent:
             )
         )
         explicit, ambiguous = _match_named(text, _metric_terms(bundle))
+        if not explicit and not ambiguous:
+            ambiguous = _overlap_metric_ids(text, bundle)
         claim_ids, claim_candidates = _match_named(text, _claim_terms(bundle))
         years = set(re.findall(r"(?<!\d)(?:19|20|21)\d{2}(?!\d)", text))
         recent_count = _recent_period_count(text)
@@ -110,29 +119,24 @@ class TurnIntent:
             operation
             for operation, pattern in {
                 "mean": r"平均|均值|\bmean\b|\baverage\b",
-                "sum": r"合计|总和|\bsum\b",
+                "sum": r"合计|总和|汇总|总计|\bsum\b",
                 "min": r"最小值|最低值|\bminimum\b",
                 "max": r"最大值|最高值|\bmaximum\b",
                 "count": r"有效观测数量|观测数|\bcount\b",
             }.items()
             if re.search(pattern, text)
         ]
-        unsupported_capability = (
-            "TIME_GRAIN_UNSUPPORTED"
-            if re.search(r"月环比|逐月|按月环比|month.?over.?month", text)
-            else None
-        )
-        period_comparison = unsupported_capability is None and bool(
-            re.search(r"环比|同比|比上年|比去年|year.?over.?year|period.?over.?period", text)
-        )
         numeric_periods = tuple(sorted(int(value) for value in years))
+        # A year token inside YYYY-MM is the month token, not a second constraint.
+        if re.search(r"(?<!\d)(?:19|20|21)\d{2}-\d{2}(?!\d)", text):
+            numeric_periods = ()
         selected_periods = (
-            (max(numeric_periods),) if period_comparison and numeric_periods else numeric_periods
+            (max(numeric_periods),) if previous and numeric_periods else numeric_periods
         )
         role_constraints = (
             (
                 RoleConstraint(
-                    role="time.year",
+                    role="integer-scope",
                     value_type="INTEGER",
                     operator="IN" if len(selected_periods) > 1 else "EQ",
                     values=selected_periods,
@@ -142,10 +146,8 @@ class TurnIntent:
             else ()
         )
         grouping_role = (
-            "time.year"
-            if len(selected_periods) > 1 and not period_comparison
-            else "time.sequence"
-            if sequence_requested and not period_comparison
+            "scope"
+            if (len(selected_periods) > 1 and not previous) or (sequence_requested and not previous)
             else None
         )
         # Dictionary values are scoped to the metric's object graph when the
@@ -154,67 +156,47 @@ class TurnIntent:
         # example, the ``高`` in ``从高到低`` becoming a delivery-risk filter).
         slots = _slots_for_metrics(bundle, explicit or frozenset(ambiguous))
         value_hits = _match_dimension_values(text, slots)
+        if not explicit and not ambiguous and value_hits:
+            ambiguous = _metrics_for_dimension_hits(bundle, value_hits)
         mentioned = _mentioned_dimensions(text, slots)
         valued_fields = {hit.field for hit in value_hits}
-        group_dimension = next(
-            (
-                slot.field
-                for slot in mentioned
-                if slot.field not in valued_fields
-                and any(
-                    len(term) >= 2 and re.search(r"按" + re.escape(term), text)
-                    for term in slot.terms
-                )
-            ),
-            None,
+        group_dimension = _group_field(text, bundle, explicit or frozenset(ambiguous))
+        if group_dimension in valued_fields:
+            group_dimension = None
+        grouping_requested = bool(
+            re.search(r"分组|下钻", text)
+            or re.search(r"按(?!照).{0,16}(?:合计|汇总|统计|分组)", text)
         )
-        if group_dimension is None:
-            for slot in mentioned:
-                if slot.field in valued_fields:
-                    continue
-                if re.search(r"按|分组|下钻|分别|各", text):
-                    group_dimension = slot.field
-                    break
         need_dimension = None
         if group_dimension is None:
             pending = [slot.field for slot in mentioned if slot.field not in valued_fields]
-            if len(pending) == 1:
+            if len(pending) == 1 and not grouping_requested:
                 need_dimension = pending[0]
+        direction: Literal["higher", "lower"] = (
+            "lower" if re.search(r"越小越好|lower is better", text) else "higher"
+        )
         return cls(
             role_constraints=role_constraints,
             grouping_role=grouping_role,
             grouping_limit=recent_count if grouping_role else None,
-            unsupported_capability=unsupported_capability,
-            operation=operations[0] if len(operations) == 1 and not comparisons else None,
-            comparison=(
-                "periodOverPeriod"
-                if period_comparison
-                else comparisons[0]
-                if len(comparisons) == 1
+            formula_shape=(
+                cast(
+                    Literal["previous", "subject_ratio", "mean_delta", "peer"],
+                    shapes[0],
+                )
+                if len(shapes) == 1
                 else None
             ),
-            direction="lower" if re.search(r"越小越好|lower is better", text) else "higher",
+            peer_relation="GT" if direction == "lower" else "LT",
+            operation=(
+                operations[0] if len(operations) == 1 and shapes in ([], ["previous"]) else None
+            ),
+            direction=direction,
             exclude_allowed=consent and not deny,
             metric_ids=explicit,
-            candidates=tuple(sorted(ambiguous)),
-            clarify_comparison=len(comparisons) > 1 or ("占优" in text and not comparisons),
-            breakdown=bool(
-                re.search(
-                    r"各(?:企业|公司|对象|家)|每(?:家|户|个对象)|逐[个家项]|明细|"
-                    r"分组|按(?:企业|公司|供应商|组织|对象|sku)|下钻",
-                    text,
-                )
-            ),
-            group_label=bool(re.search(r"按(?:企业|公司|供应商|组织)名称|按名称", text)),
-            group_prefer=(
-                "supplier"
-                if "供应商" in text
-                else "organization"
-                if "组织" in text
-                else "company"
-                if re.search(r"企业|公司", text)
-                else None
-            ),
+            candidates=rank_metric_ids(text, bundle, ambiguous),
+            clarify_formula=len(shapes) > 1 or ("占优" in text and not shapes),
+            clarify_grouping=grouping_requested and group_dimension is None,
             claim_ids=claim_ids,
             claim_candidates=tuple(sorted(claim_candidates)),
             dimension_filters=value_hits,
@@ -234,17 +216,73 @@ class TurnIntent:
                 for item in self.role_constraints
             ],
             "requiredOperation": self.operation,
-            "requiredComparison": self.comparison,
+            "formulaShape": self.formula_shape,
             "direction": self.direction,
             "missingPolicy": "exclude permitted" if self.exclude_allowed else "reject only",
             "metricIds": sorted(self.metric_ids),
             "ambiguousMetricCandidates": self.candidates,
-            "mustClarify": bool(self.candidates or self.clarify_comparison),
+            "mustClarify": bool(self.candidates or self.clarify_formula or self.clarify_grouping),
             "groupingRole": self.grouping_role,
             "groupingLimit": self.grouping_limit,
-            "preferBreakdown": self.breakdown,
             "claimIds": sorted(self.claim_ids),
         }
+
+
+def _group_field(text: str, bundle: CompiledBundle, metric_ids: frozenset[str]) -> str | None:
+    """Bind 按{label} to a property using ontology labels and aliases only."""
+
+    metrics = [
+        metric
+        for metric in bundle.metrics
+        if metric.id in metric_ids or (not metric_ids and metric.population is not None)
+    ]
+    if metric_ids:
+        metrics = [metric for metric in bundle.metrics if metric.id in metric_ids]
+    objects = {item.id: item for item in bundle.object_types}
+    best: tuple[int, str] | None = None
+    ambiguous = False
+    for metric in metrics:
+        owners = [objects.get(metric.object_type)]
+        for link in bundle.links:
+            if (
+                link.source == metric.object_type
+                and link.cardinality == "ONE"
+                and len(link.identity) == 1
+            ):
+                owners.append(objects.get(link.target))
+        for owner in owners:
+            if owner is None:
+                continue
+            for prop in owner.properties:
+                if prop.unit:
+                    continue
+                field = prop.id if owner.id == metric.object_type else f"{owner.id}.{prop.id}"
+                labels = [prop.label or "", *prop.aliases]
+                if owner.label and owner.id != metric.object_type:
+                    if prop.label:
+                        labels.append(f"{owner.label}{prop.label}")
+                    labels.extend(f"{owner.label}{alias}" for alias in prop.aliases if alias)
+                    descriptive = [
+                        item
+                        for item in owner.properties
+                        if item.unit is None
+                        and item.value_type == "STRING"
+                        and item.id not in owner.identity_keys
+                    ]
+                    if len(descriptive) == 1 and prop.id == descriptive[0].id:
+                        labels.append(owner.label)
+                for label in labels:
+                    term = _fold(label)
+                    if len(term) < 2 or not re.search("(?:按|各)" + re.escape(term), text):
+                        continue
+                    if best is None or len(term) > best[0]:
+                        best = (len(term), field)
+                        ambiguous = False
+                    elif len(term) == best[0] and field != best[1]:
+                        ambiguous = True
+    if best is None or ambiguous:
+        return None
+    return best[1]
 
 
 def _fold(value: str) -> str:
@@ -284,6 +322,71 @@ def _match_named(text: str, terms: dict[str, set[str]]) -> tuple[frozenset[str],
     explicit = set().union(*(ids for _, _, ids in found if len(ids) == 1))
     ambiguous = set().union(*(ids for _, _, ids in found if len(ids) > 1 and not ids & explicit))
     return frozenset(explicit), ambiguous
+
+
+_MIN_TERM_OVERLAP = 4
+
+
+def _metric_terms_for(metric: MetricDef) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            _fold(term)
+            for term in (metric.id, metric.label or "", *metric.aliases)
+            if term and str(term).strip()
+        )
+    )
+
+
+def _term_overlap(text: str, term: str) -> int:
+    if not term:
+        return 0
+    if term in text:
+        return len(term)
+    limit = min(len(term), len(text))
+    for length in range(limit, _MIN_TERM_OVERLAP - 1, -1):
+        for index in range(len(term) - length + 1):
+            if term[index : index + length] in text:
+                return length
+    return 0
+
+
+def metric_score(text: str, metric: MetricDef) -> int:
+    return max((_term_overlap(text, term) for term in _metric_terms_for(metric)), default=0)
+
+
+def rank_metric_ids(text: str, bundle: CompiledBundle, ids: Iterable[str]) -> tuple[str, ...]:
+    index = {metric.id: metric for metric in bundle.metrics}
+    ranked: list[tuple[int, str]] = []
+    for metric_id in ids:
+        metric = index.get(metric_id)
+        if metric is None:
+            continue
+        ranked.append((-metric_score(text, metric), metric_id))
+    ranked.sort()
+    return tuple(metric_id for _, metric_id in ranked)
+
+
+def _overlap_metric_ids(text: str, bundle: CompiledBundle) -> set[str]:
+    scored = [
+        (metric_score(text, metric), metric.id)
+        for metric in bundle.metrics
+        if metric_score(text, metric) >= _MIN_TERM_OVERLAP
+    ]
+    if not scored:
+        return set()
+    best = max(score for score, _ in scored)
+    return {metric_id for score, metric_id in scored if score == best}
+
+
+def _metrics_for_dimension_hits(
+    bundle: CompiledBundle, hits: tuple[DimensionValueHit, ...]
+) -> set[str]:
+    objects = {hit.field.rsplit(".", 1)[0] for hit in hits if "." in hit.field}
+    return {
+        metric.id
+        for metric in bundle.metrics
+        if metric.object_type in objects and metric.population is not None
+    }
 
 
 def _metric_terms(bundle: CompiledBundle) -> dict[str, set[str]]:

@@ -225,6 +225,62 @@ def test_object_link_cycle_is_allowed() -> None:
     assert result.ok, [item.model_dump() for item in result.diagnostics]
 
 
+def test_collection_many_link_is_rejected_at_compile() -> None:
+    docs = _load(PROCUREMENT)
+    supplier = next(
+        item
+        for item in docs
+        if item.get("kind") == "ObjectType" and item.get("id") == "procurement.Supplier"
+    )
+    supplier["properties"] = [*supplier["properties"], {"id": "orderId", "valueType": "STRING"}]
+    docs.append(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Link",
+            "id": "procurement.supplierOrders",
+            "version": "1.0.0",
+            "source": "procurement.Supplier",
+            "target": "procurement.Order",
+            "cardinality": "MANY",
+            "collection": True,
+            "identity": [{"source": "orderId", "target": "orderId"}],
+        }
+    )
+    result = compile_documents(docs)
+    assert not result.ok
+    diagnostic = next(
+        item for item in result.diagnostics if item.path == "procurement.supplierOrders"
+    )
+    assert "procurement.supplierOrders" in diagnostic.message
+    assert "missing fanout policy" in diagnostic.message
+
+
+def test_collection_composite_identity_is_rejected_at_compile() -> None:
+    docs = _load(PROCUREMENT)
+    docs.append(
+        {
+            "apiVersion": "semaloom/v0.1",
+            "kind": "Link",
+            "id": "procurement.compositeSupplier",
+            "version": "1.0.0",
+            "source": "procurement.Order",
+            "target": "procurement.Supplier",
+            "cardinality": "ONE",
+            "collection": True,
+            "identity": [
+                {"source": "supplierId", "target": "supplierId"},
+                {"source": "supplierId", "target": "supplierId"},
+            ],
+        }
+    )
+    result = compile_documents(docs)
+    assert not result.ok
+    diagnostic = next(
+        item for item in result.diagnostics if "procurement.compositeSupplier" in item.message
+    )
+    assert "unsupported identity" in diagnostic.message
+
+
 def test_missing_link_identity_is_rejected() -> None:
     docs = _load(PROCUREMENT)
     docs.append(
